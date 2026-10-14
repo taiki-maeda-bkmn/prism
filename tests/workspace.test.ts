@@ -21,12 +21,12 @@ async function recoveryDirectories(root: string): Promise<string[]> {
   return (await fs.readdir(directory)).sort().map((name) => path.join(directory, name));
 }
 
-async function pendingRecovery(root: string, notePath = 'Note.md') {
+async function pendingRecovery(root: string, notePath = 'Note.md', draft = 'Retained draft') {
   const canonical = await fs.realpath(root);
   const target = path.join(canonical, notePath);
   const original = await fs.readFile(target);
   const hash = createHash('sha256').update(original).digest('hex');
-  const transaction = await SaveRecovery.prepare(path.dirname(target), notePath, 'Retained draft', hash,
+  const transaction = await SaveRecovery.prepare(path.dirname(target), notePath, draft, hash,
     async () => undefined);
   await transaction.capture(fs);
   return transaction;
@@ -145,8 +145,11 @@ test('a competing destination after capture is never overwritten by publication 
   const [recovery] = await recoveryDirectories(root);
   assert.equal(await fs.readFile(path.join(recovery, 'original.md'), 'utf8'), 'Original');
   assert.equal(await fs.readFile(path.join(recovery, 'draft.md'), 'utf8'), 'My draft');
-  assert.equal(await fs.readFile(path.join(recovery, 'complete'), 'utf8'), '1\n');
-  assert.equal((await (await WorkspaceStore.open(root)).load()).notes[0].content, 'Competing writer');
+  await assert.rejects(fs.stat(path.join(recovery, 'complete')), { code: 'ENOENT' });
+  const reopened = await (await WorkspaceStore.open(root)).load();
+  assert.deepEqual(reopened.notes, []);
+  assert.match(reopened.warnings.join(' '), /not loaded.*manual recovery/i);
+  assert.equal(await fs.readFile(target, 'utf8'), 'Competing writer');
 });
 
 test('a write through an old open handle during publication is reported and retained', async (t) => {
@@ -258,6 +261,153 @@ test('restart after publication before the marker keeps the published note and s
   assert.equal(await transaction.isComplete(), true);
 });
 
+test('zero-byte and prefix destinations stay pending across restarts until a complete draft is restored', async (t) => {
+  for (const partial of ['', 'Retained']) {
+    const { root } = await fixture(t);
+    const target = path.join(root, 'Note.md');
+    await fs.writeFile(target, 'Original');
+    await fs.writeFile(path.join(root, 'Good.md'), 'Unrelated note');
+    const transaction = await pendingRecovery(root);
+    await fs.writeFile(target, partial, { flag: 'wx' });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const loaded = await (await WorkspaceStore.open(root)).load();
+      assert.deepEqual(loaded.notes.map(note => note.path), ['Good.md']);
+      assert.match(loaded.warnings.join(' '), /Note.md.*not loaded.*manual recovery.*\.prism-recovery/i);
+      assert.equal(await transaction.isComplete(), false);
+      assert.equal(await fs.readFile(target, 'utf8'), partial);
+      assert.equal(await fs.readFile(transaction.original, 'utf8'), 'Original');
+      assert.equal(await fs.readFile(transaction.draft, 'utf8'), 'Retained draft');
+    }
+    // Simulate the user's explicit recovery choice; Prism never overwrites it.
+    await fs.copyFile(transaction.draft, target);
+    const restored = await (await WorkspaceStore.open(root)).load();
+    assert.equal(restored.notes.find(note => note.path === 'Note.md')?.content, 'Retained draft');
+    assert.equal(await transaction.isComplete(), true);
+    await fs.unlink(target);
+    assert.deepEqual((await (await WorkspaceStore.open(root)).load()).notes.map(note => note.path), ['Good.md']);
+  }
+});
+
+test('an existing complete original is recognized, including a captured external version', async (t) => {
+  for (const captured of ['Original', '\ufeffExternal captured version']) {
+    const { root } = await fixture(t);
+    const target = path.join(root, 'Note.md');
+    await fs.writeFile(target, 'Original');
+    const transaction = await pendingRecovery(root);
+    await fs.writeFile(transaction.original, captured);
+    await fs.copyFile(transaction.original, target, constants.COPYFILE_EXCL);
+    const loaded = await (await WorkspaceStore.open(root)).load();
+    assert.equal(loaded.notes[0].content, captured.replace(/^\ufeff/, ''));
+    assert.equal(await fs.readFile(target, 'utf8'), captured);
+    assert.equal(await transaction.isComplete(), true);
+  }
+});
+
+test('a known empty original or draft is a complete version', async (t) => {
+  for (const empty of ['original', 'draft']) {
+    const { root } = await fixture(t);
+    const target = path.join(root, 'Note.md');
+    await fs.writeFile(target, empty === 'original' ? '' : 'Original');
+    const transaction = await pendingRecovery(root, 'Note.md', empty === 'draft' ? '' : 'Retained draft');
+    await fs.writeFile(target, '', { flag: 'wx' });
+    const loaded = await (await WorkspaceStore.open(root)).load();
+    assert.equal(loaded.notes[0].content, '');
+    assert.equal(await transaction.isComplete(), true);
+  }
+});
+
+test('an altered retained draft cannot authenticate an incomplete destination', async (t) => {
+  const { root } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  await fs.writeFile(target, 'Original');
+  const transaction = await pendingRecovery(root);
+  await fs.writeFile(transaction.draft, 'Retained');
+  await fs.writeFile(target, 'Retained', { flag: 'wx' });
+  const loaded = await (await WorkspaceStore.open(root)).load();
+  assert.deepEqual(loaded.notes, []);
+  assert.match(loaded.warnings.join(' '), /not loaded.*manual recovery/i);
+  assert.equal(await transaction.isComplete(), false);
+  assert.equal(await fs.readFile(target, 'utf8'), 'Retained');
+  assert.equal(await fs.readFile(transaction.original, 'utf8'), 'Original');
+});
+
+test('a failed publication that wrote a prefix retains every version and withholds the partial note', async (t) => {
+  const { root } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  await fs.writeFile(target, 'Original');
+  const store = await WorkspaceStore.open(root, {
+    ...fs,
+    copyFile: async (source, destination, flags) => {
+      if (path.basename(String(source)) === 'draft.md') {
+        await fs.writeFile(destination, 'My', { flag: 'wx' });
+        throw Object.assign(new Error('Disk full after partial publication'), { code: 'ENOSPC' });
+      }
+      await fs.copyFile(source, destination, flags);
+    },
+  });
+  const [original] = (await store.load()).notes;
+  await assert.rejects(store.save('Note.md', 'My complete draft', original.modified), /Disk full.*Manual recovery/);
+  const [recovery] = await recoveryDirectories(root);
+  assert.equal(await fs.readFile(target, 'utf8'), 'My');
+  assert.equal(await fs.readFile(path.join(recovery, 'original.md'), 'utf8'), 'Original');
+  assert.equal(await fs.readFile(path.join(recovery, 'draft.md'), 'utf8'), 'My complete draft');
+  assert.deepEqual((await store.load()).notes, []);
+  await assert.rejects(store.save('Note.md', 'Another draft', original.modified), /changed since you opened/);
+  await assert.rejects(fs.stat(path.join(recovery, 'complete')), { code: 'ENOENT' });
+});
+
+test('partial restoration is withheld during the same load even when another restored note refreshes the directory', async (t) => {
+  for (const throws of [true, false]) {
+    const { root } = await fixture(t);
+    const target = path.join(root, 'Note.md');
+    await fs.writeFile(target, 'Original note');
+    const transaction = await pendingRecovery(root);
+    await fs.writeFile(path.join(root, 'Other.md'), 'Other original');
+    const other = await pendingRecovery(root, 'Other.md');
+    const store = await WorkspaceStore.open(root, {
+      ...fs,
+      copyFile: async (source, destination, flags) => {
+        if (path.basename(String(destination)) === 'Note.md') {
+          await fs.writeFile(destination, 'Or', { flag: 'wx' });
+          if (throws) throw Object.assign(new Error('Disk full during restoration'), { code: 'ENOSPC' });
+          return;
+        }
+        await fs.copyFile(source, destination, flags);
+      },
+    });
+    const loaded = await store.load();
+    assert.deepEqual(loaded.notes.map(note => [note.path, note.content]), [['Other.md', 'Other original']]);
+    assert.match(loaded.warnings.join(' '), /Note.md.*not loaded.*manual recovery/i);
+    assert.equal(await fs.readFile(target, 'utf8'), 'Or');
+    assert.equal(await fs.readFile(transaction.original, 'utf8'), 'Original note');
+    assert.equal(await transaction.isComplete(), false);
+    assert.equal(await other.isComplete(), true);
+    const reopened = await (await WorkspaceStore.open(root)).load();
+    assert.deepEqual(reopened.notes.map(note => note.path), ['Other.md']);
+    assert.equal(await transaction.isComplete(), false);
+  }
+});
+
+test('unsafe or oversized existing recovery destinations are preserved and withheld', async (t) => {
+  for (const kind of process.platform === 'win32' ? ['oversized'] : ['oversized', 'symlink']) {
+    const { root } = await fixture(t);
+    const target = path.join(root, 'Note.md');
+    await fs.writeFile(target, 'Original');
+    const transaction = await pendingRecovery(root);
+    const outside = path.join(root, 'Unrelated.txt');
+    await fs.writeFile(outside, 'Retained draft');
+    if (kind === 'symlink') await fs.symlink(outside, target);
+    else await fs.writeFile(target, Buffer.alloc(MAX_NOTE_BYTES + 1, 'x'));
+    const loaded = await (await WorkspaceStore.open(root)).load();
+    assert.deepEqual(loaded.notes, []);
+    assert.match(loaded.warnings.join(' '), /Note.md.*not loaded.*manual recovery/i);
+    assert.equal(await transaction.isComplete(), false);
+    assert.equal(await fs.readFile(outside, 'utf8'), 'Retained draft');
+    if (kind === 'symlink') assert.equal((await fs.lstat(target)).isSymbolicLink(), true);
+    else assert.equal((await fs.stat(target)).size, MAX_NOTE_BYTES + 1);
+  }
+});
+
 test('completed recovery history never resurrects a deliberately deleted saved note', async (t) => {
   const { root, store } = await fixture(t);
   const target = path.join(root, 'Note.md');
@@ -313,12 +463,16 @@ test('corrupt completion markers and oversized captured notes are preserved for 
     const { root } = await fixture(t);
     await fs.writeFile(path.join(root, 'Note.md'), 'Original');
     const transaction = await pendingRecovery(root);
-    if (corruptMarker) await fs.writeFile(path.join(transaction.directory, 'complete'), 'corrupt');
+    if (corruptMarker) {
+      await fs.writeFile(path.join(transaction.directory, 'complete'), 'corrupt');
+      await fs.writeFile(path.join(root, 'Note.md'), 'Retained', { flag: 'wx' });
+    }
     else await fs.writeFile(transaction.original, Buffer.alloc(MAX_NOTE_BYTES + 1, 'x'));
     const loaded = await (await WorkspaceStore.open(root)).load();
     assert.deepEqual(loaded.notes, []);
     assert.match(loaded.warnings.join(' '), /manual recovery/);
-    await assert.rejects(fs.stat(path.join(root, 'Note.md')), { code: 'ENOENT' });
+    if (corruptMarker) assert.equal(await fs.readFile(path.join(root, 'Note.md'), 'utf8'), 'Retained');
+    else await assert.rejects(fs.stat(path.join(root, 'Note.md')), { code: 'ENOENT' });
     assert.equal((await fs.stat(transaction.original)).size, corruptMarker ? 'Original'.length : MAX_NOTE_BYTES + 1);
   }
 });

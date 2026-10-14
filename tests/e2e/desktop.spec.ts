@@ -1,4 +1,5 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -430,6 +431,58 @@ test('remembers the starter without symlinks before allowing edits and reopens s
   } finally {
     await closeFallback();
     await rm(fallbackDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
+test('withholds an interrupted partial publication and reloads a verified recovery choice', async () => {
+  const recoveryDirectory = await mkdtemp(path.join(os.tmpdir(), 'prism-partial-recovery-'));
+  const recoveryNotebook = path.join(recoveryDirectory, 'notebook');
+  const journal = path.join(recoveryNotebook, '.prism-recovery', 'save-1-partial');
+  const target = path.join(recoveryNotebook, 'Broken.md');
+  const original = '# Before\n\nThe complete original.\n';
+  const draft = '# Recovered\n\nThe complete saved draft.\n';
+  const partial = '# Rec';
+  const hash = (content: string) => createHash('sha256').update(content).digest('hex');
+  let recoveryApp: ElectronApplication | undefined;
+  try {
+    await mkdir(journal, { recursive: true });
+    await Promise.all([
+      writeFile(path.join(recoveryNotebook, 'Good.md'), '# Readable\n\nAn unrelated note.\n'),
+      writeFile(target, partial),
+      writeFile(path.join(journal, 'original.md'), original),
+      writeFile(path.join(journal, 'draft.md'), draft),
+      writeFile(path.join(journal, 'manifest.json'), JSON.stringify({ version: 1, notePath: 'Broken.md', originalHash: hash(original), draftHash: hash(draft) })),
+    ]);
+    recoveryApp = await electron.launch({
+      args: ['--no-sandbox', '.'], cwd: process.cwd(),
+      env: { ...process.env, PRISM_USER_DATA: path.join(recoveryDirectory, 'profile'), PRISM_WORKSPACE: recoveryNotebook },
+    });
+    const recoveryPage = await recoveryApp.firstWindow();
+    await expect(recoveryPage.locator('.note-heading h1')).toHaveText('Readable');
+    await expect(recoveryPage.locator('.message-banner.notice')).toContainText(/manual recovery/i);
+    await expect(recoveryPage.locator('.message-banner.notice')).toContainText('.prism-recovery');
+    await expect(recoveryPage.locator('.note-item[title="Broken.md"]')).toHaveCount(0);
+    expect(await readFile(target, 'utf8')).toBe(partial);
+    await expect(readFile(path.join(journal, 'complete'))).rejects.toMatchObject({ code: 'ENOENT' });
+
+    // Simulate the user's documented choice, after retaining the original copies.
+    await writeFile(target, draft);
+    await recoveryPage.getByRole('button', { name: 'Refresh notebook', exact: true }).click();
+    await recoveryPage.locator('.note-item[title="Broken.md"]').click();
+    await expect(recoveryPage.locator('.note-heading h1')).toHaveText('Recovered');
+    await expect(recoveryPage.getByLabel('Markdown source')).toContainText('The complete saved draft.');
+    expect(await readFile(path.join(journal, 'complete'), 'utf8')).toBe('1\n');
+    expect(await readFile(path.join(journal, 'original.md'), 'utf8')).toBe(original);
+    expect(await readFile(path.join(journal, 'draft.md'), 'utf8')).toBe(draft);
+  } finally {
+    if (recoveryApp) {
+      const child = recoveryApp.process();
+      const closed = recoveryApp.waitForEvent('close', { timeout: 5_000 }).catch(() => undefined);
+      await recoveryApp.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
+      await closed;
+      if (child.exitCode === null) child.kill();
+    }
+    await rm(recoveryDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
 

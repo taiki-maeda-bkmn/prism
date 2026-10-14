@@ -146,6 +146,7 @@ export class WorkspaceStore {
       const notes: Note[] = [];
       const warnings: string[] = [];
       const seen = new Set<string>();
+      const unverifiedNotes = new Set<string>();
       let visited = 0;
       let recoveryVisits = 0;
       let totalBytes = 0;
@@ -171,14 +172,25 @@ export class WorkspaceStore {
               if (++recoveryVisits > MAX_ENTRIES) { warn('Some older recovery records were skipped. They remain available for manual recovery.'); break; }
               const transactionPath = path.join(recoveryRoot, entry.name);
               const recoveryPath = path.relative(this.root, transactionPath);
+              let pendingNote: string | undefined;
               try {
                 const transaction = await SaveRecovery.open(transactionPath, relative, validateNotePath,
                   () => this.safeParent(relative ? `${relative}/recovery.md` : 'recovery.md'));
-                if (!transaction || await transaction.isComplete()) continue;
+                if (!transaction) continue;
+                pendingNote = transaction.manifest.notePath;
+                if (await transaction.isComplete()) continue;
                 const result = await transaction.settle(this.recoveryIO(), MAX_NOTE_BYTES);
                 restored ||= result === 'restored';
+                if (result === 'unverified') {
+                  unverifiedNotes.add(pendingNote);
+                  warn(`${pendingNote}: the current file does not match a complete recovery version and was not loaded. Manual recovery is needed; keep this file and inspect the recovery copies before restoring a version. Copies: ${recoveryPath}`);
+                  continue;
+                }
                 warn(`${result === 'restored' ? `Recovered ${transaction.manifest.notePath}.` : `Retained recovery copies for ${transaction.manifest.notePath}.`} Copies: ${recoveryPath}`);
-              } catch (error) { warn(`${recoveryPath}: ${error instanceof Error ? error.message : 'Recovery needs manual attention.'}`); }
+              } catch (error) {
+                if (pendingNote) unverifiedNotes.add(pendingNote);
+                warn(`${recoveryPath}: ${error instanceof Error ? error.message : 'Recovery needs manual attention.'}${pendingNote ? ` ${pendingNote} was not loaded; manual recovery is needed. Keep this file and inspect these recovery copies before restoring a version.` : ''}`);
+              }
             }
             if (restored) entries = (await fs.readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
           } catch (error) { warn(`${relative || 'Notebook'}: ${error instanceof Error ? error.message : 'Recovery records could not be read.'}`); }
@@ -188,6 +200,7 @@ export class WorkspaceStore {
           if (++visited > MAX_ENTRIES) { warn(`Notebook scan stopped after ${MAX_ENTRIES.toLocaleString()} entries.`); stopped = true; return; }
           if (ignoredDirectory(entry.name)) continue;
           const notePath = relative ? `${relative}/${entry.name}` : entry.name;
+          if (unverifiedNotes.has(notePath)) continue;
           if (entry.isSymbolicLink()) { warn(`${notePath}: symbolic links are skipped.`); continue; }
           if (entry.isDirectory()) {
             try { await visit(notePath, depth + 1); } catch { warn(`${notePath}: this folder could not be read.`); }
@@ -243,6 +256,7 @@ export class WorkspaceStore {
         let recoveryWarning = '';
         try {
           const settled = await transaction.settle(this.recoveryIO(), MAX_NOTE_BYTES);
+          if (settled === 'unverified') recoveryWarning = ' The current file could not be verified. Manual recovery is needed; keep it and inspect the recovery copies before restoring a version.';
           if (settled === 'restored') {
             // Keep the renderer's version usable when only our restoration changed the inode.
             const captured = await this.readSnapshot(capturedPath);

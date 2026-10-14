@@ -26,7 +26,18 @@ Missing system helpers or insufficient permissions produce a save error. Failed 
 
 ## Loading after interruption
 
-Inspect unfinished transactions and restore a captured original only when its validated destination is missing. Never replace an existing destination. Mark settled transactions complete so later deliberate deletion cannot resurrect a note from completed history. Recovery paths must remain inside the notebook and reject symlinks.
+Inspect unfinished transactions and restore a captured original only when its validated destination is missing. Never replace an existing destination. An existing target must match a verified complete version before the transaction is marked complete: the expected draft or the stable retained original, which may include another application's captured edits. A merely existing empty or partial target is not evidence of a successful publication.
+
+Unrecognized targets remain untouched, their transactions remain unfinished, and the affected notes are withheld from the normal note list with a warning identifying the recovery copies. Other notes still load. This also applies to partial restoration copies. Prism cannot reliably distinguish a partial publication from an independent external edit and therefore does not overwrite or relocate an unrecognized target automatically.
+
+Mark verified settled transactions complete so later deliberate deletion cannot resurrect a note from completed history. Recovery paths are validated and detected symlinks are rejected; the separate [concurrent parent replacement limitation](filesystem-races.md) remains open.
+
+## Manual recovery
+
+1. Back up the current note and the entire recovery directory named in the warning before changing anything.
+2. Compare the current note with `original.md` and `draft.md`; the current file may be partial or may contain an independent edit.
+3. To restore a complete retained version, copy the chosen file back to the note's original path, then refresh Prism. Recovery can verify a known complete version and settle its journal.
+4. To keep an independent external version or a manually combined version, preserve the backup and move that transaction directory to your backup location outside the notebook, then refresh. This records your manual choice without discarding the other copies.
 
 ## Verification
 
@@ -35,6 +46,7 @@ Inspect unfinished transactions and restore a captured original only when its va
 - Write through an old open handle after a successful save; retain those bytes in recovery.
 - Restart with an unfinished transaction and a missing note; restore the original.
 - Restart with an unfinished transaction and an existing note; preserve the existing note.
+- Restart with an empty or partial publication/restoration; retain all bytes, keep the journal unfinished, and withhold the unverified note until a complete version is chosen.
 - Delete a note after a completed save; do not restore it from completed history.
 - Exercise exclusive-copy fallback, save failures, permissions, hard-link aliases, and the native save/draft flows.
 - Verify actual Linux ACLs/xattrs, macOS ACLs/Finder metadata/resource forks, and Windows discretionary ACLs/alternate data streams on both live and retained files.

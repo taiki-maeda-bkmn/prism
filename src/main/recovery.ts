@@ -11,6 +11,33 @@ type Identity = Pick<Stats, 'ino' | 'dev'>;
 export type RecoveryIO = Pick<typeof fs, 'rename' | 'copyFile'>;
 interface Manifest { version: 1; notePath: string; originalHash: string; draftHash: string; }
 
+function sameVersion(a: Stats, b: Stats): boolean {
+  return a.dev === b.dev && a.ino === b.ino && a.size === b.size
+    && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+}
+
+async function readStableHash(file: string, maximumBytes: number): Promise<{ hash: string; stat: Stats }> {
+  const before = await fs.lstat(file);
+  if (!before.isFile() || before.isSymbolicLink() || before.size > maximumBytes) throw new Error('The recovery file cannot be verified safely.');
+  const handle = await fs.open(file, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.dev !== before.dev || stat.ino !== before.ino || stat.size > maximumBytes) throw new Error('The recovery file changed before verification.');
+    const bytes = Buffer.alloc(Math.min(stat.size + 1, maximumBytes + 1));
+    let length = 0;
+    while (length < bytes.length) {
+      const result = await handle.read(bytes, length, bytes.length - length, null);
+      if (!result.bytesRead) break;
+      length += result.bytesRead;
+    }
+    const after = await handle.stat();
+    const latest = await fs.lstat(file);
+    if (length !== stat.size || !sameVersion(stat, after) || !sameVersion(stat, latest)
+      || latest.isSymbolicLink() || !latest.isFile()) throw new Error('The recovery file changed during verification.');
+    return { hash: createHash('sha256').update(bytes.subarray(0, length)).digest('hex'), stat };
+  } finally { await handle.close(); }
+}
+
 async function directoryIdentity(directory: string): Promise<Stats> {
   const stat = await fs.lstat(directory);
   if (!stat.isDirectory() || stat.isSymbolicLink() || await fs.realpath(directory) !== directory) {
@@ -145,21 +172,37 @@ export class SaveRecovery {
     await this.flushTarget();
   }
 
-  private async flushTarget(): Promise<void> {
+  private async flushTarget(expected?: Stats): Promise<void> {
     await this.guard();
     const before = await fs.lstat(this.target);
     if (!before.isFile() || before.isSymbolicLink()) throw new Error('The published note is not a regular file.');
+    if (expected && !sameVersion(expected, before)) throw new Error('The published note changed after verification.');
     // Windows requires a writable handle for FlushFileBuffers; no bytes are changed here.
     const access = process.platform === 'win32' ? constants.O_RDWR : constants.O_RDONLY;
     const handle = await fs.open(this.target, access | (constants.O_NOFOLLOW || 0));
     try {
       const opened = await handle.stat();
-      if (!opened.isFile() || opened.ino !== before.ino || opened.dev !== before.dev) throw new Error('The published note changed before it could be flushed.');
+      if (!opened.isFile() || !sameVersion(opened, before)) throw new Error('The published note changed before it could be flushed.');
       await handle.sync();
+      const latest = await fs.lstat(this.target);
+      if (latest.isSymbolicLink() || !latest.isFile() || !sameVersion(opened, latest)
+        || !sameVersion(opened, await handle.stat())) throw new Error('The published note changed while it was being flushed.');
     } finally { await handle.close(); }
   }
 
-  async settle(io: RecoveryIO, maximumNoteBytes: number): Promise<'complete' | 'restored' | 'present' | 'uncaptured'> {
+  private async verifyTarget(maximumNoteBytes: number): Promise<boolean> {
+    await this.guard();
+    const target = await readStableHash(this.target, maximumNoteBytes);
+    // Capture can preserve an external edit newer than the manifest's original.
+    // The draft must match its manifest hash, since draft preparation can fail.
+    const known = target.hash === this.manifest.originalHash || target.hash === this.manifest.draftHash
+      || target.hash === (await readStableHash(this.original, maximumNoteBytes)).hash;
+    if (!known) return false;
+    await this.flushTarget(target.stat);
+    return true;
+  }
+
+  async settle(io: RecoveryIO, maximumNoteBytes: number): Promise<'complete' | 'restored' | 'present' | 'uncaptured' | 'unverified'> {
     if (await this.isComplete()) return 'complete';
     let original: Stats;
     try { original = await fs.lstat(this.original); }
@@ -174,7 +217,9 @@ export class SaveRecovery {
     let result: 'restored' | 'present' = 'restored';
     try { await io.copyFile(this.original, this.target, constants.COPYFILE_EXCL); }
     catch (error) { if (codeOf(error) === 'EEXIST') result = 'present'; else throw error; }
-    if (result === 'restored') await this.flushTarget();
+    // Exclusive copy can leave a partial destination after a crash or error.
+    // EEXIST alone says nothing about whether those bytes are a complete version.
+    if (!await this.verifyTarget(maximumNoteBytes)) return 'unverified';
     await this.complete();
     return result;
   }
