@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
 import * as fs from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import type { DocumentPatch, ImportResult, LibrarySnapshot, PDFDocument } from '../shared/types';
 
@@ -12,6 +13,16 @@ const idPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0
 const hashPattern = /^[a-f0-9]{64}$/;
 const controls = /[\u0000-\u001f\u007f-\u009f]/;
 const documentKeys = ['id', 'title', 'filename', 'size', 'sha256', 'importedAt', 'updatedAt', 'tags', 'favorite', 'lastOpenedAt', 'lastPage', 'pageCount'];
+
+/** Narrow filesystem seam for deterministic write/publication failure tests. */
+export interface LibraryWriteIO {
+  createFile(filename: string): Promise<FileHandle>;
+  rename(source: string, destination: string): Promise<void>;
+}
+const defaultWriteIO: LibraryWriteIO = {
+  createFile: filename => fs.open(filename, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR, 0o600),
+  rename: fs.rename,
+};
 
 function digest(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex'); }
 function message(error: unknown): string { return error instanceof Error ? error.message : 'An unexpected filesystem error occurred.'; }
@@ -83,8 +94,9 @@ export class LibraryStore {
   private documents: PDFDocument[];
   private catalogHash: string | null;
   private operations: Promise<unknown> = Promise.resolve();
+  private readonly writeIO: LibraryWriteIO;
 
-  private constructor(root: string, rootIdentity: Stats, filesIdentity: Stats, documents: PDFDocument[], catalogHash: string | null) {
+  private constructor(root: string, rootIdentity: Stats, filesIdentity: Stats, documents: PDFDocument[], catalogHash: string | null, writeIO: LibraryWriteIO) {
     this.root = root;
     this.filesDirectory = path.join(root, 'documents');
     this.catalogPath = path.join(root, 'catalog.json');
@@ -92,9 +104,10 @@ export class LibraryStore {
     this.filesIdentity = filesIdentity;
     this.documents = documents;
     this.catalogHash = catalogHash;
+    this.writeIO = writeIO;
   }
 
-  static async open(directory: string): Promise<LibraryStore> {
+  static async open(directory: string, writeIO: Partial<LibraryWriteIO> = {}): Promise<LibraryStore> {
     await fs.mkdir(directory, { recursive: true, mode: 0o700 });
     const original = await fs.lstat(directory);
     if (!original.isDirectory() || original.isSymbolicLink()) throw new Error('The PDF library folder must be an ordinary directory.');
@@ -106,7 +119,8 @@ export class LibraryStore {
     let bytes: Buffer | null = null;
     try { bytes = await readRegularFile(path.join(root, 'catalog.json'), MAX_CATALOG_BYTES); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-    return new LibraryStore(root, await fs.stat(root), filesIdentity, bytes ? parseCatalog(bytes) : [], bytes ? digest(bytes) : null);
+    return new LibraryStore(root, await fs.stat(root), filesIdentity, bytes ? parseCatalog(bytes) : [], bytes ? digest(bytes) : null,
+      { ...defaultWriteIO, ...writeIO });
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -142,18 +156,72 @@ export class LibraryStore {
     return document;
   }
 
+  /** Remove only an unpublished file still owned by this handle with our bytes. */
+  private async discardUnpublished(filename: string, handle: FileHandle, expected: Uint8Array, documentId?: string): Promise<boolean> {
+    try {
+      await this.checkDirectories();
+      if (documentId) {
+        // A failed/uncertain rename or an external catalog edit may already refer
+        // to this PDF. Unknown or damaged catalog contents must retain its copy.
+        let catalog: Buffer | null = null;
+        try { catalog = await readRegularFile(this.catalogPath, MAX_CATALOG_BYTES); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        if (catalog && parseCatalog(catalog).some(document => document.id === documentId)) return false;
+      }
+      const owned = await handle.stat();
+      let named: Stats;
+      try { named = await fs.lstat(filename); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true; throw error; }
+      if (!owned.isFile() || !named.isFile() || named.isSymbolicLink() || !sameFile(owned, named)
+        || owned.size > expected.length) return false;
+      // A short write contains a prefix of the import. Preserve external edits
+      // to the same inode as well as replacements with another inode.
+      const chunk = Buffer.alloc(Math.min(64 * 1024, owned.size));
+      let offset = 0;
+      while (offset < owned.size) {
+        const { bytesRead } = await handle.read(chunk, 0, Math.min(chunk.length, owned.size - offset), offset);
+        if (!bytesRead || !chunk.subarray(0, bytesRead).equals(expected.subarray(offset, offset + bytesRead))) return false;
+        offset += bytesRead;
+      }
+      const after = await handle.stat();
+      await this.checkDirectories();
+      const current = await fs.lstat(filename);
+      if (!current.isFile() || current.isSymbolicLink() || !sameFile(owned, after) || !sameFile(owned, current)
+        || after.size !== owned.size || after.mtimeMs !== owned.mtimeMs || after.ctimeMs !== owned.ctimeMs
+        || current.size !== owned.size || current.mtimeMs !== owned.mtimeMs || current.ctimeMs !== owned.ctimeMs) return false;
+      // Node has no conditional unlink-by-inode API: the documented directory/
+      // pathname race remains. These checks avoid deleting observed replacements.
+      await fs.unlink(filename);
+      return true;
+    } catch { return false; }
+  }
+
+  private async failedPublication(error: unknown, filename: string, handle: FileHandle, expected: Uint8Array, documentId?: string): Promise<Error> {
+    const removed = await this.discardUnpublished(filename, handle, expected, documentId);
+    return new Error(message(error) + (removed ? '' : ' A file was retained for recovery at ' + filename + '.'));
+  }
+
   private async commit(documents: PDFDocument[]): Promise<void> {
     await this.checkCatalog();
     const bytes = Buffer.from(JSON.stringify({ version: 1, documents }, null, 2) + '\n');
     if (bytes.length > MAX_CATALOG_BYTES) throw new Error('The PDF catalog has reached its size limit.');
     const temporary = path.join(this.root, `.catalog-${randomUUID()}.tmp`);
-    const handle = await fs.open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-    try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
-    // Failed writes retain their private temporary files; never remove a file another process may have changed.
-    await this.checkCatalog();
-    await fs.rename(temporary, this.catalogPath);
-    this.catalogHash = digest(bytes);
-    this.documents = documents;
+    const hash = digest(bytes);
+    const handle = await this.writeIO.createFile(temporary);
+    try {
+      await handle.writeFile(bytes);
+      await handle.sync();
+      await this.checkCatalog();
+      await this.writeIO.rename(temporary, this.catalogPath);
+      this.catalogHash = hash;
+      this.documents = documents;
+    } catch (error) {
+      throw await this.failedPublication(error, temporary, handle, bytes);
+    } finally {
+      // A successful, flushed publication stays successful even if releasing the
+      // descriptor fails. Callers must never roll it back after catalog commit.
+      await handle.close().catch(() => undefined);
+    }
   }
 
   load(): Promise<LibrarySnapshot> {
@@ -195,16 +263,23 @@ export class LibraryStore {
           await this.checkCatalog();
           const id = randomUUID();
           const destination = path.join(this.filesDirectory, `${id}.pdf`);
-          const output = await fs.open(destination, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
-          try { await output.writeFile(bytes); await output.sync(); } finally { await output.close(); }
-          const now = new Date().toISOString();
-          const document: PDFDocument = {
-            id, title: filename.replace(/\.pdf$/i, '').slice(0, 200).trim() || 'Untitled PDF', filename,
-            size: bytes.length, sha256, importedAt: now, updatedAt: now, tags: [], favorite: false,
-            lastOpenedAt: null, lastPage: 1, pageCount: null,
-          };
-          await this.commit([...this.documents, document]);
-          importedIds.push(id);
+          const output = await this.writeIO.createFile(destination);
+          try {
+            await output.writeFile(bytes);
+            await output.sync();
+            const now = new Date().toISOString();
+            const document: PDFDocument = {
+              id, title: filename.replace(/\.pdf$/i, '').slice(0, 200).trim() || 'Untitled PDF', filename,
+              size: bytes.length, sha256, importedAt: now, updatedAt: now, tags: [], favorite: false,
+              lastOpenedAt: null, lastPage: 1, pageCount: null,
+            };
+            await this.commit([...this.documents, document]);
+            importedIds.push(id);
+          } catch (error) {
+            throw await this.failedPublication(error, destination, output, bytes, id);
+          } finally {
+            await output.close().catch(() => undefined);
+          }
         } catch (error) { errors.push(`${filename}: ${message(error)}`); }
       }
       return { library: this.snapshot(), importedIds, duplicateCount, errors };

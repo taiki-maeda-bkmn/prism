@@ -27,6 +27,8 @@ The default library locations are `%APPDATA%/prism-pdf/library` on Windows, `~/L
 
 **Remove** removes the catalog entry and its tags, favorite, and reading position. Both the original and the managed PDF remain on disk. Removed copies can be imported again from `library/documents`; this release does not automatically reclaim their disk space. The displayed storage total counts cataloged PDFs only. A damaged catalog is reported without overwriting it; restore its backup before continuing.
 
+Failed imports clean up copies that can still be verified as belonging to the failed operation. If a file was replaced, edited, or its ownership is uncertain, it is kept and its recovery path is shown in the error.
+
 PDF rendering uses bundled workers, fonts, character maps, and WebAssembly resources. It does not require a remote PDF service. Search covers library metadata; it does not OCR scanned pages or index the full PDF text.
 
 Enable **Appearance → Transparent window** and adjust background opacity to see the desktop through the interface. Document pages remain opaque. Transparency depends on the operating system compositor. As with Prism's Markdown window, Electron's transparent-window limits mean this app uses its own **Expand / restore** control rather than native resizing.
