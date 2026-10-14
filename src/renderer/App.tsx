@@ -60,6 +60,7 @@ function NoteTree({ notes, activePath, drafts, query, onOpen }: { notes: Note[];
 
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [activePath, setActivePath] = useState('');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [preferences, setPreferences] = useState(readPreferences);
@@ -98,6 +99,10 @@ export function App() {
     latest.current.workspace = next;
     latest.current.drafts = {};
     setWorkspace(next);
+    // A fresh workspace must not inherit undo history from discarded drafts or
+    // a different notebook that happens to contain the same relative note path.
+    setWorkspaceRevision(previous => previous + 1);
+    setCursor({ line: 1, column: 1 });
     const welcome = next.notes.find(note => /(^|\/)Welcome to Prism\.md$/i.test(note.path));
     setActivePath(next.notes.some(note => note.path === latest.current.activePath) ? latest.current.activePath : (welcome || next.notes[0])?.path || '');
     setDrafts({});
@@ -299,7 +304,7 @@ export function App() {
         {view === 'graph' ? <section className="graph-page"><div className="graph-page-heading"><div><p className="eyebrow">SEE THE CONNECTIONS</p><h1>Your ideas, together.</h1><p>Every note is a starting point. Follow a connection to see where it leads.</p></div><button className="subtle-button" onClick={() => setView('note')}><ArrowLeft size={15} />Back to note</button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} /><div className="graph-help"><span><i />Note</span><span><i className="active" />Current note</span><span>Drag to explore · Scroll to zoom · Select a note to open</span></div></section> : active ? <>
           <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source'], ['split', Columns2, 'Split'], ['preview', BookOpen, 'Read']] as const).map(([mode, Icon, label], index) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl+${index + 1})`} onClick={() => setPreferences(previous => ({ ...previous, mode }))}><Icon size={15} /><span>{label}</span></button>)}</div></div>
           <div className={`editor-layout mode-${preferences.mode}`}>
-            {preferences.mode !== 'preview' && <section className="source-pane" aria-label="Source editor"><div className="pane-label"><span><Code2 size={13} />MARKDOWN</span><span>.md</span></div><Editor key={active.path} path={active.path} content={active.content} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>}
+            {preferences.mode !== 'preview' && <section className="source-pane" aria-label="Source editor"><div className="pane-label"><span><Code2 size={13} />MARKDOWN</span><span>.md</span></div><Editor key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>}
             {preferences.mode !== 'source' && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
           </div>
         </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><FilePlus2 size={17} />Create your first note</button></div>}

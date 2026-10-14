@@ -161,6 +161,13 @@ test('writes, connects, protects drafts, and remembers window appearance', async
     await expect(page.getByLabel('Markdown source')).not.toContainText('Discard this local-only draft.');
     await expect(page.locator('.statusbar')).toContainText('All changes saved');
     expect(await readFile(welcomePath, 'utf8')).toBe(external);
+    await page.getByLabel('Markdown source').click();
+    await page.getByLabel('Markdown source').press('ControlOrMeta+z');
+    await expect(page.getByLabel('Markdown source')).toContainText('An external editor saved this sentence.');
+    await expect(page.getByLabel('Markdown source')).not.toContainText('Discard this local-only draft.');
+    await expect(page.locator('.statusbar')).toContainText('All changes saved');
+    await page.getByLabel('Markdown source').press('ControlOrMeta+Shift+z');
+    await expect(page.locator('.statusbar')).toContainText('All changes saved');
 
     await replaceSource(draftWelcome);
     await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -191,6 +198,12 @@ test('writes, connects, protects drafts, and remembers window appearance', async
     await page.keyboard.press('ControlOrMeta+S');
     await expect(page.locator('.statusbar')).toContainText('All changes saved');
     await expect.poll(() => readFile(createdPath, 'utf8')).toBe(content + continuation);
+    await page.getByLabel('Markdown source').press('ControlOrMeta+z');
+    await expect(page.getByLabel('Markdown source')).not.toContainText(continuation);
+    await expect(page.locator('.statusbar')).toContainText('1 unsaved note');
+    await page.getByLabel('Markdown source').press('ControlOrMeta+Shift+z');
+    await expect(page.getByLabel('Markdown source')).toContainText(continuation);
+    await expect(page.locator('.statusbar')).toContainText('All changes saved');
   });
 
   await test.step('reject invalid and duplicate note names without changing existing files', async () => {
@@ -261,6 +274,57 @@ test('writes, connects, protects drafts, and remembers window appearance', async
     await expect(page.getByRole('slider', { name: 'Background opacity', exact: true })).toHaveValue('35');
     expect(await readFile(path.join(notebook, 'Welcome to Prism.md'), 'utf8')).toBe(draftWelcome);
   });
+});
+
+test('isolates undo history when another notebook has identical relative paths and content', async () => {
+  const historyDirectory = await mkdtemp(path.join(os.tmpdir(), 'prism-history-'));
+  const firstNotebook = path.join(historyDirectory, 'First notebook');
+  const secondNotebook = path.join(historyDirectory, 'Second notebook');
+  const historyUserData = path.join(historyDirectory, 'user-data');
+  const sharedContent = '# Welcome to Prism\n\nShared visible text.\n';
+  let historyApp: ElectronApplication | undefined;
+  try {
+    await mkdir(firstNotebook);
+    await mkdir(secondNotebook);
+    await mkdir(historyUserData);
+    await writeFile(path.join(firstNotebook, 'Welcome to Prism.md'), '# Welcome to Prism\n\nOnly in the old notebook.\n');
+    await writeFile(path.join(secondNotebook, 'Welcome to Prism.md'), sharedContent);
+    historyApp = await electron.launch({
+      args: ['--no-sandbox', '.'], cwd: process.cwd(),
+      env: { ...process.env, PRISM_USER_DATA: historyUserData, PRISM_WORKSPACE: firstNotebook },
+    });
+    const historyPage = await historyApp.firstWindow();
+    await expect(historyPage.locator('.note-heading h1')).toHaveText('Welcome to Prism');
+    const editor = historyPage.getByLabel('Markdown source');
+    await editor.click();
+    await editor.press('ControlOrMeta+A');
+    await historyPage.keyboard.insertText(sharedContent);
+    await historyPage.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(historyPage.locator('.statusbar')).toContainText('All changes saved');
+    // Intercept only the native picker; the IPC and workspace replacement remain real.
+    await historyApp.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+    }, secondNotebook);
+    await historyPage.getByRole('button', { name: 'Open notebook', exact: true }).click();
+    await expect(historyPage.locator('.workspace-switch strong')).toHaveText('Second notebook');
+    await editor.click();
+    await editor.press('ControlOrMeta+z');
+    await expect(editor).toContainText('Shared visible text.');
+    await expect(editor).not.toContainText('Only in the old notebook.');
+    await expect(historyPage.locator('.statusbar')).toContainText('All changes saved');
+    await editor.press('ControlOrMeta+Shift+z');
+    await expect(historyPage.locator('.statusbar')).toContainText('All changes saved');
+    expect(await readFile(path.join(secondNotebook, 'Welcome to Prism.md'), 'utf8')).toBe(sharedContent);
+  } finally {
+    if (historyApp) {
+      const child = historyApp.process();
+      const closed = historyApp.waitForEvent('close', { timeout: 5_000 }).catch(() => undefined);
+      await historyApp.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
+      await closed;
+      if (child.exitCode === null) child.kill();
+    }
+    await rm(historyDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
 });
 
 test('retries loading the starter notebook after a filesystem error is repaired', async ({}, testInfo) => {
