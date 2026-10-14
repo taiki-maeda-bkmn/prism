@@ -23,6 +23,7 @@ type Snapshot = {
   ino: number;
   dev: number;
   mode: number;
+  hasBOM: boolean;
 };
 
 type CreateNoteIO = Pick<typeof fs, 'link' | 'copyFile'> & Partial<Pick<typeof fs, 'rename'>>;
@@ -120,11 +121,13 @@ export class WorkspaceStore {
       await this.safeParent(notePath);
       const latest = await fs.lstat(absolute);
       if (latest.isSymbolicLink() || latest.ino !== stat.ino || latest.dev !== stat.dev) throw new Error('This note changed while it was being read. Refresh and try again.');
-      const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, length));
+      const hasBOM = length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+      // A UTF-8 signature is file metadata, not part of the first Markdown heading.
+      const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, length));
       const snapshot: Snapshot = {
         note: { path: notePath, content, modified: stat.mtimeMs },
         hash: createHash('sha256').update(bytes.subarray(0, length)).digest('hex'),
-        mtime: stat.mtimeMs, size: stat.size, ino: stat.ino, dev: stat.dev, mode: stat.mode,
+        mtime: stat.mtimeMs, size: stat.size, ino: stat.ino, dev: stat.dev, mode: stat.mode, hasBOM,
       };
       const previous = this.snapshots.get(notePath);
       if (previous) snapshot.note.modified = sameFile(previous, snapshot)
@@ -212,10 +215,12 @@ export class WorkspaceStore {
       if (typeof expectedModified !== 'number' || !Number.isFinite(expectedModified)) throw new Error('Refresh this note before saving.');
       const expected = this.snapshots.get(notePath);
       if (!expected || expected.note.modified !== expectedModified) throw new Error('This note changed since you opened it. Your draft is safe. Refresh before trying again.');
+      const diskContent = expected.hasBOM ? `\ufeff${content}` : content;
+      if (Buffer.byteLength(diskContent, 'utf8') > MAX_NOTE_BYTES) throw new Error('A note can contain up to 2 MB of UTF-8 text.');
       const current = await this.readSnapshot(notePath);
       if (!sameFile(expected, current)) throw new Error('This note was changed by another application. Your draft is safe; copy it before refreshing.');
       const parent = await this.safeParent(notePath);
-      const transaction = await SaveRecovery.prepare(parent, notePath, content, expected.hash, current.mode,
+      const transaction = await SaveRecovery.prepare(parent, notePath, diskContent, expected.hash, current.mode,
         () => this.safeParent(notePath));
       const recoveryPath = path.relative(this.root, transaction.directory);
       const capturedPath = path.relative(this.root, transaction.original).split(path.sep).join('/');

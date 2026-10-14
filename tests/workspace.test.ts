@@ -216,11 +216,13 @@ test('restart recovers an interrupted capture in a nested folder and completes i
   const { root } = await fixture(t);
   await fs.mkdir(path.join(root, 'Ideas'));
   const target = path.join(root, 'Ideas', 'Note.md');
-  await fs.writeFile(target, 'Original');
+  await fs.writeFile(target, '\ufeffOriginal');
   const transaction = await pendingRecovery(root, 'Ideas/Note.md');
   await assert.rejects(fs.stat(target), { code: 'ENOENT' });
   const loaded = await (await WorkspaceStore.open(root)).load();
   assert.deepEqual(loaded.notes.map((note) => [note.path, note.content]), [['Ideas/Note.md', 'Original']]);
+  assert.equal(await fs.readFile(target, 'utf8'), '\ufeffOriginal');
+  assert.equal(await fs.readFile(transaction.original, 'utf8'), '\ufeffOriginal');
   assert.equal(await fs.readFile(transaction.draft, 'utf8'), 'Retained draft');
   assert.equal(await transaction.isComplete(), true);
   await fs.unlink(target);
@@ -525,10 +527,87 @@ test('oversized and non-UTF-8 notes are skipped with warnings', async (t) => {
   await fs.writeFile(path.join(root, 'Good.md'), '\ufeff# Good');
   const loaded = await store.load();
   assert.deepEqual(loaded.notes.map((note) => note.path), ['Good.md']);
-  assert.equal(loaded.notes[0].content, '\ufeff# Good');
+  assert.equal(loaded.notes[0].content, '# Good');
   assert.equal(loaded.warnings.length, 2);
   await assert.rejects(store.save('Good.md', 'x'.repeat(MAX_NOTE_BYTES + 1), loaded.notes[0].modified), /up to 2 MB/);
   assert.equal(await fs.readFile(path.join(root, 'Good.md'), 'utf8'), '\ufeff# Good');
+});
+
+test('UTF-8 BOM is omitted from Markdown content and preserved byte for byte on save', async (t) => {
+  const { root, store } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  const content = '# First heading\r\n\r\nCafé \ufeff🌈\r\n';
+  const bytes = Buffer.from(`\ufeff${content}`, 'utf8');
+  await fs.writeFile(target, bytes);
+  const [loaded] = (await store.load()).notes;
+  assert.equal(loaded.content, content);
+  const unchanged = await store.save('Note.md', loaded.content, loaded.modified);
+  assert.equal(unchanged.content, content);
+  assert.deepEqual(await fs.readFile(target), bytes);
+  const editedContent = '# Updated heading\n\nA new thought.';
+  const edited = await store.save('Note.md', editedContent, unchanged.modified);
+  assert.equal(edited.content, editedContent);
+  assert.equal(await fs.readFile(target, 'utf8'), `\ufeff${editedContent}`);
+  assert.equal((await store.load()).notes[0].content, editedContent);
+  const recoveries = await recoveryDirectories(root);
+  assert.equal(recoveries.length, 2);
+  for (const recovery of recoveries) {
+    assert.deepEqual(await fs.readFile(path.join(recovery, 'original.md')), bytes);
+    const draft = await fs.readFile(path.join(recovery, 'draft.md'));
+    assert.deepEqual(draft.subarray(0, 3), Buffer.from([0xef, 0xbb, 0xbf]));
+    const manifest = JSON.parse(await fs.readFile(path.join(recovery, 'manifest.json'), 'utf8'));
+    assert.equal(manifest.draftHash, createHash('sha256').update(draft).digest('hex'));
+  }
+});
+
+test('the note byte limit includes its preserved UTF-8 BOM', async (t) => {
+  const { root, store } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  await fs.writeFile(target, '\ufeff# Original');
+  const [original] = (await store.load()).notes;
+  await assert.rejects(store.save('Note.md', 'x'.repeat(MAX_NOTE_BYTES - 2), original.modified), /up to 2 MB/);
+  assert.equal(await fs.readFile(target, 'utf8'), '\ufeff# Original');
+  assert.deepEqual(await fs.readdir(root), ['Note.md']);
+  const saved = await store.save('Note.md', 'x'.repeat(MAX_NOTE_BYTES - 3), original.modified);
+  assert.equal(saved.content.length, MAX_NOTE_BYTES - 3);
+  assert.equal((await fs.stat(target)).size, MAX_NOTE_BYTES);
+});
+
+test('an external BOM change still conflicts even when the editor text is identical', async (t) => {
+  const { root, store } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  await fs.writeFile(target, '\ufeff# Heading');
+  const [original] = (await store.load()).notes;
+  await fs.writeFile(target, '# Heading');
+  await assert.rejects(store.save('Note.md', original.content, original.modified), /changed by another application/);
+  assert.equal(await fs.readFile(target, 'utf8'), '# Heading');
+  const [refreshed] = (await store.load()).notes;
+  assert.equal(refreshed.content, original.content);
+  await store.save('Note.md', '# Edited', refreshed.modified);
+  assert.equal(await fs.readFile(target, 'utf8'), '# Edited');
+});
+
+test('BOM metadata survives failed publication, restoration, and retry with the original version token', async (t) => {
+  const { root } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  await fs.writeFile(target, '\ufeff# Original');
+  let failed = false;
+  const store = await WorkspaceStore.open(root, {
+    ...fs,
+    copyFile: async (source, destination, flags) => {
+      if (!failed && path.basename(String(source)) === 'draft.md') {
+        failed = true;
+        throw Object.assign(new Error('Disk full'), { code: 'ENOSPC' });
+      }
+      await fs.copyFile(source, destination, flags);
+    },
+  });
+  const [original] = (await store.load()).notes;
+  await assert.rejects(store.save('Note.md', '# Edited', original.modified), /Disk full/);
+  assert.equal(await fs.readFile(target, 'utf8'), '\ufeff# Original');
+  const saved = await store.save('Note.md', '# Edited', original.modified);
+  assert.equal(saved.content, '# Edited');
+  assert.equal(await fs.readFile(target, 'utf8'), '\ufeff# Edited');
 });
 
 test('refresh invalidates a stale version and allows saving the refreshed note', async (t) => {

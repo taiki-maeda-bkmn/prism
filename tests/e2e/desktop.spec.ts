@@ -50,7 +50,7 @@ test.beforeAll(async () => {
   await mkdir(userData, { recursive: true });
   await Promise.all([
     writeFile(path.join(notebook, 'Welcome to Prism.md'), initialWelcome),
-    writeFile(path.join(notebook, 'Garden.md'), '# Garden\n\nSmall ideas grow here.\n\nReturn to [[Welcome to Prism]].\n'),
+    writeFile(path.join(notebook, 'Garden.md'), '\ufeff# Garden\n\nSmall ideas grow here.\n\nReturn to [[Welcome to Prism]].\n'),
     writeFile(path.join(notebook, 'Ideas/Research.md'), '# Research\n\nQuestions to explore in [[Garden]].\n'),
   ]);
   await launch();
@@ -109,6 +109,9 @@ test('writes, connects, protects drafts, and remembers window appearance', async
     await replaceSource(draftWelcome);
     await page.getByRole('navigation', { name: 'Notes', exact: true }).getByRole('button', { name: 'Garden', exact: true }).click();
     await expect(page.locator('.note-heading h1')).toHaveText('Garden');
+    await expect(page.locator('.markdown-body h1')).toHaveText('Garden');
+    await expect(page.getByRole('navigation', { name: 'Note outline', exact: true }).getByRole('button', { name: 'Garden', exact: true })).toBeVisible();
+    expect((await page.getByLabel('Markdown source').textContent())?.startsWith('# Garden')).toBe(true);
     await page.getByRole('navigation', { name: 'Notes', exact: true }).getByTitle('Welcome to Prism.md', { exact: true }).click();
     await expect(page.getByLabel('Markdown source')).toContainText('This draft must survive note navigation.');
     expect(await readFile(path.join(notebook, 'Welcome to Prism.md'), 'utf8')).toBe(savedWelcome);
