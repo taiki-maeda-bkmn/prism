@@ -62,6 +62,12 @@ function parseCatalog(bytes: Uint8Array): PDFDocument[] {
   const documents: PDFDocument[] = [];
   for (const candidate of value.documents) {
     if (!object(candidate) || !validTagShape(candidate.tags)) throw corrupt();
+    const originalTags = candidate.tags;
+    const stableUnique = new Set(originalTags.map(tag => tag.toLowerCase())).size === originalTags.length;
+    // Migration requires uniqueness under one complete legacy casing rule.
+    // Ordinary duplicates are invalid in every locale and must remain errors.
+    if (!stableUnique && !['tr', 'az', 'lt'].some(locale =>
+      new Set(originalTags.map(tag => tag.toLocaleLowerCase(locale))).size === originalTags.length)) throw corrupt();
     // Earlier catalogs used the OS locale for uniqueness. Normalize collisions
     // in memory, preserving the first spelling; the next normal write persists
     // this form. Check original bounds first and retain original bytes on disk.

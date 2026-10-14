@@ -108,7 +108,7 @@ test('tag uniqueness and catalog validity remain stable across English and Turki
   assert.deepEqual((await english.load()).documents[0].tags, ['I', 'ı']);
 });
 
-test('loads legacy Turkish tag collisions without rewriting until the next metadata change', async t => {
+test('loads legacy Turkish and Azeri tag collisions without rewriting until the next metadata change', async t => {
   const originalLowerCase = String.prototype.toLocaleLowerCase;
   let defaultLocale = 'en-US';
   t.mock.method(String.prototype, 'toLocaleLowerCase', function (this: string, locales?: string | string[]) {
@@ -118,9 +118,9 @@ test('loads legacy Turkish tag collisions without rewriting until the next metad
   const document = (await store.import([source])).library.documents[0];
   const catalog = path.join(root, 'catalog.json');
   const legacy = JSON.stringify({ version: 1, documents: [{ ...document, tags: ['I', 'i'] }] });
-  for (const locale of ['en-US', 'tr']) {
+  for (const locale of ['en-US', 'tr', 'az']) {
     defaultLocale = locale;
-    assert.equal('I'.toLocaleLowerCase(), locale === 'tr' ? 'ı' : 'i');
+    assert.equal('I'.toLocaleLowerCase(), locale === 'en-US' ? 'i' : 'ı');
     await fs.writeFile(catalog, legacy);
     const reopened = await LibraryStore.open(root);
     assert.deepEqual((await reopened.load()).documents[0].tags, ['I']);
@@ -133,11 +133,38 @@ test('loads legacy Turkish tag collisions without rewriting until the next metad
   }
 });
 
+test('migrates Lithuanian-only casing collisions while preserving the first tag spelling', async t => {
+  const { root, source, store } = await fixture(t);
+  const document = (await store.import([source])).library.documents[0];
+  const tags = ['J\u0301', 'j\u0301'];
+  assert.equal(new Set(tags.map(tag => tag.toLowerCase())).size, 1);
+  assert.equal(new Set(tags.map(tag => tag.toLocaleLowerCase('tr'))).size, 1);
+  assert.equal(new Set(tags.map(tag => tag.toLocaleLowerCase('az'))).size, 1);
+  assert.equal(new Set(tags.map(tag => tag.toLocaleLowerCase('lt'))).size, 2);
+  const catalog = path.join(root, 'catalog.json');
+  const legacy = JSON.stringify({ version: 1, documents: [{ ...document, tags }] });
+  await fs.writeFile(catalog, legacy);
+  const reopened = await LibraryStore.open(root);
+  assert.deepEqual((await reopened.load()).documents[0].tags, [tags[0]]);
+  assert.equal(await fs.readFile(catalog, 'utf8'), legacy);
+  const updated = await reopened.update(document.id, { favorite: true });
+  assert.deepEqual(updated.tags, [tags[0]]);
+  assert.deepEqual(JSON.parse(await fs.readFile(catalog, 'utf8')).documents[0].tags, [tags[0]]);
+  assert.deepEqual((await (await LibraryStore.open(root)).load()).documents, [updated]);
+});
+
 test('rejects malformed legacy tags and document fields before normalization can hide them', async t => {
   const { root, source, store } = await fixture(t);
   const document = (await store.import([source])).library.documents[0];
   const catalog = path.join(root, 'catalog.json');
   const malformed = [
+    { tags: ['Work', 'work'] },
+    { tags: ['Work', 'Work'] },
+    { tags: ['I', 'i', 'Work', 'work'] },
+    { tags: ['I', 'i', 'I'] },
+    // Each pair is valid in a different legacy locale, but no single locale
+    // could have accepted this complete array.
+    { tags: ['I', 'i', 'J\u0301', 'j\u0301'] },
     { tags: Array.from({ length: 13 }, () => 'I') },
     { tags: ['I', 'i', 'x'.repeat(41)] },
     { tags: ['I', 'i', ''] },
