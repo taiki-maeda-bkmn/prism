@@ -4,12 +4,12 @@
 
 Build the brief in `AGENTS.md` as a local desktop application. Notes remain ordinary Markdown files in a folder chosen by the user. Electron supplies the native transparent window, and React with CodeMirror supplies the editing interface.
 
-- [ ] Desktop foundation: isolated renderer, narrow filesystem bridge, native folder picker, window controls, and a starter notebook.
-- [ ] Note workspace: folder navigation, search, create, explicit save, refresh, conflict detection, and protection for unsaved edits when closing or switching folders.
-- [ ] Markdown: source, split preview, and reading modes; syntax highlighting; safe rendering; wiki links and Markdown file links.
-- [ ] Connected notes: clickable graph, backlinks, and navigation between notes.
-- [ ] Appearance: true background transparency with adjustable opacity, legible text, and persistent preferences.
-- [ ] Delivery: filesystem/link tests, desktop interaction checks, documentation, CI, and a pull request with Copilot review requested.
+- [x] Desktop foundation: isolated renderer, narrow filesystem bridge, native folder picker, window controls, and a starter notebook.
+- [x] Note workspace: folder navigation, search, create, explicit save, refresh, conflict detection, and protection for unsaved edits when closing or switching folders.
+- [x] Markdown: source, split preview, and reading modes; syntax highlighting; safe rendering; wiki links and Markdown file links.
+- [x] Connected notes: clickable graph, backlinks, and navigation between notes.
+- [x] Appearance: true background transparency with adjustable opacity, legible text, and persistent preferences.
+- [x] Delivery: filesystem/link tests, desktop interaction checks, documentation, CI, and a pull request with Copilot review requested.
 
 ## Scope and follow-up
 
@@ -20,3 +20,11 @@ Transparent windows depend on the host compositor. The implementation uses a tra
 ## Workflow
 
 Implementation branch: `feat/prism-desktop`. Commit and push changes automatically, request Copilot review, address actionable review feedback, and leave the pull request open. Do not merge automatically.
+
+## Verification
+
+- 28 Markdown, filesystem, and resource-access tests pass locally.
+- The native Electron journey covers editor modes, preview, disk saves, draft retention, close cancellation, refresh/discard, invalid and duplicate names, graph navigation, backlinks, and persisted appearance.
+- Native window capture confirms alpha 255 when opaque and approximately 89 at 35% background opacity.
+- A normal launch with the sandbox enabled succeeds in the local Linux/WSLg environment. Windows/macOS compositor behavior still needs physical desktop testing.
+- Linux and Windows build/unit checks and a Linux desktop journey run in GitHub Actions. Current results and review activity are on [PR #2](https://github.com/beautysamurai/prism/pull/2).

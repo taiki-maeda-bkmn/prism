@@ -19,7 +19,6 @@ let pendingClose = false;
 let closingIntent: 'close' | 'quit' = 'close';
 let restoreBounds: Rectangle | null = null;
 let workspace: WorkspaceStore | undefined;
-let initialWorkspace: Promise<Workspace> | undefined;
 let operations: Promise<unknown> = Promise.resolve();
 
 function serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -66,13 +65,14 @@ async function initializeWorkspace(): Promise<Workspace> {
     } catch { warnings.push('The previous notebook is unavailable. Open its folder to reconnect; its files have not been changed.'); }
   }
   const starter = await ensureStarterNotebook(app.getPath('userData'));
-  workspace = await WorkspaceStore.open(starter);
-  const loaded = await workspace.load();
+  const candidate = await WorkspaceStore.open(starter);
+  const loaded = await candidate.load();
+  workspace = candidate;
   return { ...loaded, warnings: [...warnings, ...loaded.warnings] };
 }
 
 async function getWorkspace(): Promise<WorkspaceStore> {
-  if (!workspace) await (initialWorkspace ??= initializeWorkspace());
+  if (!workspace) await initializeWorkspace();
   if (!workspace) throw new Error('The notebook could not be opened.');
   return workspace;
 }
@@ -94,8 +94,7 @@ function registerIPC(): void {
   ipcMain.handle('prism:load', (event) => {
     validateSender(event);
     return serialize(async () => {
-      if (!initialWorkspace) return (initialWorkspace = initializeWorkspace());
-      return (await getWorkspace()).load();
+      return workspace ? workspace.load() : initializeWorkspace();
     });
   });
   ipcMain.handle('prism:open', (event) => {
@@ -109,7 +108,6 @@ function registerIPC(): void {
       const loaded = await candidate.load();
       await persistFolder(candidate.root);
       workspace = candidate;
-      initialWorkspace = Promise.resolve(loaded);
       return loaded;
     });
   });

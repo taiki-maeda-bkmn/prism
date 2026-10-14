@@ -198,7 +198,7 @@ export function App() {
       if (!(event.metaKey || event.ctrlKey) || operation.current || document.querySelector('dialog[open]')) return;
       const key = event.key.toLowerCase();
       if (key === 's') { event.preventDefault(); void save(event.shiftKey); }
-      if (key === 'n') { event.preventDefault(); setNewName(''); setCreating(true); }
+      if (key === 'n' && latest.current.workspace) { event.preventDefault(); setNewName(''); setCreating(true); }
       if (key === 'o') { event.preventDefault(); requestIntent('open'); }
       if (key === 'p') { event.preventDefault(); setFocus(false); requestAnimationFrame(() => search.current?.focus()); }
       if (key === 'g' && event.shiftKey) { event.preventDefault(); setView(previous => previous === 'note' ? 'graph' : 'note'); }

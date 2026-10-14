@@ -125,6 +125,34 @@ test('writes, connects, protects drafts, and remembers window appearance', async
     await expect.poll(() => readFile(path.join(notebook, 'Welcome to Prism.md'), 'utf8')).toBe(draftWelcome);
   });
 
+  await test.step('cancel a dirty refresh, then discard the draft and reload external edits', async () => {
+    const unsaved = draftWelcome + '\nDiscard this local-only draft.\n';
+    const external = draftWelcome + '\nAn external editor saved this sentence.\n';
+    const welcomePath = path.join(notebook, 'Welcome to Prism.md');
+    await replaceSource(unsaved);
+    await writeFile(welcomePath, external);
+
+    await page.getByRole('button', { name: 'Refresh notebook', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('reloading from disk');
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.getByLabel('Markdown source')).toContainText('Discard this local-only draft.');
+    expect(await readFile(welcomePath, 'utf8')).toBe(external);
+
+    await page.getByRole('button', { name: 'Refresh notebook', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Discard changes', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByLabel('Markdown source')).toContainText('An external editor saved this sentence.');
+    await expect(page.getByLabel('Markdown source')).not.toContainText('Discard this local-only draft.');
+    await expect(page.locator('.statusbar')).toContainText('All changes saved');
+    expect(await readFile(welcomePath, 'utf8')).toBe(external);
+
+    await replaceSource(draftWelcome);
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.locator('.statusbar')).toContainText('All changes saved');
+    await expect.poll(() => readFile(welcomePath, 'utf8')).toBe(draftWelcome);
+  });
+
   await test.step('create and save a note inside a new nested folder', async () => {
     await page.getByRole('button', { name: 'New note', exact: true }).click();
     await page.getByLabel('Note name').fill('Ideas/Seeds/Fresh thought');
@@ -138,6 +166,35 @@ test('writes, connects, protects drafts, and remembers window appearance', async
     await page.keyboard.press('ControlOrMeta+S');
     await expect(page.locator('.statusbar')).toContainText('All changes saved');
     await expect.poll(() => readFile(createdPath, 'utf8')).toBe(content);
+
+    await expect(page.getByLabel('Markdown source')).toBeFocused();
+    const continuation = 'Still writing immediately after saving.';
+    await page.keyboard.insertText(continuation);
+    await expect(page.getByLabel('Markdown source')).toContainText('Still writing immediately after saving.');
+    await expect(page.locator('.statusbar')).toContainText('1 unsaved note');
+    expect(await readFile(createdPath, 'utf8')).toBe(content);
+    await page.keyboard.press('ControlOrMeta+S');
+    await expect(page.locator('.statusbar')).toContainText('All changes saved');
+    await expect.poll(() => readFile(createdPath, 'utf8')).toBe(content + continuation);
+  });
+
+  await test.step('reject invalid and duplicate note names without changing existing files', async () => {
+    const createdPath = path.join(notebook, 'Ideas/Seeds/Fresh thought.md');
+    const existing = await readFile(createdPath, 'utf8');
+    await page.getByRole('button', { name: 'New note', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await page.getByLabel('Note name').fill('../Outside');
+    await dialog.getByRole('button', { name: 'Create note', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText('leaves the notebook');
+    await expect(readFile(path.join(temporary, 'Outside.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+
+    await page.getByLabel('Note name').fill('Ideas/Seeds/Fresh thought');
+    await dialog.getByRole('button', { name: 'Create note', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText('already exists');
+    expect(await readFile(createdPath, 'utf8')).toBe(existing);
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('button', { name: 'Dismiss error', exact: true }).click();
+    await expect(page.locator('.note-heading h1')).toHaveText('Fresh thought');
   });
 
   await test.step('navigate the graph, follow a backlink, and capture the desktop', async () => {

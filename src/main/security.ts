@@ -7,8 +7,11 @@ export async function isRendererResource(value: string, rendererRoot: string): P
   try {
     const url = new URL(value);
     if (url.protocol !== 'file:' || (url.hostname && url.hostname !== 'localhost')) return false;
-    const absolute = await fs.realpath(fileURLToPath(url));
-    const relative = path.relative(rendererRoot, absolute);
+    const [absolute, canonicalRoot] = await Promise.all([
+      fs.realpath(fileURLToPath(url)),
+      fs.realpath(rendererRoot),
+    ]);
+    const relative = path.relative(canonicalRoot, absolute);
     if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return false;
     return (await fs.stat(absolute)).isFile();
   } catch { return false; }

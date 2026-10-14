@@ -2,6 +2,10 @@
 
 A local Markdown notebook with live preview, connected notes, and a transparent desktop window. Built with Electron, React, TypeScript, and CodeMirror.
 
+![Prism showing source editing, live preview, and connected notes](docs/prism-desktop.png)
+
+[See the graph view](docs/prism-graph.png).
+
 ## Run
 
 Install Node.js **22.22.2 or later** (Node 24 recommended), then:

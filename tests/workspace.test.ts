@@ -25,7 +25,7 @@ test('loads nested Markdown notes while ignoring hidden and dependency directori
   await fs.writeFile(path.join(root, 'picture.txt'), 'Not Markdown');
   const loaded = await store.load();
   assert.deepEqual(loaded.notes.map((note) => note.path).sort(), ['Ideas/Thought.markdown', 'Welcome.md']);
-  assert.equal(loaded.path, root);
+  assert.equal(loaded.path, await fs.realpath(root));
   assert.deepEqual(loaded.warnings, []);
 });
 
@@ -204,5 +204,8 @@ test('renderer resource policy only allows bundled assets', async (t) => {
   if (process.platform !== 'win32') {
     await fs.symlink(path.join(root, 'Private.md'), path.join(rendererRoot, 'leak.md'));
     assert.equal(await isRendererResource(pathToFileURL(path.join(rendererRoot, 'leak.md')).href, rendererRoot), false);
+    const aliasRoot = path.join(root, 'renderer-alias');
+    await fs.symlink(rendererRoot, aliasRoot, 'dir');
+    assert.equal(await isRendererResource(pathToFileURL(path.join(aliasRoot, 'app.js')).href, aliasRoot), true);
   }
 });
