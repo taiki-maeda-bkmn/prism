@@ -25,7 +25,7 @@ Before reporting the work complete, check CI and the Codex review against the cu
 
 ## Verification
 
-- 71 Markdown, filesystem, external-link, and resource-access tests pass locally, including UTF-8 BOM preservation, extensionless links, heading fragments, literal percent filenames, note creation without hard links, rejection of replaced notebook folders, staged starter publication, and recovery from interrupted saves and competing writes.
+- 72 Markdown, filesystem, external-link, and resource-access tests pass locally, including UTF-8 BOM preservation, extensionless links, heading fragments, literal percent filenames, note creation without hard links, rejection of replaced notebook folders, starter publication that preserves competing folders, and recovery from interrupted saves and competing writes.
 - Five native Electron scenarios cover editor modes, preview, disk saves, draft retention, close cancellation, refresh/discard, invalid and duplicate names, graph navigation, backlinks, persisted appearance, startup retry, percent-containing filenames, scrolling to linked headings, and external web/email links.
 - Native window capture confirms alpha 255 when opaque and approximately 89 at 35% background opacity.
 - A normal launch with the sandbox enabled succeeds in the local Linux/WSLg environment. Windows/macOS compositor behavior still needs physical desktop testing.

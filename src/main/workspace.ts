@@ -303,6 +303,7 @@ interface StarterNotebookIO {
   lstat(file: string): Promise<Stats>;
   writeFile(file: string, content: string, options: { encoding: 'utf8'; flag: 'wx'; flush: true }): Promise<void>;
   rename(source: string, destination: string): Promise<void>;
+  symlink(target: string, link: string, type: 'dir'): Promise<void>;
   rm(directory: string, options: { recursive: true; force: true }): Promise<void>;
   rmdir(directory: string): Promise<void>;
 }
@@ -318,19 +319,28 @@ export async function ensureStarterNotebook(userData: string, io: StarterNoteboo
   if (await destinationExists()) return directory;
 
   // Interrupted launches leave only a private staging directory; retries start afresh.
-  const staging = await io.mkdtemp(path.join(userData, '.prism-notebook-'));
+  const container = await io.mkdtemp(path.join(userData, '.prism-notebook-'));
+  // POSIX keeps the complete notebook behind an exclusively created root alias.
+  // The nested name keeps the canonical workspace name friendly after realpath().
+  const staging = process.platform === 'win32' ? container : path.join(container, 'Prism notebook');
   let identity: Pick<Stats, 'ino' | 'dev'> | undefined;
   let published = false;
   try {
-    identity = await io.lstat(staging);
+    identity = await io.lstat(container);
+    if (staging !== container) await io.mkdir(staging);
     await io.mkdir(path.join(staging, 'Ideas'));
     for (const [name, content] of Object.entries(starterNotes)) {
       await io.writeFile(path.join(staging, name), content, { encoding: 'utf8', flag: 'wx', flush: true });
     }
     if (await destinationExists()) return directory;
-    try { await io.rename(staging, directory); }
+    try {
+      // Windows MoveFileEx rejects existing directories, including empty ones.
+      // POSIX rename can replace an empty directory, so publish an exclusive alias.
+      if (process.platform === 'win32') await io.rename(staging, directory);
+      else await io.symlink(path.relative(userData, staging), directory, 'dir');
+    }
     catch (error) {
-      // Another creator may publish a populated notebook after the preceding check.
+      // Another creator may claim the destination after the preceding check.
       if (['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES'].includes(codeOf(error) || '') && await destinationExists()) return directory;
       throw error;
     }
@@ -339,11 +349,11 @@ export async function ensureStarterNotebook(userData: string, io: StarterNoteboo
   } finally {
     if (!published) {
       try {
-        if (!identity) await io.rmdir(staging);
+        if (!identity) await io.rmdir(container);
         else {
-          const current = await io.lstat(staging);
+          const current = await io.lstat(container);
           if (current.isDirectory() && current.ino === identity.ino && current.dev === identity.dev) {
-            await io.rm(staging, { recursive: true, force: true });
+            await io.rm(container, { recursive: true, force: true });
           }
         }
       } catch { /* Cleanup never hides the original error or removes the final notebook. */ }

@@ -32,6 +32,23 @@ async function pendingRecovery(root: string, notePath = 'Note.md') {
   return transaction;
 }
 
+function interceptStarterPublication(intercept: (publish: () => Promise<void>, destination: string) => Promise<void>) {
+  return {
+    rename: (source: string, destination: string) => intercept(() => fs.rename(source, destination), destination),
+    symlink: (target: string, destination: string, type: 'dir') => intercept(() => fs.symlink(target, destination, type), destination),
+  };
+}
+
+async function assertPublishedStarter(root: string, notebook: string) {
+  const actual = await fs.realpath(notebook);
+  assert.equal(path.basename(actual), 'Prism notebook');
+  const isAlias = process.platform !== 'win32';
+  assert.equal((await fs.lstat(notebook)).isSymbolicLink(), isAlias);
+  if (isAlias) assert.equal(path.isAbsolute(await fs.readlink(notebook)), false);
+  const expected = isAlias ? [path.basename(path.dirname(actual)), 'Prism notebook'].sort() : ['Prism notebook'];
+  assert.deepEqual((await fs.readdir(root)).sort(), expected);
+}
+
 test('loads nested Markdown notes while ignoring hidden and dependency directories', async (t) => {
   const { root, store } = await fixture(t);
   await fs.mkdir(path.join(root, 'Ideas'));
@@ -635,6 +652,21 @@ test('starter notebook is linked and existing notes are never reseeded', async (
   await assert.rejects(fs.stat(path.join(notebook, 'Connected thinking.md')), { code: 'ENOENT' });
 });
 
+test('a published starter remains complete when the entire user-data folder moves', async (t) => {
+  const { root } = await fixture(t);
+  const userData = path.join(root, 'User data');
+  const notebook = await ensureStarterNotebook(userData);
+  await assertPublishedStarter(userData, notebook);
+  const moved = path.join(root, 'Moved user data');
+  await fs.rename(userData, moved);
+  const reopened = await ensureStarterNotebook(moved);
+  assert.equal(reopened, path.join(moved, 'Prism notebook'));
+  const loaded = await (await WorkspaceStore.open(reopened)).load();
+  assert.equal(loaded.name, 'Prism notebook');
+  assert.equal(loaded.notes.length, 4);
+  assert.ok(loaded.notes.every((note) => note.content.includes('[[')));
+});
+
 test('starter write failure never exposes a partial final notebook and retry publishes all four notes', async (t) => {
   const { root } = await fixture(t);
   const final = path.join(root, 'Prism notebook');
@@ -656,7 +688,7 @@ test('starter write failure never exposes a partial final notebook and retry pub
   const loaded = await (await WorkspaceStore.open(notebook)).load();
   assert.equal(loaded.notes.length, 4);
   assert.ok(loaded.notes.every((note) => note.content.includes('[[')));
-  assert.deepEqual(await fs.readdir(root), ['Prism notebook']);
+  await assertPublishedStarter(root, notebook);
 });
 
 test('staging directory and metadata failures leave the final notebook absent and permit retry', async (t) => {
@@ -743,7 +775,7 @@ test('a final notebook appearing during staging is preserved, including when it 
         }
         await fs.writeFile(file, content, options);
       },
-      rename: async () => { assert.fail('Observed existing notebooks must not be replaced.'); },
+      ...interceptStarterPublication(async () => { assert.fail('Observed existing notebooks must not be replaced.'); }),
     });
     assert.equal(returned, notebook);
     assert.equal((await fs.stat(notebook)).ino, existing!.ino);
@@ -753,21 +785,28 @@ test('a final notebook appearing during staging is preserved, including when it 
   }
 });
 
-test('a populated destination created at publication wins without losing its notes', async (t) => {
-  const { root } = await fixture(t);
-  const notebook = path.join(root, 'Prism notebook');
-  const returned = await ensureStarterNotebook(root, {
-    ...fs,
-    rename: async (source, destination) => {
-      await fs.mkdir(destination);
-      await fs.writeFile(path.join(destination, 'Restored.md'), 'Restored user content');
-      await fs.rename(source, destination);
-    },
-  });
-  assert.equal(returned, notebook);
-  assert.equal(await fs.readFile(path.join(notebook, 'Restored.md'), 'utf8'), 'Restored user content');
-  assert.deepEqual(await fs.readdir(notebook), ['Restored.md']);
-  assert.deepEqual(await fs.readdir(root), ['Prism notebook']);
+test('empty and populated directories created in the final publication gap retain their identities and contents', async (t) => {
+  for (const populated of [false, true]) {
+    const { root } = await fixture(t);
+    const notebook = path.join(root, 'Prism notebook');
+    let existing: Awaited<ReturnType<typeof fs.stat>> | undefined;
+    const returned = await ensureStarterNotebook(root, {
+      ...fs,
+      ...interceptStarterPublication(async (publish, destination) => {
+        await fs.mkdir(destination);
+        if (populated) await fs.writeFile(path.join(destination, 'Restored.md'), 'Restored user content');
+        existing = await fs.stat(destination);
+        await publish();
+      }),
+    });
+    assert.equal(returned, notebook);
+    const after = await fs.stat(notebook);
+    assert.equal(after.ino, existing!.ino);
+    assert.equal(after.dev, existing!.dev);
+    assert.deepEqual(await fs.readdir(notebook), populated ? ['Restored.md'] : []);
+    if (populated) assert.equal(await fs.readFile(path.join(notebook, 'Restored.md'), 'utf8'), 'Restored user content');
+    assert.deepEqual(await fs.readdir(root), ['Prism notebook']);
+  }
 });
 
 test('unexpected publication errors preserve the original error and clean only staging', async (t) => {
@@ -775,7 +814,7 @@ test('unexpected publication errors preserve the original error and clean only s
   const original = Object.assign(new Error('Cannot publish notebook'), { code: 'EIO' });
   await assert.rejects(ensureStarterNotebook(root, {
     ...fs,
-    rename: async () => { throw original; },
+    ...interceptStarterPublication(async () => { throw original; }),
   }), (error) => error === original);
   assert.deepEqual(await fs.readdir(root), []);
 });
@@ -788,13 +827,13 @@ test('Windows publication permission errors count as a race only when a destinat
       const original = Object.assign(new Error('Windows rename was denied'), { code });
       const result = ensureStarterNotebook(root, {
         ...fs,
-        rename: async (_source, destination) => {
+        ...interceptStarterPublication(async (_publish, destination) => {
           if (destinationExists) {
             await fs.mkdir(destination);
             await fs.writeFile(path.join(destination, 'Keep.md'), 'User content');
           }
           throw original;
-        },
+        }),
       });
       if (destinationExists) {
         assert.equal(await result, notebook);
@@ -810,7 +849,7 @@ test('concurrent starter creation publishes one complete notebook and cleans the
   const [first, second] = await Promise.all([ensureStarterNotebook(root), ensureStarterNotebook(root)]);
   assert.equal(first, second);
   assert.equal((await (await WorkspaceStore.open(first)).load()).notes.length, 4);
-  assert.deepEqual(await fs.readdir(root), ['Prism notebook']);
+  await assertPublishedStarter(root, first);
 });
 
 test('staging cleanup preserves a replacement directory containing foreign content', async (t) => {

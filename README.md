@@ -17,6 +17,8 @@ npm start
 
 Prism opens a starter notebook with four connected notes. Use **Open notebook** to choose your own folder. Existing files are never seeded or overwritten. The chosen folder and appearance preferences are remembered when you reopen the app.
 
+On Linux and macOS, the starter folder is a symbolic link to a complete notebook in an adjacent `.prism-notebook-…` folder. When backing it up, copy the actual note files, not just the link. The **Open notebook** button's tooltip shows the resolved folder path. Windows uses an ordinary starter folder.
+
 This is a desktop application; opening the HTML file in a browser does not provide notebook access.
 
 ## Write, read, connect
