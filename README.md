@@ -35,7 +35,7 @@ Prism checks for external changes before saving and keeps your draft if it detec
 
 Saves retain recovery files beside the note in a hidden `.prism-recovery/save-…` directory: `original.md`, `draft.md`, and a manifest. A `complete` marker identifies a settled save. On loading a notebook, Prism can restore a missing note from an unfinished save; it never replaces an existing destination or restores deliberately deleted notes from completed saves. Recovery copies are not automatically pruned in this release.
 
-Saves preserve supported file metadata, including extended attributes and access controls. This uses GNU `/bin/cp` on Linux, the system `/bin/cp` on macOS, and Windows PowerShell for Windows permissions. If those helpers are unavailable or permissions cannot be preserved, Prism reports a save error and retains recovery copies. See [save recovery](docs/save-recovery.md) for platform details.
+Saves preserve supported file metadata, including extended attributes and access controls. This uses GNU `/bin/cp` on Linux, the native copy API through system `/usr/bin/osascript` on macOS, and Windows PowerShell for Windows permissions. If those helpers are unavailable or permissions cannot be preserved, Prism reports a save error and retains recovery copies. See [save recovery](docs/save-recovery.md) for platform details.
 
 | Action | Windows / Linux | macOS |
 | --- | --- | --- |

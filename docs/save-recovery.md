@@ -17,7 +17,7 @@ The recovery directory stays beside the note so capture does not cross filesyste
 The draft begins as an independent copy of the original file, including its supported metadata. Updating its text does not change its access-control entries. Publication and restoration use the same metadata-preserving copy operation.
 
 - Linux uses GNU `/bin/cp` to preserve ownership, permissions, ACLs, and extended attributes.
-- macOS uses the system `/bin/cp -p` to preserve ACLs, extended attributes, Finder tags, and resource forks.
+- macOS calls native `fcopyfile(COPYFILE_ALL)` through a fixed JavaScript for Automation script run by `/usr/bin/osascript`. It copies ownership, permissions, ACLs, extended attributes, Finder tags, and resource forks directly between inherited descriptors.
 - Windows uses native copying for file attributes and alternate data streams, plus Windows PowerShell and handle-based security APIs to preserve owner, group, and discretionary ACLs, including inheritance protection.
 
 POSIX destinations are claimed with exclusive creation before invoking the copier. The copier receives inherited file handles rather than notebook paths. The Windows security helper also operates on inherited handles. Replacing a pathname cannot redirect these metadata changes to another file.
@@ -37,6 +37,6 @@ Inspect unfinished transactions and restore a captured original only when its va
 - Restart with an unfinished transaction and an existing note; preserve the existing note.
 - Delete a note after a completed save; do not restore it from completed history.
 - Exercise exclusive-copy fallback, save failures, permissions, hard-link aliases, and the native save/draft flows.
-- Verify actual Linux ACLs/xattrs, macOS Finder metadata/resource forks, and Windows discretionary ACLs/alternate data streams on both live and retained files.
+- Verify actual Linux ACLs/xattrs, macOS ACLs/Finder metadata/resource forks, and Windows discretionary ACLs/alternate data streams on both live and retained files.
 
 Recovery copies consume disk space and remain available for manual inspection. Automatic retention limits and a recovery browser are follow-up work.

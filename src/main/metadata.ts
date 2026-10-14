@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { constants, type Stats } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import { preserveWindowsMetadata } from './windows-metadata';
+import { copyMacDescriptors } from './mac-metadata';
 import { MAX_NOTE_BYTES } from './limits';
 
 function sameIdentity(a: Stats, b: Stats): boolean { return a.dev === b.dev && a.ino === b.ino; }
@@ -18,9 +19,8 @@ async function openRegular(file: string, access: number): Promise<fs.FileHandle>
 }
 
 async function copyPosixDescriptors(source: fs.FileHandle, destination: fs.FileHandle): Promise<void> {
-  const args = process.platform === 'darwin'
-    ? ['-p', '/dev/fd/3', '/dev/fd/4']
-    : ['--preserve=mode,ownership,xattr', '--', '/proc/self/fd/3', '/proc/self/fd/4'];
+  if (process.platform === 'darwin') return copyMacDescriptors(source, destination);
+  const args = ['--preserve=mode,ownership,xattr', '--', '/proc/self/fd/3', '/proc/self/fd/4'];
   const env = { ...process.env };
   delete env.COPYFILE_DISABLE;
   delete env.COPY_EXTENDED_ATTRIBUTES_DISABLE;

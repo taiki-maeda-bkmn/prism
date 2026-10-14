@@ -156,6 +156,22 @@ test('macOS saves retain the resource fork on live and recovery files', { skip: 
   await assertPreservedSave(root, target, file => readMacAttributes(file, [name]));
 });
 
+test('macOS saves retain a custom extended ACL, ownership, and permissions on live and recovery files', { skip: process.platform !== 'darwin' }, async (t) => {
+  const { root, target } = await fixture(t);
+  await fs.chmod(target, 0o640);
+  await run('/bin/chmod', ['+a', 'group:everyone allow read,readattr,readextattr,readsecurity', target]);
+  const readMetadata = async (file: string) => {
+    const { stdout } = await run('/bin/ls', ['-lde', file]);
+    const stats = await fs.stat(file);
+    const acl = stdout.split('\n').filter(line => /^\s*\d+:/.test(line)).map(line => line.trim());
+    return { acl, uid: stats.uid, gid: stats.gid, mode: stats.mode & 0o777 };
+  };
+  const initial = await readMetadata(target);
+  assert.ok(initial.acl.some(entry => entry.includes('group:everyone allow read')), 'The fixture must contain an explicit extended ACL.');
+  assert.equal(initial.mode, 0o640);
+  await assertPreservedSave(root, target, readMetadata);
+});
+
 async function powershell(script: string, file: string) {
   const env: NodeJS.ProcessEnv = { ...process.env, PRISM_METADATA_TARGET: file };
   // Windows PowerShell must resolve its own modules even when CI starts in pwsh.
