@@ -2,6 +2,10 @@
 
 Prism PDF is a separate local desktop PDF library and reader in this repository. The Markdown workspace continues to run with `npm start`; launch this app with `npm run start:pdf`.
 
+![Prism PDF library with a real document thumbnail, tags, and favorites](docs/library.png)
+
+[See the PDF reader](docs/reader.png). Screenshots show the actual Electron app with a test document.
+
 ## Run locally
 
 Use Node.js 22.22.2 or newer. From the repository root:
