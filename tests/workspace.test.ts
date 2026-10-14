@@ -316,6 +316,48 @@ test('a known empty original or draft is a complete version', async (t) => {
   }
 });
 
+test('a missing captured original cannot settle a partial or missing target before a known version is restored', async (t) => {
+  for (const repaired of ['Original', 'Retained draft']) {
+    const { root } = await fixture(t);
+    const target = path.join(root, 'Note.md');
+    await fs.writeFile(target, 'Original');
+    await fs.writeFile(path.join(root, 'Good.md'), 'Unrelated note');
+    const transaction = await pendingRecovery(root);
+    await fs.unlink(transaction.original);
+    await fs.writeFile(target, 'Retained', { flag: 'wx' });
+    const partial = await (await WorkspaceStore.open(root)).load();
+    assert.deepEqual(partial.notes.map(note => note.path), ['Good.md']);
+    assert.match(partial.warnings.join(' '), /Note.md.*not loaded.*manual recovery/i);
+    assert.equal(await fs.readFile(target, 'utf8'), 'Retained');
+    assert.equal(await transaction.isComplete(), false);
+    await fs.unlink(target);
+    const absent = await (await WorkspaceStore.open(root)).load();
+    assert.deepEqual(absent.notes.map(note => note.path), ['Good.md']);
+    assert.match(absent.warnings.join(' '), /Note.md.*not loaded.*manual recovery/i);
+    assert.equal(await transaction.isComplete(), false);
+    await assert.rejects(fs.stat(target), { code: 'ENOENT' });
+
+    await fs.writeFile(target, repaired, { flag: 'wx' });
+    const restored = await (await WorkspaceStore.open(root)).load();
+    assert.equal(restored.notes.find(note => note.path === 'Note.md')?.content, repaired);
+    assert.equal(await transaction.isComplete(), true);
+    assert.equal(await fs.readFile(transaction.draft, 'utf8'), 'Retained draft');
+  }
+});
+
+test('an interruption before capture settles when the original target still matches the manifest', async (t) => {
+  const { root } = await fixture(t);
+  const canonical = await fs.realpath(root);
+  await fs.writeFile(path.join(root, 'Note.md'), 'Original');
+  const transaction = await SaveRecovery.prepare(canonical, 'Note.md', 'Retained draft',
+    createHash('sha256').update('Original').digest('hex'), async () => undefined);
+  await assert.rejects(fs.stat(transaction.original), { code: 'ENOENT' });
+  const loaded = await (await WorkspaceStore.open(root)).load();
+  assert.equal(loaded.notes[0].content, 'Original');
+  assert.equal(await transaction.isComplete(), true);
+  assert.equal(await fs.readFile(transaction.draft, 'utf8'), 'Retained draft');
+});
+
 test('an altered retained draft cannot authenticate an incomplete destination', async (t) => {
   const { root } = await fixture(t);
   const target = path.join(root, 'Note.md');

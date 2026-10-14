@@ -190,13 +190,13 @@ export class SaveRecovery {
     } finally { await handle.close(); }
   }
 
-  private async verifyTarget(maximumNoteBytes: number): Promise<boolean> {
+  private async verifyTarget(maximumNoteBytes: number, retainedOriginal = true): Promise<boolean> {
     await this.guard();
     const target = await readStableHash(this.target, maximumNoteBytes);
     // Capture can preserve an external edit newer than the manifest's original.
     // The draft must match its manifest hash, since draft preparation can fail.
     const known = target.hash === this.manifest.originalHash || target.hash === this.manifest.draftHash
-      || target.hash === (await readStableHash(this.original, maximumNoteBytes)).hash;
+      || (retainedOriginal && target.hash === (await readStableHash(this.original, maximumNoteBytes)).hash);
     if (!known) return false;
     await this.flushTarget(target.stat);
     return true;
@@ -208,6 +208,9 @@ export class SaveRecovery {
     try { original = await fs.lstat(this.original); }
     catch (error) {
       if (codeOf(error) !== 'ENOENT') throw error;
+      // A missing backup can mean preparation stopped before capture, or that
+      // an interrupted save later lost its backup. Only known target bytes settle it.
+      if (!await this.verifyTarget(maximumNoteBytes, false)) return 'unverified';
       await this.complete();
       return 'uncaptured';
     }
