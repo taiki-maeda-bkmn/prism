@@ -25,8 +25,8 @@ Before reporting the work complete, check CI and the Codex review against the cu
 
 ## Verification
 
-- 53 Markdown, filesystem, external-link, and resource-access tests pass locally, including heading fragments, literal percent filenames, note creation without hard links, rejection of replaced notebook folders, and recovery from partial starter creation and metadata errors while preserving unrelated files and edits.
-- Four native Electron scenarios cover editor modes, preview, disk saves, draft retention, close cancellation, refresh/discard, invalid and duplicate names, graph navigation, backlinks, persisted appearance, startup retry, percent-containing filenames, and scrolling to linked headings.
+- 51 Markdown, filesystem, external-link, and resource-access tests pass locally, including heading fragments, literal percent filenames, note creation without hard links, rejection of replaced notebook folders, and staged starter publication that recovers after interrupted setup and preserves existing notebooks.
+- Five native Electron scenarios cover editor modes, preview, disk saves, draft retention, close cancellation, refresh/discard, invalid and duplicate names, graph navigation, backlinks, persisted appearance, startup retry, percent-containing filenames, scrolling to linked headings, and external web/email links.
 - Native window capture confirms alpha 255 when opaque and approximately 89 at 35% background opacity.
 - A normal launch with the sandbox enabled succeeds in the local Linux/WSLg environment. Windows/macOS compositor behavior still needs physical desktop testing.
 - Linux and Windows build/unit checks and a Linux desktop journey run in GitHub Actions. Current results and review activity are on [PR #2](https://github.com/beautysamurai/prism/pull/2).

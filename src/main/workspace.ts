@@ -253,90 +253,56 @@ const starterNotes: Record<string, string> = {
   'Ideas/Small beginnings.md': `# Small beginnings\n\nA place for thoughts that aren't quite ready yet.\n\n## What if…\n\n- A notebook felt like a window instead of a wall?\n- Every interesting question had a place to land?\n- Small, daily notes quietly became something larger?\n\n## A seed to keep\n\nThe best system is the one that makes it easy to begin. Today, one sentence is enough.\n\nTry [[Writing in Markdown]] when your idea needs a little shape. Add a link to [[Connected thinking]] when it finds a friend.\n\n[[Welcome to Prism|Back to the beginning]]\n`,
 };
 
-interface StarterFileHandle {
-  stat(): Promise<Stats>;
-  writeFile(content: string, encoding: 'utf8'): Promise<void>;
-  sync(): Promise<void>;
-  close(): Promise<void>;
-}
-
 interface StarterNotebookIO {
   mkdir(directory: string, options?: { recursive: boolean }): Promise<unknown>;
-  open(file: string, flags: 'wx'): Promise<StarterFileHandle>;
-  unlink(file: string): Promise<void>;
-  rmdir(directory: string): Promise<void>;
+  mkdtemp(prefix: string): Promise<string>;
   lstat(file: string): Promise<Stats>;
+  writeFile(file: string, content: string, options: { encoding: 'utf8'; flag: 'wx'; flush: true }): Promise<void>;
+  rename(source: string, destination: string): Promise<void>;
+  rm(directory: string, options: { recursive: true; force: true }): Promise<void>;
+  rmdir(directory: string): Promise<void>;
 }
 
-type OwnedStarterPath = { path: string; ino?: number; dev?: number };
-type OwnedStarterFile = OwnedStarterPath & { content: string; complete: boolean };
-
-async function ownsStarterPath(owned: OwnedStarterPath, directory: boolean, io: StarterNotebookIO): Promise<boolean> {
-  if (owned.ino === undefined || owned.dev === undefined) return false;
-  const current = await io.lstat(owned.path);
-  return (directory ? current.isDirectory() : current.isFile()) && current.ino === owned.ino && current.dev === owned.dev;
-}
-
-/** Existing notebooks are never reseeded or overwritten, including empty ones. */
+/** Publish a complete starter notebook; existing notebooks are never reseeded. */
 export async function ensureStarterNotebook(userData: string, io: StarterNotebookIO = fs): Promise<string> {
   await io.mkdir(userData, { recursive: true });
   const directory = path.join(userData, 'Prism notebook');
-  try { await io.mkdir(directory); }
-  catch (error) { if (codeOf(error) === 'EEXIST') return directory; throw error; }
-  const directories: OwnedStarterPath[] = [];
-  const files: OwnedStarterFile[] = [];
-  const trackDirectory = async (createdPath: string) => {
-    const owned: OwnedStarterPath = { path: createdPath };
-    directories.push(owned);
-    Object.assign(owned, await io.lstat(createdPath));
+  const destinationExists = async () => {
+    try { await io.lstat(directory); return true; }
+    catch (error) { if (codeOf(error) === 'ENOENT') return false; throw error; }
   };
+  if (await destinationExists()) return directory;
+
+  // Interrupted launches leave only a private staging directory; retries start afresh.
+  const staging = await io.mkdtemp(path.join(userData, '.prism-notebook-'));
+  let identity: Pick<Stats, 'ino' | 'dev'> | undefined;
+  let published = false;
   try {
-    await trackDirectory(directory);
-    const ideas = path.join(directory, 'Ideas');
-    await io.mkdir(ideas);
-    await trackDirectory(ideas);
+    identity = await io.lstat(staging);
+    await io.mkdir(path.join(staging, 'Ideas'));
     for (const [name, content] of Object.entries(starterNotes)) {
-      const file = path.join(directory, name);
-      const handle = await io.open(file, 'wx');
-      const owned: OwnedStarterFile = { path: file, content, complete: false };
-      files.push(owned);
-      try {
-        Object.assign(owned, await handle.stat());
-        await handle.writeFile(content, 'utf8');
-        await handle.sync();
-        owned.complete = true;
-      } catch (error) {
-        if (owned.ino === undefined || owned.dev === undefined) {
-          try { Object.assign(owned, await handle.stat()); }
-          catch { /* Unknown ownership must preserve the file rather than risk deleting user data. */ }
-        }
-        await handle.close().catch(() => undefined);
-        throw error;
-      }
-      await handle.close();
+      await io.writeFile(path.join(staging, name), content, { encoding: 'utf8', flag: 'wx', flush: true });
     }
+    if (await destinationExists()) return directory;
+    try { await io.rename(staging, directory); }
+    catch (error) {
+      // Another creator may publish a populated notebook after the preceding check.
+      if (['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES'].includes(codeOf(error) || '') && await destinationExists()) return directory;
+      throw error;
+    }
+    published = true;
     return directory;
-  } catch (error) {
-    for (const file of files.reverse()) {
+  } finally {
+    if (!published) {
       try {
-        const parents = directories.filter((parent) => file.path.startsWith(`${parent.path}${path.sep}`));
-        if (!(await Promise.all(parents.map((parent) => ownsStarterPath(parent, true, io)))).every(Boolean)
-          || !await ownsStarterPath(file, false, io)) continue;
-        const expected = Buffer.from(file.content, 'utf8');
-        if ((await fs.stat(file.path)).size > expected.length) continue;
-        const current = await fs.readFile(file.path);
-        // Preserve edits made to an owned file, as well as files created by others.
-        if (file.complete ? !current.equals(expected) : !current.equals(expected.subarray(0, current.length))) continue;
-        if (await ownsStarterPath(file, false, io)) await io.unlink(file.path);
-      } catch { /* Cleanup failure must not hide the original seeding error. */ }
+        if (!identity) await io.rmdir(staging);
+        else {
+          const current = await io.lstat(staging);
+          if (current.isDirectory() && current.ino === identity.ino && current.dev === identity.dev) {
+            await io.rm(staging, { recursive: true, force: true });
+          }
+        }
+      } catch { /* Cleanup never hides the original error or removes the final notebook. */ }
     }
-    for (const owned of directories.reverse()) {
-      try {
-        // rmdir only removes an empty directory, preserving unrelated restored/user files.
-        // A metadata failure still permits removing our newly created empty directory.
-        if (owned.ino === undefined || owned.dev === undefined || await ownsStarterPath(owned, true, io)) await io.rmdir(owned.path);
-      } catch { /* Existing content or cleanup errors leave the directory intact. */ }
-    }
-    throw error;
   }
 }

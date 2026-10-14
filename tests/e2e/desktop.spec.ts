@@ -440,3 +440,59 @@ test('scrolls to linked headings after note navigation and preserves literal has
     await rm(headingDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
+
+test('opens protocol-relative, HTTPS, and email preview links externally', async ({}, testInfo) => {
+  const externalDirectory = await mkdtemp(path.join(os.tmpdir(), 'prism-external-links-'));
+  const externalNotebook = path.join(externalDirectory, 'notebook');
+  const externalUserData = path.join(externalDirectory, 'user-data');
+  let externalApp: ElectronApplication | undefined;
+  let externalPage: Page | undefined;
+  try {
+    await mkdir(externalNotebook, { recursive: true });
+    await mkdir(externalUserData, { recursive: true });
+    await writeFile(path.join(externalNotebook, 'Welcome to Prism.md'), '# Welcome to Prism\n\n[Protocol-relative site](//example.com/page)\n\n[HTTPS site](https://example.com/secure?from=prism#section)\n\n[Email author](mailto:author@example.com?subject=Hello%20Prism)\n');
+    externalApp = await electron.launch({
+      args: ['--no-sandbox', '.'], cwd: process.cwd(),
+      env: { ...process.env, PRISM_USER_DATA: externalUserData, PRISM_WORKSPACE: externalNotebook },
+    });
+    // Keep the renderer, preload bridge, IPC handler, and URL validation real;
+    // intercept only the final operating-system handoff in this disposable app.
+    const openedDestinations = await externalApp.evaluateHandle(({ shell }) => {
+      const destinations: string[] = [];
+      shell.openExternal = async (url) => { destinations.push(url); };
+      return destinations;
+    });
+    externalPage = await externalApp.firstWindow();
+    await expect(externalPage.locator('.note-heading h1')).toHaveText('Welcome to Prism');
+    const initialURL = externalPage.url();
+    const expectedDestinations: string[] = [];
+    for (const destination of [
+      { label: 'Protocol-relative site', url: 'https://example.com/page' },
+      { label: 'HTTPS site', url: 'https://example.com/secure?from=prism#section' },
+      { label: 'Email author', url: 'mailto:author@example.com?subject=Hello%20Prism' },
+    ]) {
+      await externalPage.locator('.markdown-body').getByRole('link', { name: destination.label, exact: true }).click();
+      expectedDestinations.push(destination.url);
+      await expect.poll(() => openedDestinations.jsonValue()).toEqual(expectedDestinations);
+      await expect(externalPage.locator('.message-banner')).toHaveCount(0);
+      await expect(externalPage.locator('.note-heading h1')).toHaveText('Welcome to Prism');
+      expect(externalPage.url()).toBe(initialURL);
+    }
+    await openedDestinations.dispose();
+  } catch (error) {
+    if (externalPage && !externalPage.isClosed()) {
+      const screenshot = await externalPage.screenshot().catch(() => undefined);
+      if (screenshot) await testInfo.attach('External preview link failure', { body: screenshot, contentType: 'image/png' });
+    }
+    throw error;
+  } finally {
+    if (externalApp) {
+      const child = externalApp.process();
+      const closed = externalApp.waitForEvent('close', { timeout: 5_000 }).catch(() => undefined);
+      await externalApp.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
+      await closed;
+      if (child.exitCode === null) child.kill();
+    }
+    await rm(externalDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});

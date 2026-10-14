@@ -256,8 +256,9 @@ export function App() {
     if (!link) return;
     event.preventDefault();
     const href = link.getAttribute('href') || '';
-    if (/^https?:\/\//i.test(href) || /^mailto:/i.test(href)) {
-      void window.prism.openExternal(href).catch(cause => setError(message(cause)));
+    const externalHref = href.startsWith('//') ? `https:${href}` : href;
+    if (/^https?:\/\//i.test(externalHref) || /^mailto:/i.test(externalHref)) {
+      void window.prism.openExternal(externalHref).catch(cause => setError(message(cause)));
       return;
     }
     const target = resolveNoteLink(href, previewNote?.path ?? activePath, notes);
