@@ -170,8 +170,15 @@ export class LibraryStore {
     if ((current ? digest(current) : null) !== this.catalogHash) throw new Error('The PDF catalog changed outside this application. Reopen Prism PDF to load it safely.');
   }
 
-  private snapshot(): LibrarySnapshot {
-    return { documents: this.documents.map(document => ({ ...document, tags: [...document.tags] })), warnings: [] };
+  private async snapshot(): Promise<LibrarySnapshot> {
+    const warnings: string[] = [];
+    for (const document of this.documents) {
+      try {
+        const file = await fs.lstat(path.join(this.filesDirectory, `${document.id}.pdf`));
+        if (!file.isFile() || file.isSymbolicLink() || file.size !== document.size) warnings.push(`${document.filename}: its managed copy is unavailable or changed.`);
+      } catch { warnings.push(`${document.filename}: its managed copy is unavailable.`); }
+    }
+    return { documents: this.documents.map(document => ({ ...document, tags: [...document.tags] })), warnings };
   }
 
   private lookup(id: unknown): PDFDocument {
@@ -252,14 +259,7 @@ export class LibraryStore {
   load(): Promise<LibrarySnapshot> {
     return this.serialize(async () => {
       await this.checkCatalog();
-      const warnings: string[] = [];
-      for (const document of this.documents) {
-        try {
-          const file = await fs.lstat(path.join(this.filesDirectory, `${document.id}.pdf`));
-          if (!file.isFile() || file.isSymbolicLink() || file.size !== document.size) warnings.push(`${document.filename}: its managed copy is unavailable or changed.`);
-        } catch { warnings.push(`${document.filename}: its managed copy is unavailable.`); }
-      }
-      return { ...this.snapshot(), warnings };
+      return this.snapshot();
     });
   }
 
@@ -307,7 +307,7 @@ export class LibraryStore {
           }
         } catch (error) { errors.push(`${filename}: ${message(error)}`); }
       }
-      return { library: this.snapshot(), importedIds, duplicateCount, errors };
+      return { library: await this.snapshot(), importedIds, duplicateCount, errors };
     });
   }
 

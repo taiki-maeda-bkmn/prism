@@ -265,6 +265,65 @@ test('detects changed and missing managed copies without modifying them', async 
   assert.deepEqual(await fs.readFile(source), pdf);
 });
 
+test('mutation snapshots retain current missing and altered PDF warnings until each problem is resolved', async t => {
+  const { directory, root, source, store } = await fixture(t);
+  const changedSource = path.join(directory, 'Changed.pdf');
+  const healthySource = path.join(directory, 'Healthy.pdf');
+  const changedBytes = Buffer.concat([pdf, Buffer.from('%changed document')]);
+  await fs.writeFile(changedSource, changedBytes);
+  await fs.writeFile(healthySource, Buffer.concat([pdf, Buffer.from('%healthy document')]));
+  const [missing, changed, healthy] = (await store.import([source, changedSource, healthySource])).library.documents;
+  const managed = (id: string) => path.join(root, 'documents', id + '.pdf');
+  await fs.unlink(managed(missing.id));
+  await fs.appendFile(managed(changed.id), '%external change');
+  const expected = [
+    missing.filename + ': its managed copy is unavailable.',
+    changed.filename + ': its managed copy is unavailable or changed.',
+  ];
+  assert.deepEqual((await store.load()).warnings, expected);
+  assert.deepEqual((await store.import([])).library.warnings, expected);
+  const unrelatedSource = path.join(directory, 'Unrelated.pdf');
+  await fs.writeFile(unrelatedSource, Buffer.concat([pdf, Buffer.from('%unrelated document')]));
+  const imported = await store.import([unrelatedSource]);
+  assert.deepEqual(imported.errors, []);
+  assert.equal(imported.importedIds.length, 1);
+  assert.deepEqual(imported.library.warnings, expected);
+  assert.deepEqual((await store.remove(imported.importedIds[0])).warnings, expected);
+  assert.deepEqual((await store.remove(missing.id)).warnings, [expected[1]]);
+  await fs.writeFile(managed(changed.id), changedBytes);
+  assert.deepEqual((await store.load()).warnings, []);
+  // A problem introduced after the last load is discovered by a mutation too.
+  await fs.unlink(managed(healthy.id));
+  const later = await store.import([unrelatedSource]);
+  assert.deepEqual(later.library.warnings, [healthy.filename + ': its managed copy is unavailable.']);
+  assert.deepEqual((await store.remove(healthy.id)).warnings, []);
+  assert.deepEqual((await (await LibraryStore.open(root)).load()).warnings, []);
+});
+
+test('a warning scan failure after catalog publication does not turn a committed import into a failure', async t => {
+  let managed = '';
+  const { root, source, store } = await fixture(t, {
+    createFile: async filename => {
+      const handle = await fs.open(filename, 'wx+', 0o600);
+      if (filename.endsWith('.pdf')) managed = filename;
+      return handle;
+    },
+    rename: async (from, to) => {
+      await fs.rename(from, to);
+      // Simulate an external deletion immediately after catalog publication:
+      // the snapshot's lstat will reject, but the import remains committed.
+      await fs.unlink(managed);
+    },
+  });
+  const result = await store.import([source]);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.importedIds.length, 1);
+  assert.equal(result.library.documents[0].id, result.importedIds[0]);
+  assert.deepEqual(result.library.warnings, ['My document.pdf: its managed copy is unavailable.']);
+  assert.deepEqual((await (await LibraryStore.open(root)).load()), result.library);
+  assert.deepEqual(await fs.readFile(source), pdf);
+});
+
 test('does not follow imported symlinks or replaced managed directories', async t => {
   const { directory, root, source, store } = await fixture(t);
   const link = path.join(directory, 'Linked.pdf');
