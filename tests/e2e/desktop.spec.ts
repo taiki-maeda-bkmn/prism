@@ -356,3 +356,87 @@ test('opens percent-containing filenames consistently in previews, graphs, and b
     await rm(linkDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
+
+test('scrolls to linked headings after note navigation and preserves literal hash filenames', async ({}, testInfo) => {
+  const headingDirectory = await mkdtemp(path.join(os.tmpdir(), 'prism-heading-links-'));
+  const headingNotebook = path.join(headingDirectory, 'notebook');
+  const headingUserData = path.join(headingDirectory, 'user-data');
+  let headingApp: ElectronApplication | undefined;
+  let headingPage: Page | undefined;
+  const paragraphs = Array.from({ length: 35 }, (_, index) => `Paragraph ${index + 1} keeps the destination section below the initial preview viewport.`).join('\n\n');
+  const longNote = (title: string) => `# ${title}\n\n${paragraphs}\n\n## Target heading\n\nThe requested destination is here.\n\n${paragraphs}\n`;
+  try {
+    await mkdir(headingNotebook, { recursive: true });
+    await mkdir(headingUserData, { recursive: true });
+    const fixtures: Record<string, string> = {
+      'Welcome to Prism.md': `# Welcome to Prism\n\n[Markdown section](Markdown%20note.md#target-heading)\n\n[[Wiki note#Target heading|Wiki section]]\n\n[[Hash note#Target heading|Literal hash filename]]\n\n[[#Welcome section|Same-note section]]\n\n${paragraphs}\n\n## Welcome section\n\nThe same-note destination is here.\n\n${paragraphs}\n`,
+      'Markdown note.md': longNote('Markdown destination'),
+      'Wiki note.md': longNote('Wiki destination'),
+      'Hash note.md': longNote('Hash fallback'),
+      'Hash note#Target heading.md': longNote('Literal hash filename destination'),
+    };
+    await Promise.all(Object.entries(fixtures).map(([name, content]) => writeFile(path.join(headingNotebook, name), content)));
+    headingApp = await electron.launch({
+      args: ['--no-sandbox', '.'], cwd: process.cwd(),
+      env: { ...process.env, PRISM_USER_DATA: headingUserData, PRISM_WORKSPACE: headingNotebook },
+    });
+    headingPage = await headingApp.firstWindow();
+    await expect(headingPage.locator('.note-heading h1')).toHaveText('Welcome to Prism');
+
+    async function headingIsInViewport(id: string): Promise<boolean> {
+      return headingPage!.locator('.markdown-body').evaluate((preview, headingId) => {
+        const heading = preview.querySelector(`[id="${CSS.escape(headingId)}"]`);
+        if (!heading) return false;
+        const viewport = preview.getBoundingClientRect();
+        const box = heading.getBoundingClientRect();
+        return box.top >= viewport.top && box.bottom <= viewport.bottom;
+      }, id);
+    }
+
+    async function expectScrolledTo(id: string) {
+      await expect.poll(() => headingIsInViewport(id)).toBe(true);
+      await expect.poll(() => headingPage!.locator('.markdown-body').evaluate(preview => preview.scrollTop)).toBeGreaterThan(200);
+    }
+
+    for (const destination of [
+      { label: 'Markdown section', title: 'Markdown destination', mode: 'Read' },
+      { label: 'Wiki section', title: 'Wiki destination', mode: 'Split' },
+    ]) {
+      await headingPage.getByRole('navigation', { name: 'Notes', exact: true }).getByTitle('Welcome to Prism.md', { exact: true }).click();
+      await headingPage.getByRole('button', { name: destination.mode, exact: true }).click();
+      await headingPage.locator('.markdown-body').getByRole('link', { name: destination.label, exact: true }).click();
+      await expect(headingPage.locator('.note-heading h1')).toHaveText(destination.title);
+      await expectScrolledTo('target-heading');
+    }
+
+    await headingPage.getByRole('navigation', { name: 'Notes', exact: true }).getByTitle('Welcome to Prism.md', { exact: true }).click();
+    await headingPage.locator('.markdown-body').getByRole('link', { name: 'Literal hash filename', exact: true }).click();
+    await expect(headingPage.locator('.note-heading h1')).toHaveText('Literal hash filename destination');
+
+    await headingPage.getByRole('navigation', { name: 'Notes', exact: true }).getByTitle('Welcome to Prism.md', { exact: true }).click();
+    await headingPage.getByRole('button', { name: 'Read', exact: true }).click();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await headingPage.locator('.markdown-body').evaluate(preview => { preview.scrollTop = 0; });
+      await expect.poll(() => headingIsInViewport('welcome-section')).toBe(false);
+      await headingPage.locator('.markdown-body').getByRole('link', { name: 'Same-note section', exact: true }).click();
+      await expect(headingPage.locator('.note-heading h1')).toHaveText('Welcome to Prism');
+      await expectScrolledTo('welcome-section');
+    }
+    await expect(headingPage.locator('.message-banner.error')).toHaveCount(0);
+  } catch (error) {
+    if (headingPage && !headingPage.isClosed()) {
+      const screenshot = await headingPage.screenshot().catch(() => undefined);
+      if (screenshot) await testInfo.attach('Heading link navigation failure', { body: screenshot, contentType: 'image/png' });
+    }
+    throw error;
+  } finally {
+    if (headingApp) {
+      const child = headingApp.process();
+      const closed = headingApp.waitForEvent('close', { timeout: 5_000 }).catch(() => undefined);
+      await headingApp.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
+      await closed;
+      if (child.exitCode === null) child.kill();
+    }
+    await rm(headingDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});

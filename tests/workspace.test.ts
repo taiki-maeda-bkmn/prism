@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { constants } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -133,6 +134,79 @@ test('concurrent creates claim a filename exclusively', async (t) => {
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
   assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
   assert.deepEqual(await fs.readdir(root), ['One.md']);
+});
+
+test('unsupported hard links fall back to exclusive copy without overwriting notes or leaving temporary files', async (t) => {
+  for (const code of ['ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EPERM']) {
+    const { root } = await fixture(t);
+    let copies = 0;
+    const store = await WorkspaceStore.open(root, {
+      link: async () => { throw Object.assign(new Error('Hard links are unsupported'), { code }); },
+      copyFile: async (source, destination, mode) => {
+        copies++;
+        assert.equal(mode, constants.COPYFILE_EXCL);
+        await fs.copyFile(source, destination, mode);
+      },
+    });
+    const created = await store.create('Portable.md');
+    assert.equal(created.content, '# Portable\n\n');
+    await assert.rejects(store.create('Portable.md'), /already exists/);
+    assert.equal(copies, 2);
+    assert.equal(await fs.readFile(path.join(root, 'Portable.md'), 'utf8'), created.content);
+    assert.deepEqual(await fs.readdir(root), ['Portable.md']);
+  }
+});
+
+test('exclusive copy preserves a destination created while hard-link installation was failing', async (t) => {
+  const { root } = await fixture(t);
+  const store = await WorkspaceStore.open(root, {
+    link: async (_source, destination) => {
+      await fs.writeFile(destination, 'Another application created this note', { flag: 'wx' });
+      throw Object.assign(new Error('Hard links are unsupported'), { code: 'ENOTSUP' });
+    },
+    copyFile: fs.copyFile,
+  });
+  await assert.rejects(store.create('Shared.md'), /already exists/);
+  assert.equal(await fs.readFile(path.join(root, 'Shared.md'), 'utf8'), 'Another application created this note');
+  assert.deepEqual(await fs.readdir(root), ['Shared.md']);
+});
+
+test('creation preserves original install errors and removes temporary files without touching other notes', async (t) => {
+  for (const failCopy of [false, true]) {
+    const { root } = await fixture(t);
+    await fs.writeFile(path.join(root, 'Existing.md'), 'Keep my work');
+    const original = Object.assign(new Error('Install failed'), { code: failCopy ? 'ENOSPC' : 'EIO' });
+    let copies = 0;
+    const store = await WorkspaceStore.open(root, {
+      link: async () => {
+        if (failCopy) throw Object.assign(new Error('Hard links are unsupported'), { code: 'ENOTSUP' });
+        throw original;
+      },
+      copyFile: async () => { copies++; throw original; },
+    });
+    await assert.rejects(store.create('New.md'), (error) => error === original);
+    assert.equal(copies, failCopy ? 1 : 0);
+    assert.deepEqual(await fs.readdir(root), ['Existing.md']);
+    assert.equal(await fs.readFile(path.join(root, 'Existing.md'), 'utf8'), 'Keep my work');
+  }
+});
+
+test('exclusive-copy fallback rechecks notebook identity before installing a new note', async (t) => {
+  const { root } = await fixture(t);
+  const notebook = path.join(root, 'Notebook');
+  await fs.mkdir(notebook);
+  let copies = 0;
+  const store = await WorkspaceStore.open(notebook, {
+    link: async () => {
+      await fs.rename(notebook, path.join(root, 'Moved notebook'));
+      await fs.mkdir(notebook);
+      throw Object.assign(new Error('Hard links are unsupported'), { code: 'ENOTSUP' });
+    },
+    copyFile: async () => { copies++; },
+  });
+  await assert.rejects(store.create('New.md'), /notebook folder changed/);
+  assert.equal(copies, 0);
+  assert.deepEqual(await fs.readdir(notebook), []);
 });
 
 test('unsafe paths and unsupported names are rejected before writing', async (t) => {

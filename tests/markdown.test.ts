@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
-import { extractLinks, getBacklinks, getNoteLinks, getTitle, renderMarkdown, resolveLink } from '../src/renderer/markdown';
+import { extractLinks, getBacklinks, getNoteLinks, getTitle, renderMarkdown, resolveLink, resolveNoteLink } from '../src/renderer/markdown';
 import type { Note } from '../src/shared/types';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -82,6 +82,50 @@ test('wiki links prefer literal hash filenames and retain heading fallback witho
   assert.equal(resolveLink(href, 'Source.md', notes)?.path, 'Topic#part.md');
   const ambiguous = [note('Source.md'), note('Topic.md'), note('One/Topic#part.md'), note('Two/Topic#part.md')];
   assert.equal(resolveLink(href, 'Source.md', ambiguous), undefined);
+});
+
+test('note destinations retain URI fragments, decoding the path and fragment exactly once', () => {
+  const source = note('Source.md');
+  const other = note('Other.md');
+  const escaped = note('Percent%25.md');
+  const hash = note('Other#part.md');
+  const notes = [source, other, escaped, hash];
+  assert.deepEqual(resolveNoteLink('Other.md#setup', source.path, notes), { note: other, fragment: 'setup' });
+  assert.deepEqual(resolveNoteLink('Other.md?read=true#setup', source.path, notes), { note: other, fragment: 'setup' });
+  assert.deepEqual(resolveNoteLink('Other.md#setup?detail', source.path, notes), { note: other, fragment: 'setup?detail' });
+  assert.deepEqual(resolveNoteLink('Percent%2525.md#part%2525', source.path, notes), { note: escaped, fragment: 'part%25' });
+  assert.deepEqual(resolveNoteLink('Other%23part.md#%E6%97%A5%E6%9C%AC%E8%AA%9E', source.path, notes), { note: hash, fragment: '日本語' });
+  assert.deepEqual(resolveNoteLink('Other%23part.md', source.path, notes), { note: hash });
+  assert.deepEqual(resolveNoteLink('#setup', source.path, notes), { note: source, fragment: 'setup' });
+  assert.deepEqual(resolveNoteLink('Other.md#', source.path, notes), { note: other, fragment: '' });
+  assert.deepEqual(resolveNoteLink('Other.md#bad%escape', source.path, notes), { note: other, fragment: 'bad%escape' });
+});
+
+test('wiki heading destinations preserve literal hash filenames and all remaining fragment text', () => {
+  const source = note('Source.md');
+  const other = note('Other.md');
+  const hash = note('Other#part.md');
+  const escaped = note('Percent%25.md');
+  const notes = [source, other, hash, escaped];
+  const resolveWiki = (target: string) => {
+    const href = JSDOM.fragment(renderMarkdown(`[[${target}|Heading link]]`)).querySelector('a')?.getAttribute('href');
+    assert.ok(href);
+    return resolveNoteLink(href, source.path, notes);
+  };
+  assert.deepEqual(resolveWiki('Other#setup'), { note: other, fragment: 'setup' });
+  assert.deepEqual(resolveWiki('#setup'), { note: source, fragment: 'setup' });
+  assert.deepEqual(resolveWiki('Other#part'), { note: hash });
+  assert.deepEqual(resolveWiki('Other#part#setup'), { note: hash, fragment: 'setup' });
+  assert.deepEqual(resolveWiki('Other#setup#detail'), { note: other, fragment: 'setup#detail' });
+  assert.deepEqual(resolveWiki('Other#日本語'), { note: other, fragment: '日本語' });
+  assert.deepEqual(resolveWiki('Percent%25#part%25'), { note: escaped, fragment: 'part%25' });
+  assert.deepEqual(resolveWiki('Other#'), { note: other, fragment: '' });
+  const content = '[[Other#setup]] [Other section](Other.md#second) [[#setup]]';
+  const linkedSource = { ...source, content };
+  const linkedNotes = [linkedSource, other, hash, escaped];
+  assert.deepEqual(getNoteLinks(linkedSource).map(href => resolveLink(href, source.path, linkedNotes)?.path), ['Other.md', 'Other.md', 'Source.md']);
+  assert.deepEqual(getBacklinks(other.path, linkedNotes).map(item => item.path), ['Source.md']);
+  assert.deepEqual(getBacklinks(source.path, linkedNotes), []);
 });
 
 test('resolves relative, root, percent-encoded and extensionless note links', () => {

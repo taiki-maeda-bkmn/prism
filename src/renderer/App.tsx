@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Co
 import type { Note, Workspace } from '../shared/types';
 import { Editor } from './Editor';
 import { Graph } from './Graph';
-import { getBacklinks, getTitle, renderMarkdown, resolveLink } from './markdown';
+import { getBacklinks, getTitle, renderMarkdown, resolveNoteLink } from './markdown';
 
 type Mode = 'source' | 'split' | 'preview';
 type Intent = 'open' | 'refresh' | 'close';
@@ -74,6 +74,8 @@ export function App() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
+  const [previewNavigation, setPreviewNavigation] = useState<{ path: string; fragment?: string } | null>(null);
+  const preview = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const latest = useRef({ workspace, drafts, activePath, busy });
   latest.current = { workspace, drafts, activePath, busy };
@@ -101,6 +103,7 @@ export function App() {
     setDrafts({});
     setQuery('');
     setView('note');
+    setPreviewNavigation(null);
     setNotice(next.warnings.join(' '));
     window.prism.setDirty(false);
   }, []);
@@ -124,8 +127,8 @@ export function App() {
   const active = notes.find(note => note.path === activePath);
   const filtered = useMemo(() => notes.filter(note => `${note.path}\n${note.content}`.toLowerCase().includes(query.trim().toLowerCase())), [notes, query]);
   const backlinks = useMemo(() => active ? getBacklinks(active.path, notes) : [], [active, notes]);
-  const previewContent = useDeferredValue(active?.content || '');
-  const html = useMemo(() => renderMarkdown(previewContent), [previewContent]);
+  const previewNote = useDeferredValue(active);
+  const html = useMemo(() => renderMarkdown(previewNote?.content || ''), [previewNote?.content]);
   const outline = useMemo(() => {
     const document = new DOMParser().parseFromString(html, 'text/html');
     return [...document.querySelectorAll('h1,h2,h3')].map((heading, index) => ({ title: heading.textContent || '', level: Number(heading.tagName.slice(1)), index }));
@@ -133,7 +136,30 @@ export function App() {
   const words = active?.content.trim().split(/\s+/u).filter(Boolean).length || 0;
   const dirtyCount = Object.keys(drafts).length;
 
-  const openNote = useCallback((path: string) => { setActivePath(path); setView('note'); setCursor({ line: 1, column: 1 }); }, []);
+  const openNote = useCallback((path: string, fragment?: string) => {
+    setActivePath(path);
+    setView('note');
+    setCursor({ line: 1, column: 1 });
+    setPreviewNavigation({ path, fragment });
+  }, []);
+  useEffect(() => {
+    if (!previewNavigation || view !== 'note' || preferences.mode === 'source'
+      || !active || previewNavigation.path !== active.path
+      || previewNote?.path !== active.path || previewNote.content !== active.content) return;
+    const container = preview.current;
+    if (!container) return;
+    const fragment = previewNavigation.fragment;
+    if (fragment) {
+      const target = container.querySelector<HTMLElement>(`[id="${CSS.escape(fragment)}"]`)
+        ?? [...container.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')]
+          .find(heading => heading.textContent?.trim().toLocaleLowerCase() === fragment.trim().toLocaleLowerCase());
+      if (target) container.scrollTo({
+        top: container.scrollTop + target.getBoundingClientRect().top - container.getBoundingClientRect().top - 24,
+        behavior: 'smooth',
+      });
+    } else container.scrollTop = 0;
+    setPreviewNavigation(null);
+  }, [previewNavigation, view, preferences.mode, active, previewNote, html]);
   const changeContent = (content: string) => {
     if (!active) return;
     setDrafts(previous => {
@@ -234,15 +260,8 @@ export function App() {
       void window.prism.openExternal(href).catch(cause => setError(message(cause)));
       return;
     }
-    if (href.startsWith('#')) {
-      let id = href.slice(1);
-      try { id = decodeURIComponent(id); } catch { /* Keep malformed fragments literal. */ }
-      const target = document.querySelector('.markdown-body')?.querySelector(`[id="${CSS.escape(id)}"]`);
-      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-    const target = resolveLink(href, activePath, notes);
-    if (target) openNote(target.path);
+    const target = resolveNoteLink(href, previewNote?.path ?? activePath, notes);
+    if (target) openNote(target.note.path, target.fragment);
     else setNotice('That linked note is not in this notebook yet. Create it with New note.');
   };
 
@@ -280,7 +299,7 @@ export function App() {
           <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source'], ['split', Columns2, 'Split'], ['preview', BookOpen, 'Read']] as const).map(([mode, Icon, label], index) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl+${index + 1})`} onClick={() => setPreferences(previous => ({ ...previous, mode }))}><Icon size={15} /><span>{label}</span></button>)}</div></div>
           <div className={`editor-layout mode-${preferences.mode}`}>
             {preferences.mode !== 'preview' && <section className="source-pane" aria-label="Source editor"><div className="pane-label"><span><Code2 size={13} />MARKDOWN</span><span>.md</span></div><Editor key={active.path} path={active.path} content={active.content} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>}
-            {preferences.mode !== 'source' && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div className="markdown-body" onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
+            {preferences.mode !== 'source' && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
           </div>
         </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><FilePlus2 size={17} />Create your first note</button></div>}
       </main>

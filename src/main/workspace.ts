@@ -9,6 +9,7 @@ export const MAX_NOTES = 2_000;
 const MAX_WORKSPACE_BYTES = 64 * 1024 * 1024;
 const MAX_ENTRIES = 20_000;
 const MAX_DEPTH = 32;
+const unsupportedHardLink = new Set(['ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EPERM']);
 const markdownExtension = /\.(?:md|markdown)$/i;
 const ignoredDirectory = (name: string) => name.startsWith('.') || name.toLowerCase() === 'node_modules';
 const codeOf = (error: unknown) => (error as NodeJS.ErrnoException)?.code;
@@ -22,6 +23,8 @@ type Snapshot = {
   dev: number;
   mode: number;
 };
+
+type CreateNoteIO = Pick<typeof fs, 'link' | 'copyFile'>;
 
 export function validateNotePath(value: unknown, create = false): string {
   if (typeof value !== 'string' || !value || value.length > 1024 || value.includes('\\')) {
@@ -49,13 +52,13 @@ export class WorkspaceStore {
   private snapshots = new Map<string, Snapshot>();
   private pending: Promise<unknown> = Promise.resolve();
 
-  private constructor(root: string, private readonly identity: Pick<Stats, 'ino' | 'dev'>) { this.root = root; }
+  private constructor(root: string, private readonly identity: Pick<Stats, 'ino' | 'dev'>, private readonly createIO: CreateNoteIO) { this.root = root; }
 
-  static async open(directory: string): Promise<WorkspaceStore> {
+  static async open(directory: string, createIO: CreateNoteIO = fs): Promise<WorkspaceStore> {
     const root = await fs.realpath(directory);
     const stat = await fs.lstat(root);
     if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Choose a folder for your notebook.');
-    return new WorkspaceStore(root, { ino: stat.ino, dev: stat.dev });
+    return new WorkspaceStore(root, { ino: stat.ino, dev: stat.dev }, createIO);
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -221,7 +224,16 @@ export class WorkspaceStore {
         const handle = await fs.open(temporary, 'wx', 0o644);
         try { await handle.writeFile(`# ${title}\n\n`, 'utf8'); await handle.sync(); } finally { await handle.close(); }
         await this.safeParent(notePath);
-        try { await fs.link(temporary, target); }
+        try {
+          try { await this.createIO.link(temporary, target); }
+          catch (error) {
+            if (!unsupportedHardLink.has(codeOf(error) || '')) throw error;
+            await this.safeParent(notePath);
+            // FAT/exFAT and some network shares cannot publish with a hard link.
+            // Exclusive copying still refuses every existing destination.
+            await this.createIO.copyFile(temporary, target, constants.COPYFILE_EXCL);
+          }
+        }
         catch (error) {
           if (codeOf(error) === 'EEXIST') throw new Error('A note already exists at that path. Choose another name.');
           throw error;

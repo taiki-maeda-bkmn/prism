@@ -196,17 +196,26 @@ function resolveNotePath(rawPath: string, fromPath: string, notes: Note[]): Note
   return matches.length === 1 ? matches[0] : matches.length > 1 ? 'ambiguous' : undefined;
 }
 
-/** Resolve a preview/extracted href, decoding its URI representation once. */
-export function resolveLink(target: string, fromPath: string, notes: Note[]): Note | undefined {
+export interface ResolvedNoteLink {
+  note: Note;
+  fragment?: string;
+}
+
+/** Resolve a preview/extracted href, preserving its once-decoded destination. */
+export function resolveNoteLink(target: string, fromPath: string, notes: Note[]): ResolvedNoteLink | undefined {
   if (target.startsWith('prism-note:')) {
-    let path = decodePath(target.slice(11));
+    const raw = decodePath(target.slice(11));
+    let path = raw;
     if (isExternal(path)) return undefined;
     // A wiki target is a literal filename, not another URI. In particular, %25
     // remains %25 and ? is never silently removed as a query string. Prefer a
     // real filename containing # before interpreting a suffix as a heading.
     while (true) {
       const match = resolveNotePath(path, fromPath, notes);
-      if (match !== undefined) return match === 'ambiguous' ? undefined : match;
+      if (match !== undefined) {
+        if (match === 'ambiguous') return undefined;
+        return path.length === raw.length ? { note: match } : { note: match, fragment: raw.slice(path.length + 1) };
+      }
       const fragment = path.lastIndexOf('#');
       if (fragment < 0) return undefined;
       path = path.slice(0, fragment);
@@ -215,7 +224,14 @@ export function resolveLink(target: string, fromPath: string, notes: Note[]): No
   if (isExternal(target)) return undefined;
   // Split URI syntax before decoding: an encoded %23 belongs to the filename.
   const match = resolveNotePath(decodePath(target.split(/[?#]/, 1)[0]), fromPath, notes);
-  return match === 'ambiguous' ? undefined : match;
+  if (!match || match === 'ambiguous') return undefined;
+  const fragment = target.indexOf('#');
+  return fragment < 0 ? { note: match } : { note: match, fragment: decodePath(target.slice(fragment + 1)) };
+}
+
+/** Graph edges and backlinks depend on the destination note, not its heading. */
+export function resolveLink(target: string, fromPath: string, notes: Note[]): Note | undefined {
+  return resolveNoteLink(target, fromPath, notes)?.note;
 }
 
 export function getTitle(note: Note): string {
