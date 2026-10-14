@@ -49,12 +49,13 @@ export class WorkspaceStore {
   private snapshots = new Map<string, Snapshot>();
   private pending: Promise<unknown> = Promise.resolve();
 
-  private constructor(root: string) { this.root = root; }
+  private constructor(root: string, private readonly identity: Pick<Stats, 'ino' | 'dev'>) { this.root = root; }
 
   static async open(directory: string): Promise<WorkspaceStore> {
     const root = await fs.realpath(directory);
-    if (!(await fs.stat(root)).isDirectory()) throw new Error('Choose a folder for your notebook.');
-    return new WorkspaceStore(root);
+    const stat = await fs.lstat(root);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Choose a folder for your notebook.');
+    return new WorkspaceStore(root, { ino: stat.ino, dev: stat.dev });
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -63,12 +64,18 @@ export class WorkspaceStore {
     return result;
   }
 
+  private async assertRoot(): Promise<void> {
+    const current = await fs.lstat(this.root);
+    if (!current.isDirectory() || current.isSymbolicLink()
+      || current.ino !== this.identity.ino || current.dev !== this.identity.dev
+      || await fs.realpath(this.root) !== this.root) {
+      throw new Error('The notebook folder changed. Open the folder again before continuing.');
+    }
+  }
+
   private async safeParent(notePath: string, createDirectories = false): Promise<string> {
     let current = this.root;
-    // Recheck the root as well: a moved notebook must never redirect a write.
-    if ((await fs.lstat(current)).isSymbolicLink() || await fs.realpath(current) !== current) {
-      throw new Error('The notebook folder changed. Open the folder again before saving.');
-    }
+    await this.assertRoot();
     for (const segment of notePath.split('/').slice(0, -1)) {
       current = path.join(current, segment);
       if (createDirectories) {
@@ -120,6 +127,7 @@ export class WorkspaceStore {
 
   load(): Promise<Workspace> {
     return this.serialize(async () => {
+      await this.assertRoot();
       const notes: Note[] = [];
       const warnings: string[] = [];
       const seen = new Set<string>();
@@ -158,6 +166,7 @@ export class WorkspaceStore {
         }
       };
       await visit('', 0);
+      await this.assertRoot();
       for (const key of this.snapshots.keys()) if (!seen.has(key)) this.snapshots.delete(key);
       return { name: path.basename(this.root), path: this.root, notes, warnings };
     });
@@ -244,13 +253,15 @@ interface StarterNotebookIO {
   open(file: string, flags: 'wx'): Promise<StarterFileHandle>;
   unlink(file: string): Promise<void>;
   rmdir(directory: string): Promise<void>;
+  lstat(file: string): Promise<Stats>;
 }
 
-type OwnedStarterPath = { path: string; ino: number; dev: number };
+type OwnedStarterPath = { path: string; ino?: number; dev?: number };
 type OwnedStarterFile = OwnedStarterPath & { content: string; complete: boolean };
 
-async function ownsStarterPath(owned: OwnedStarterPath, directory: boolean): Promise<boolean> {
-  const current = await fs.lstat(owned.path);
+async function ownsStarterPath(owned: OwnedStarterPath, directory: boolean, io: StarterNotebookIO): Promise<boolean> {
+  if (owned.ino === undefined || owned.dev === undefined) return false;
+  const current = await io.lstat(owned.path);
   return (directory ? current.isDirectory() : current.isFile()) && current.ino === owned.ino && current.dev === owned.dev;
 }
 
@@ -260,22 +271,33 @@ export async function ensureStarterNotebook(userData: string, io: StarterNoteboo
   const directory = path.join(userData, 'Prism notebook');
   try { await io.mkdir(directory); }
   catch (error) { if (codeOf(error) === 'EEXIST') return directory; throw error; }
-  const directories: OwnedStarterPath[] = [{ path: directory, ...await fs.lstat(directory) }];
+  const directories: OwnedStarterPath[] = [];
   const files: OwnedStarterFile[] = [];
+  const trackDirectory = async (createdPath: string) => {
+    const owned: OwnedStarterPath = { path: createdPath };
+    directories.push(owned);
+    Object.assign(owned, await io.lstat(createdPath));
+  };
   try {
+    await trackDirectory(directory);
     const ideas = path.join(directory, 'Ideas');
     await io.mkdir(ideas);
-    directories.push({ path: ideas, ...await fs.lstat(ideas) });
+    await trackDirectory(ideas);
     for (const [name, content] of Object.entries(starterNotes)) {
       const file = path.join(directory, name);
       const handle = await io.open(file, 'wx');
+      const owned: OwnedStarterFile = { path: file, content, complete: false };
+      files.push(owned);
       try {
-        const owned = { path: file, content, complete: false, ...await handle.stat() };
-        files.push(owned);
+        Object.assign(owned, await handle.stat());
         await handle.writeFile(content, 'utf8');
         await handle.sync();
         owned.complete = true;
       } catch (error) {
+        if (owned.ino === undefined || owned.dev === undefined) {
+          try { Object.assign(owned, await handle.stat()); }
+          catch { /* Unknown ownership must preserve the file rather than risk deleting user data. */ }
+        }
         await handle.close().catch(() => undefined);
         throw error;
       }
@@ -286,20 +308,21 @@ export async function ensureStarterNotebook(userData: string, io: StarterNoteboo
     for (const file of files.reverse()) {
       try {
         const parents = directories.filter((parent) => file.path.startsWith(`${parent.path}${path.sep}`));
-        if (!(await Promise.all(parents.map((parent) => ownsStarterPath(parent, true)))).every(Boolean)
-          || !await ownsStarterPath(file, false)) continue;
+        if (!(await Promise.all(parents.map((parent) => ownsStarterPath(parent, true, io)))).every(Boolean)
+          || !await ownsStarterPath(file, false, io)) continue;
         const expected = Buffer.from(file.content, 'utf8');
         if ((await fs.stat(file.path)).size > expected.length) continue;
         const current = await fs.readFile(file.path);
         // Preserve edits made to an owned file, as well as files created by others.
         if (file.complete ? !current.equals(expected) : !current.equals(expected.subarray(0, current.length))) continue;
-        if (await ownsStarterPath(file, false)) await io.unlink(file.path);
+        if (await ownsStarterPath(file, false, io)) await io.unlink(file.path);
       } catch { /* Cleanup failure must not hide the original seeding error. */ }
     }
     for (const owned of directories.reverse()) {
       try {
         // rmdir only removes an empty directory, preserving unrelated restored/user files.
-        if (await ownsStarterPath(owned, true)) await io.rmdir(owned.path);
+        // A metadata failure still permits removing our newly created empty directory.
+        if (owned.ino === undefined || owned.dev === undefined || await ownsStarterPath(owned, true, io)) await io.rmdir(owned.path);
       } catch { /* Existing content or cleanup errors leave the directory intact. */ }
     }
     throw error;

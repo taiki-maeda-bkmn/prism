@@ -33,6 +33,29 @@ test('loads nested Markdown notes while ignoring hidden and dependency directori
   assert.deepEqual(loaded.warnings, []);
 });
 
+test('a replacement directory at the same notebook path cannot receive reads or writes', async (t) => {
+  const { root } = await fixture(t);
+  const notebook = path.join(root, 'Notebook');
+  const moved = path.join(root, 'Moved notebook');
+  await fs.mkdir(notebook);
+  await fs.writeFile(path.join(notebook, 'Note.md'), 'Original notebook');
+  const store = await WorkspaceStore.open(notebook);
+  const [original] = (await store.load()).notes;
+  await fs.rename(notebook, moved);
+  await fs.mkdir(notebook);
+  // An empty replacement must fail before scanning, too.
+  await assert.rejects(store.load(), /notebook folder changed/);
+  await assert.rejects(store.create('Ideas/New.md'), /notebook folder changed/);
+  assert.deepEqual(await fs.readdir(notebook), []);
+  await fs.writeFile(path.join(notebook, 'Note.md'), 'Replacement notebook');
+  await assert.rejects(store.load(), /notebook folder changed/);
+  await assert.rejects(store.save('Note.md', 'My draft', original.modified), /notebook folder changed/);
+  assert.equal(await fs.readFile(path.join(notebook, 'Note.md'), 'utf8'), 'Replacement notebook');
+  assert.equal(await fs.readFile(path.join(moved, 'Note.md'), 'utf8'), 'Original notebook');
+  const reopened = await WorkspaceStore.open(notebook);
+  assert.equal((await reopened.create('New.md')).path, 'New.md');
+});
+
 test('saving atomically replaces the note and preserves its permissions', async (t) => {
   const { root, store } = await fixture(t);
   const target = path.join(root, 'Note.md');
@@ -232,6 +255,87 @@ test('a starter subdirectory failure also removes only the newly created noteboo
   await assert.rejects(fs.stat(path.join(root, 'Prism notebook')), { code: 'ENOENT' });
   const notebook = await ensureStarterNotebook(root);
   assert.equal((await (await WorkspaceStore.open(notebook)).load()).notes.length, 4);
+});
+
+test('one-time metadata failures after either starter mkdir are rolled back and retry completes', async (t) => {
+  for (const target of ['Prism notebook', 'Ideas']) {
+    const { root } = await fixture(t);
+    const failure = Object.assign(new Error(`Cannot inspect ${target}.`), { code: 'EIO' });
+    let failed = false;
+    const io = {
+      ...fs,
+      lstat: async (file: string) => {
+        if (!failed && path.basename(file) === target) { failed = true; throw failure; }
+        return fs.lstat(file);
+      },
+    };
+    await assert.rejects(ensureStarterNotebook(root, io), (error) => error === failure);
+    await assert.rejects(fs.stat(path.join(root, 'Prism notebook')), { code: 'ENOENT' });
+    const notebook = await ensureStarterNotebook(root, io);
+    assert.equal((await (await WorkspaceStore.open(notebook)).load()).notes.length, 4);
+  }
+});
+
+test('starter metadata failure preserves foreign content even before ownership can be recorded', async (t) => {
+  for (const target of ['Prism notebook', 'Ideas']) {
+    const { root } = await fixture(t);
+    const failure = new Error(`Metadata failure for ${target}`);
+    let foreignFile = '';
+    await assert.rejects(ensureStarterNotebook(root, {
+      ...fs,
+      lstat: async (file) => {
+        if (!foreignFile && path.basename(file) === target) {
+          foreignFile = path.join(file, 'Keep.md');
+          await fs.writeFile(foreignFile, 'My restored note');
+          throw failure;
+        }
+        return fs.lstat(file);
+      },
+    }), (error) => error === failure);
+    assert.equal(await fs.readFile(foreignFile, 'utf8'), 'My restored note');
+  }
+});
+
+test('a one-time initial file metadata failure recovers ownership and permits a complete retry', async (t) => {
+  const { root } = await fixture(t);
+  const original = new Error('Initial file metadata read failed');
+  let failed = false;
+  await assert.rejects(ensureStarterNotebook(root, {
+    ...fs,
+    open: async (file, flags) => {
+      const handle = await fs.open(file, flags);
+      return {
+        ...starterHandle(handle, (content, encoding) => handle.writeFile(content, encoding)),
+        stat: async () => {
+          if (!failed) { failed = true; throw original; }
+          return handle.stat();
+        },
+      };
+    },
+  }), (error) => error === original);
+  await assert.rejects(fs.stat(path.join(root, 'Prism notebook')), { code: 'ENOENT' });
+  const notebook = await ensureStarterNotebook(root);
+  assert.equal((await (await WorkspaceStore.open(notebook)).load()).notes.length, 4);
+});
+
+test('unrecoverable file ownership preserves the file and the original metadata error', async (t) => {
+  const { root } = await fixture(t);
+  const original = new Error('Initial file metadata read failed');
+  let attempts = 0;
+  await assert.rejects(ensureStarterNotebook(root, {
+    ...fs,
+    open: async (file, flags) => {
+      const handle = await fs.open(file, flags);
+      return {
+        ...starterHandle(handle, (content, encoding) => handle.writeFile(content, encoding)),
+        stat: async () => { if (++attempts === 1) throw original; throw new Error('Ownership recovery failed'); },
+      };
+    },
+  }), (error) => error === original);
+  assert.equal(attempts, 2);
+  const notebook = path.join(root, 'Prism notebook');
+  assert.deepEqual(await fs.readdir(notebook), ['Welcome to Prism.md']);
+  assert.equal(await fs.readFile(path.join(notebook, 'Welcome to Prism.md'), 'utf8'), '');
 });
 
 test('starter cleanup errors preserve the original failure', async (t) => {
