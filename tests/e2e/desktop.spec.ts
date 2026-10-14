@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const initialWelcome = '# Welcome to Prism\n\nA quiet place for connected ideas.\n\nExplore [[Garden]] and [[Ideas/Research]].\n';
 const savedWelcome = '# Welcome to Prism\n\nA **clearer thought** appears in the live preview.\n\nFollow [[Garden]] to keep growing.\n';
+const initialGarden = '\ufeff# Garden\r\n\r\nSmall ideas grow here.\r\n\r\nReturn to [[Welcome to Prism]].\r\n';
 
 let temporary: string;
 let notebook: string;
@@ -50,7 +51,7 @@ test.beforeAll(async () => {
   await mkdir(userData, { recursive: true });
   await Promise.all([
     writeFile(path.join(notebook, 'Welcome to Prism.md'), initialWelcome),
-    writeFile(path.join(notebook, 'Garden.md'), '\ufeff# Garden\n\nSmall ideas grow here.\n\nReturn to [[Welcome to Prism]].\n'),
+    writeFile(path.join(notebook, 'Garden.md'), initialGarden),
     writeFile(path.join(notebook, 'Ideas/Research.md'), '# Research\n\nQuestions to explore in [[Garden]].\n'),
   ]);
   await launch();
@@ -112,6 +113,17 @@ test('writes, connects, protects drafts, and remembers window appearance', async
     await expect(page.locator('.markdown-body h1')).toHaveText('Garden');
     await expect(page.getByRole('navigation', { name: 'Note outline', exact: true }).getByRole('button', { name: 'Garden', exact: true })).toBeVisible();
     expect((await page.getByLabel('Markdown source').textContent())?.startsWith('# Garden')).toBe(true);
+    await expect(page.locator('.statusbar')).toContainText('1 unsaved note');
+    expect(await readFile(path.join(notebook, 'Garden.md'), 'utf8')).toBe(initialGarden);
+    const gardenEditor = page.getByLabel('Markdown source');
+    await gardenEditor.click();
+    await gardenEditor.press('ControlOrMeta+End');
+    await gardenEditor.press('Enter');
+    await page.keyboard.insertText('A Windows line.\nA pasted second line.\n');
+    await expect(page.locator('.statusbar')).toContainText('2 unsaved notes');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.locator('.statusbar')).toContainText('1 unsaved note');
+    await expect.poll(() => readFile(path.join(notebook, 'Garden.md'), 'utf8')).toBe(`${initialGarden}\r\nA Windows line.\r\nA pasted second line.\r\n`);
     await page.getByRole('navigation', { name: 'Notes', exact: true }).getByTitle('Welcome to Prism.md', { exact: true }).click();
     await expect(page.getByLabel('Markdown source')).toContainText('This draft must survive note navigation.');
     expect(await readFile(path.join(notebook, 'Welcome to Prism.md'), 'utf8')).toBe(savedWelcome);

@@ -12,17 +12,27 @@ interface Props {
   onCursor: (line: number, column: number) => void;
 }
 
+function detectLineEnding(content: string, fallback = '\n'): string {
+  return /\r\n|\r|\n/.exec(content)?.[0] ?? fallback;
+}
+
 export function Editor({ path, content, onChange, onCursor }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  const lineEnding = useRef('\n');
+  const synchronizing = useRef(false);
   const handlers = useRef({ onChange, onCursor });
   handlers.current = { onChange, onCursor };
 
   useEffect(() => {
     if (!host.current) return;
+    lineEnding.current = detectLineEnding(content);
     const editor = new EditorView({
       state: EditorState.create({
         doc: content,
+        // Leave lineSeparator unset so typed/pasted LF, CRLF and CR all become
+        // real lines. Serialize using the note's convention instead of forcing
+        // a facet that would only recognize one exact input separator.
         extensions: [
           basicSetup,
           markdown(),
@@ -31,7 +41,9 @@ export function Editor({ path, content, onChange, onCursor }: Props) {
           EditorView.contentAttributes.of({ 'aria-label': 'Markdown source', spellcheck: 'true' }),
           keymap.of([{ key: 'Mod-s', run: () => true }]),
           EditorView.updateListener.of(update => {
-            if (update.docChanged) handlers.current.onChange(update.state.doc.toString());
+            if (update.docChanged && !synchronizing.current) {
+              handlers.current.onChange(update.state.doc.sliceString(0, update.state.doc.length, lineEnding.current));
+            }
             if (update.selectionSet || update.docChanged) {
               const head = update.state.selection.main.head;
               const line = update.state.doc.lineAt(head);
@@ -64,8 +76,17 @@ export function Editor({ path, content, onChange, onCursor }: Props) {
 
   useEffect(() => {
     const editor = view.current;
-    if (editor && content !== editor.state.doc.toString()) {
-      editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: content } });
+    if (!editor) return;
+    // Adopt external newline changes even when the visible text is identical.
+    // Keep the existing convention if an edit temporarily removes every break.
+    lineEnding.current = detectLineEnding(content, lineEnding.current);
+    if (content.replace(/\r\n?/g, '\n') !== editor.state.doc.toString()) {
+      synchronizing.current = true;
+      try {
+        editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: content } });
+      } finally {
+        synchronizing.current = false;
+      }
     }
   }, [content]);
 
