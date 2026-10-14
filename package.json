@@ -15,7 +15,13 @@
     "typecheck": "tsc --noEmit",
     "test": "node scripts/test.mjs",
     "check": "npm run typecheck && npm test && npm run build",
-    "test:e2e": "npm run build && playwright test"
+    "test:e2e": "npm run build && playwright test",
+    "build:pdf": "node scripts/build-pdf.mjs",
+    "start:pdf": "npm run build:pdf && electron pdf-manager",
+    "typecheck:pdf": "tsc --noEmit -p pdf-manager/tsconfig.json",
+    "test:pdf": "node scripts/test-pdf.mjs",
+    "check:pdf": "npm run typecheck:pdf && npm run test:pdf && npm run build:pdf",
+    "test:pdf:e2e": "npm run build:pdf && playwright test -c pdf-manager/playwright.config.ts"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",
@@ -28,6 +34,7 @@
     "dompurify": "3.4.17",
     "lucide-react": "1.57.0",
     "marked": "18.1.1",
+    "pdfjs-dist": "6.4.299",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

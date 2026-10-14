@@ -1,0 +1,205 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { ArrowDownUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clock3, FileText, FolderOpen, Grid2X2, HardDrive, Library, List, LoaderCircle, Maximize2, Minus, MoreHorizontal, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tag, Trash2, X } from 'lucide-react';
+import type { PDFDocument } from '../shared/types';
+import { PdfReader, PdfThumbnail } from './PdfReader';
+
+type Filter = 'all' | 'recent' | 'favorites' | `tag:${string}`;
+type Patch = Partial<Pick<PDFDocument, 'title' | 'tags' | 'favorite' | 'lastPage' | 'pageCount'>>;
+const message = (error: unknown) => error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': Error: /, '') : 'Something went wrong. Please try again.';
+export const formatSize = (bytes: number) => bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+const dateLabel = (value: string) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value));
+function savedAppearance() {
+  try {
+    const value = JSON.parse(localStorage.getItem('prism-pdf-appearance') || '{}');
+    return { transparent: value.transparent === true, opacity: typeof value.opacity === 'number' && Number.isFinite(value.opacity) ? Math.min(100, Math.max(25, value.opacity)) : 85 };
+  } catch { return { transparent: false, opacity: 85 }; }
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => { ref.current?.showModal(); }, []);
+  return <dialog ref={ref} className="modal" aria-labelledby="modal-title" onCancel={event => { event.preventDefault(); onClose(); }}>
+    <header><h2 id="modal-title">{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={18} /></button></header>
+    {children}
+  </dialog>;
+}
+
+export function App() {
+  const [documents, setDocuments] = useState<PDFDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [filter, setFilter] = useState<Filter>('all');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('newest');
+  const [layout, setLayout] = useState<'grid' | 'list'>('grid');
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [title, setTitle] = useState('');
+  const [tags, setTags] = useState('');
+  const [modalError, setModalError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [appearance, setAppearance] = useState(savedAppearance);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setLoadError('');
+    try { const library = await window.prismPdf.loadLibrary(); setDocuments(library.documents); setWarnings(library.warnings); }
+    catch (error) { setLoadError(message(error)); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { try { localStorage.setItem('prism-pdf-appearance', JSON.stringify(appearance)); } catch { /* Appearance can still be used for this session. */ } }, [appearance]);
+
+  const importFiles = useCallback(async () => {
+    if (importing || loading || loadError) return;
+    setImporting(true);
+    try {
+      const result = await window.prismPdf.importDocuments();
+      setDocuments(result.library.documents); setWarnings(result.library.warnings);
+      if (result.importedIds.length || result.duplicateCount || result.errors.length) {
+        const parts: string[] = [];
+        if (result.importedIds.length) parts.push(`${result.importedIds.length} PDF${result.importedIds.length === 1 ? '' : 's'} added to your library.`);
+        if (result.duplicateCount) parts.push(`${result.duplicateCount} already in your library.`);
+        parts.push(...result.errors);
+        setNotice({ text: parts.join(' '), error: result.errors.length > 0 });
+      }
+      if (result.importedIds.length) { setFilter('all'); setQuery(''); setActiveId(null); }
+    } catch (error) { setNotice({ text: message(error), error: true }); }
+    finally { setImporting(false); }
+  }, [importing, loading, loadError]);
+
+  const update = useCallback(async (id: string, patch: Patch) => {
+    const updated = await window.prismPdf.updateDocument(id, patch);
+    setDocuments(current => current.map(document => document.id === id ? updated : document));
+    return updated;
+  }, []);
+  const active = documents.find(document => document.id === activeId);
+  const editing = documents.find(document => document.id === editingId);
+  const readingUpdate = useCallback((patch: { lastPage?: number; pageCount?: number }) => {
+    if (activeId) void update(activeId, patch).catch(error => setNotice({ text: message(error), error: true }));
+  }, [activeId, update]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (editingId) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') { event.preventDefault(); void importFiles(); }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); searchRef.current?.focus(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [importFiles, editingId]);
+
+  const tagCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const document of documents) for (const tag of document.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [documents]);
+  const favorites = documents.filter(document => document.favorite).length;
+  const recentCount = documents.filter(document => document.lastOpenedAt).length;
+  const filtered = useMemo(() => {
+    const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+    return documents.filter(document => {
+      if (filter === 'favorites' && !document.favorite) return false;
+      if (filter === 'recent' && !document.lastOpenedAt) return false;
+      if (filter.startsWith('tag:') && !document.tags.includes(filter.slice(4))) return false;
+      const haystack = `${document.title} ${document.filename} ${document.tags.join(' ')}`.toLocaleLowerCase();
+      return terms.every(term => haystack.includes(term));
+    }).sort((a, b) => {
+      if (sort === 'name') return a.title.localeCompare(b.title);
+      if (sort === 'size') return b.size - a.size;
+      if (filter === 'recent') return (b.lastOpenedAt ?? '').localeCompare(a.lastOpenedAt ?? '');
+      return b.importedAt.localeCompare(a.importedAt);
+    });
+  }, [documents, filter, query, sort]);
+
+  const heading = filter === 'all' ? 'All documents' : filter === 'recent' ? 'Recently opened' : filter === 'favorites' ? 'Favorites' : filter.slice(4);
+  const selectFilter = (value: Filter) => { setFilter(value); setActiveId(null); setQuery(''); };
+  const edit = (document: PDFDocument) => { setEditingId(document.id); setTitle(document.title); setTags(document.tags.join(', ')); setRemoving(false); setModalError(''); };
+  const closeModal = () => { if (!saving) { setEditingId(null); setRemoving(false); } };
+  const favorite = async (document: PDFDocument) => {
+    try { await update(document.id, { favorite: !document.favorite }); }
+    catch (error) { setNotice({ text: message(error), error: true }); }
+  };
+  const saveDetails = async (event: FormEvent) => {
+    event.preventDefault(); if (!editing || saving) return;
+    setSaving(true); setModalError('');
+    try { await update(editing.id, { title: title.trim(), tags: tags.split(',').map(tag => tag.trim()).filter(Boolean) }); setEditingId(null); }
+    catch (error) { setModalError(message(error)); }
+    finally { setSaving(false); }
+  };
+  const remove = async () => {
+    if (!editing || saving) return;
+    setSaving(true); setModalError('');
+    try {
+      const result = await window.prismPdf.removeDocument(editing.id);
+      setDocuments(result.documents); setWarnings(result.warnings);
+      if (activeId === editing.id) setActiveId(null);
+      setEditingId(null); setRemoving(false);
+      setNotice({ text: 'Removed from your library. Your original PDF and stored copy were kept.', error: false });
+    } catch (error) { setModalError(message(error)); }
+    finally { setSaving(false); }
+  };
+  const nativeAction = async (kind: 'open' | 'reveal', id: string) => {
+    try { if (kind === 'open') await window.prismPdf.openDocument(id); else await window.prismPdf.revealDocument(id); }
+    catch (error) { setModalError(message(error)); }
+  };
+  const navItem = (value: Filter, label: string, icon: ReactNode, count: number) => <button className={`nav-item ${filter === value && !active ? 'selected' : ''}`} onClick={() => selectFilter(value)} aria-current={filter === value && !active ? 'page' : undefined} aria-label={label}>
+    {icon}<span>{label}</span><span className="nav-count">{count}</span>
+  </button>;
+
+  return <div className="app-shell" data-transparent={appearance.transparent} style={{ '--surface-alpha': appearance.transparent ? appearance.opacity / 100 : 1 } as CSSProperties}>
+    <aside className="sidebar">
+      <div className="brand"><span className="brand-mark"><Library size={23} strokeWidth={1.7} /></span><span>prism<span className="brand-pdf">PDF</span></span></div>
+      <div className="workspace-label"><span className="workspace-avatar">P</span><div>Personal library<small>Your space for documents</small></div></div>
+      <nav className="library-nav" aria-label="Library">
+        <p className="section-label">LIBRARY</p>
+        {navItem('all', 'All documents', <Library size={18} />, documents.length)}
+        {navItem('recent', 'Recently opened', <Clock3 size={18} />, recentCount)}
+        {navItem('favorites', 'Favorites', <Star size={18} />, favorites)}
+        <div className="tags-heading"><p className="section-label">YOUR TAGS</p><Tag size={13} /></div>
+        {tagCounts.length ? tagCounts.map(([tag, count], index) => <button key={tag} className={`nav-item tag-item ${filter === `tag:${tag}` && !active ? 'selected' : ''}`} onClick={() => selectFilter(`tag:${tag}`)} aria-label={`Tag ${tag}`}><span className={`tag-dot tone-${index % 4}`} /><span className="truncate">{tag}</span><span className="nav-count">{count}</span></button>) : <p className="tag-hint">Add tags in document details<br />to keep things organized.</p>}
+      </nav>
+      <button className="appearance-button" onClick={() => setAppearanceOpen(value => !value)} aria-expanded={appearanceOpen}><SlidersHorizontal size={15} />Appearance</button>
+      {appearanceOpen && <div className="appearance-panel"><label><span>Transparent window</span><input type="checkbox" role="switch" checked={appearance.transparent} onChange={event => setAppearance(current => ({ ...current, transparent: event.target.checked }))} /></label><label className="opacity-label">Background opacity<span>{appearance.opacity}%</span><input type="range" min="25" max="100" step="1" value={appearance.opacity} disabled={!appearance.transparent} onChange={event => setAppearance(current => ({ ...current, opacity: Number(event.target.value) }))} /></label></div>}
+      <div className="local-card"><HardDrive size={18} /><div>Made for your desktop<small>Private. Local. All yours.</small></div><span className="online-dot" /></div>
+      <div className="sidebar-footer"><span>{documents.length} documents</span><span>{documents.length ? formatSize(documents.reduce((sum, document) => sum + document.size, 0)) : '0 KB'}</span></div>
+    </aside>
+    <div className="workspace">
+      <header className="titlebar">
+        <div className="breadcrumb"><span>Workspace</span><ChevronRight size={13} /><strong>{active ? active.title : 'My library'}</strong></div>
+        <label className="search-box"><Search size={16} /><input ref={searchRef} aria-label="Search library" placeholder="Search your library…" value={query} onChange={event => { setQuery(event.target.value); setActiveId(null); }} /><kbd>{window.prismPdf.platform === 'darwin' ? '⌘' : 'Ctrl'} K</kbd></label>
+        <div className="window-controls"><button aria-label="Minimize window" onClick={() => window.prismPdf.windowControl('minimize')}><Minus size={14} /></button><button aria-label="Maximize or restore window" onClick={() => window.prismPdf.windowControl('maximize')}><Maximize2 size={13} /></button><button aria-label="Close window" onClick={() => window.prismPdf.windowControl('close')}><X size={16} /></button></div>
+      </header>
+      {notice && <div className={`notice ${notice.error ? 'notice-error' : ''}`} role={notice.error ? 'alert' : 'status'}><span>{notice.text}</span><button aria-label="Dismiss notification" onClick={() => setNotice(null)}><X size={16} /></button></div>}
+      {warnings.length > 0 && <details className="warnings"><summary>{warnings.length} library warning{warnings.length === 1 ? '' : 's'}</summary>{warnings.map((warning, index) => <p key={index}>{warning}</p>)}</details>}
+      {active ? <PdfReader key={active.id} document={active} onUpdate={readingUpdate} onClose={() => setActiveId(null)} /> : <main className="library-content">
+        <div className="page-heading"><div><div className="eyebrow">A LITTLE ORDER. A LOT OF CLARITY.</div><h1>{heading}</h1><p>{filter === 'all' ? 'Everything you need, all in one place.' : filter === 'favorites' ? 'The documents you come back to.' : filter === 'recent' ? 'Pick up right where you left off.' : 'A collection of things that belong together.'}</p></div><button className="primary-button" onClick={() => void importFiles()} disabled={importing || loading || !!loadError}>{importing ? <LoaderCircle className="spin" size={17} /> : <Plus size={19} />}{importing ? 'Importing…' : 'Import PDFs'}</button></div>
+        <div className="library-toolbar"><div className="result-label"><FileText size={16} /><strong>{query ? 'Search results' : 'PDF documents'}</strong><span className="count-badge">{filtered.length}</span></div><div className="view-options"><ArrowDownUp size={14} /><select aria-label="Sort documents" value={sort} onChange={event => setSort(event.target.value)}><option value="newest">{filter === 'recent' ? 'Last opened' : 'Date added'}</option><option value="name">Name</option><option value="size">File size</option></select><span className="toolbar-divider" /><div className="layout-buttons"><button className={layout === 'grid' ? 'active' : ''} aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><Grid2X2 size={16} /></button><button className={layout === 'list' ? 'active' : ''} aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={18} /></button></div></div></div>
+        {loading ? <div className="empty-state" role="status"><LoaderCircle className="spin" size={30} /><h2>Opening your library…</h2></div> : loadError ? <div className="empty-state" role="alert"><FolderOpen size={36} /><h2>Your library couldn’t be opened</h2><p>{loadError}</p><button className="secondary-button" onClick={() => void load()}>Try again</button></div> : !documents.length ? <div className="empty-state welcome-state"><div className="paper-stack" aria-hidden="true"><div className="paper-back" /><div className="paper-front"><span className="pdf-badge">PDF</span><FileText size={45} strokeWidth={1} /><div className="paper-lines" /></div><span className="paper-spark"><Sparkles size={22} /></span></div><h2>A home for your PDFs.</h2><p>Bring your research, reading, and everyday documents<br />together in a space that stays yours.</p><button className="primary-button" onClick={() => void importFiles()} disabled={importing}><Plus size={18} />Import your first PDF</button><span className="privacy-note"><ShieldCheck size={14} />Stored on this device. No account needed.</span></div> : !filtered.length ? <div className="empty-state"><Search size={34} /><h2>{query ? 'No matching documents' : 'Nothing here just yet'}</h2><p>{query ? 'Try another title, filename, or tag.' : filter === 'favorites' ? 'Star a document to keep it close at hand.' : filter === 'recent' ? 'Open a PDF and find it here next time.' : 'Add this tag to a document to see it here.'}</p>{query && <button className="secondary-button" onClick={() => setQuery('')}>Clear search</button>}</div> : <div className={`documents documents-${layout}`} aria-label="Documents">
+          {filtered.map((document, index) => <article key={document.id} className="document-card">
+            {layout === 'grid' ? <button className={`document-preview preview-tone-${index % 4}`} aria-label={`Open ${document.title}`} onClick={() => setActiveId(document.id)}><PdfThumbnail document={document} /><span className="preview-open"><BookOpen size={16} />Read document</span></button> : <button className="list-file-icon" aria-label={`Open ${document.title}`} onClick={() => setActiveId(document.id)}><FileText size={24} /></button>}
+            <div className="document-info"><button className="document-title" onClick={() => setActiveId(document.id)} title={document.title}>{document.title}</button><div className="document-meta"><span>{formatSize(document.size)}</span><span>·</span><span>{document.pageCount ? `${document.pageCount} page${document.pageCount === 1 ? '' : 's'}` : 'PDF document'}</span></div>{document.tags.length > 0 && <div className="document-tags">{document.tags.slice(0, 2).map(tag => <button key={tag} onClick={() => selectFilter(`tag:${tag}`)}>{tag}</button>)}{document.tags.length > 2 && <span>+{document.tags.length - 2}</span>}</div>}</div>
+            {layout === 'list' && <span className="document-date">{dateLabel(document.importedAt)}</span>}
+            <div className="card-actions"><button className={`icon-button favorite-button ${document.favorite ? 'is-favorite' : ''}`} aria-label={`${document.favorite ? 'Unfavorite' : 'Favorite'} ${document.title}`} aria-pressed={document.favorite} onClick={() => void favorite(document)}><Star size={16} fill={document.favorite ? 'currentColor' : 'none'} /></button><button className="icon-button details-button" aria-label={`Details for ${document.title}`} onClick={() => edit(document)}><MoreHorizontal size={19} /></button></div>
+          </article>)}
+        </div>}
+        {!loading && !loadError && documents.length > 0 && <footer className="library-footer"><span>Showing {filtered.length} of {documents.length} documents</span><span><ShieldCheck size={13} />Your library stays on this device</span></footer>}
+      </main>}
+    </div>
+    {editing && <Modal title={removing ? 'Remove from library?' : 'Edit document'} onClose={closeModal}>
+      {removing ? <><p className="modal-description">Remove <strong>{editing.title}</strong> from the library? Your original PDF and stored copy will be kept. This removes its tags, favorite, and reading position from the catalog.</p>{modalError && <p className="form-error" role="alert">{modalError}</p>}<div className="modal-actions"><button className="secondary-button" disabled={saving} onClick={() => setRemoving(false)}>Keep document</button><button className="danger-button" disabled={saving} onClick={() => void remove()}>{saving ? 'Removing…' : 'Remove document'}</button></div></> : <form onSubmit={saveDetails}>
+        <label className="field-label">Document title<input autoFocus required maxLength={200} value={title} onChange={event => setTitle(event.target.value)} /></label>
+        <label className="field-label">Tags (comma-separated)<input placeholder="Research, Reading, Work" maxLength={800} value={tags} onChange={event => setTags(event.target.value)} /></label>
+        <div className="file-facts"><span>Original filename<strong>{editing.filename}</strong></span><span>Added<strong>{dateLabel(editing.importedAt)}</strong></span><span>File size<strong>{formatSize(editing.size)}</strong></span></div>
+        <div className="native-actions"><button type="button" onClick={() => void nativeAction('open', editing.id)}><ArrowUpRight size={15} />Open in default app</button><button type="button" onClick={() => void nativeAction('reveal', editing.id)}><FolderOpen size={15} />Show library copy</button></div>
+        {modalError && <p className="form-error" role="alert">{modalError}</p>}
+        <div className="modal-actions"><button type="button" className="remove-link" onClick={() => { setRemoving(true); setModalError(''); }} disabled={saving}><Trash2 size={16} />Remove</button><button type="button" className="secondary-button" onClick={closeModal} disabled={saving}>Cancel</button><button className="primary-button" disabled={saving || !title.trim()}>{saving ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{saving ? 'Saving…' : 'Save changes'}</button></div>
+      </form>}
+    </Modal>}
+  </div>;
+}

@@ -1,0 +1,8 @@
+{
+  "name": "prism-pdf",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local desktop PDF library and reader.",
+  "type": "module",
+  "main": "dist/main.cjs"
+}
