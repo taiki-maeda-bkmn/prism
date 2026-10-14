@@ -247,3 +247,44 @@ test('writes, connects, protects drafts, and remembers window appearance', async
     expect(await readFile(path.join(notebook, 'Welcome to Prism.md'), 'utf8')).toBe(draftWelcome);
   });
 });
+
+test('retries loading the starter notebook after a filesystem error is repaired', async ({}, testInfo) => {
+  const retryDirectory = await mkdtemp(path.join(os.tmpdir(), 'prism-startup-retry-'));
+  const retryUserData = path.join(retryDirectory, 'user-data');
+  const blockedNotebook = path.join(retryUserData, 'Prism notebook');
+  let retryApp: ElectronApplication | undefined;
+  let retryPage: Page | undefined;
+  try {
+    await mkdir(retryUserData, { recursive: true });
+    await writeFile(blockedNotebook, 'A file temporarily blocks the starter notebook folder.');
+    const retryEnvironment = Object.fromEntries(Object.entries(process.env)
+      .filter((entry): entry is [string, string] => entry[1] !== undefined && entry[0] !== 'PRISM_WORKSPACE'));
+    retryEnvironment.PRISM_USER_DATA = retryUserData;
+    retryApp = await electron.launch({ args: ['--no-sandbox', '.'], cwd: process.cwd(), env: retryEnvironment });
+    retryPage = await retryApp.firstWindow();
+    await expect(retryPage.locator('.message-banner.error')).toBeVisible();
+    await expect(retryPage.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
+
+    await rm(blockedNotebook);
+    await retryPage.getByRole('button', { name: 'Try again', exact: true }).click();
+    await expect(retryPage.locator('.note-heading h1')).toHaveText('Welcome to Prism');
+    await expect(retryPage.locator('.note-tree .note-item')).toHaveCount(4);
+    await expect(retryPage.locator('.message-banner.error')).toHaveCount(0);
+    expect(await readFile(path.join(blockedNotebook, 'Welcome to Prism.md'), 'utf8')).toContain('# Welcome to Prism');
+  } catch (error) {
+    if (retryPage && !retryPage.isClosed()) {
+      const screenshot = await retryPage.screenshot().catch(() => undefined);
+      if (screenshot) await testInfo.attach('Starter notebook retry failure', { body: screenshot, contentType: 'image/png' });
+    }
+    throw error;
+  } finally {
+    if (retryApp) {
+      const child = retryApp.process();
+      const closed = retryApp.waitForEvent('close', { timeout: 5_000 }).catch(() => undefined);
+      await retryApp.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
+      await closed;
+      if (child.exitCode === null) child.kill();
+    }
+    await rm(retryDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Workspace } from '../shared/types';
 import { ensureStarterNotebook, WorkspaceStore } from './workspace';
-import { isRendererResource } from './security';
+import { isRendererResource, validateExternalURL } from './security';
 
 app.setName('Prism');
 if (!app.isPackaged && process.env.PRISM_USER_DATA) app.setPath('userData', path.resolve(process.env.PRISM_USER_DATA));
@@ -128,10 +128,7 @@ function registerIPC(): void {
   });
   ipcMain.handle('prism:external', async (event, value: unknown) => {
     validateSender(event);
-    if (typeof value !== 'string' || value.length > 4096) throw new Error('This link is not supported.');
-    const url = new URL(value);
-    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('Only HTTP and HTTPS links can be opened.');
-    await shell.openExternal(url.href);
+    await shell.openExternal(validateExternalURL(value));
   });
   ipcMain.on('prism:dirty', (event, value: unknown) => {
     try { validateSender(event); if (typeof value === 'boolean') dirty = value; } catch { /* Ignore untrusted fire-and-forget messages. */ }

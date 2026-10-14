@@ -23,7 +23,7 @@ Implementation branch: `feat/prism-desktop`. Commit and push changes automatical
 
 ## Verification
 
-- 28 Markdown, filesystem, and resource-access tests pass locally.
+- 30 Markdown, filesystem, external-link, and resource-access tests pass locally.
 - The native Electron journey covers editor modes, preview, disk saves, draft retention, close cancellation, refresh/discard, invalid and duplicate names, graph navigation, backlinks, and persisted appearance.
 - Native window capture confirms alpha 255 when opaque and approximately 89 at 35% background opacity.
 - A normal launch with the sandbox enabled succeeds in the local Linux/WSLg environment. Windows/macOS compositor behavior still needs physical desktop testing.

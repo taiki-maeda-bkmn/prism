@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test, { type TestContext } from 'node:test';
 import { ensureStarterNotebook, MAX_NOTE_BYTES, validateNotePath, WorkspaceStore } from '../src/main/workspace';
-import { isRendererResource } from '../src/main/security';
+import { isRendererResource, validateExternalURL } from '../src/main/security';
 
 async function fixture(t: TestContext) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-workspace-test-'));
@@ -208,4 +208,31 @@ test('renderer resource policy only allows bundled assets', async (t) => {
     await fs.symlink(rendererRoot, aliasRoot, 'dir');
     assert.equal(await isRendererResource(pathToFileURL(path.join(aliasRoot, 'app.js')).href, aliasRoot), true);
   }
+});
+
+test('external links accept web URLs and mailto with normal recipients and message fields', () => {
+  assert.equal(validateExternalURL('https://example.com'), 'https://example.com/');
+  assert.equal(validateExternalURL('http://example.com/notes?q=hello'), 'http://example.com/notes?q=hello');
+  for (const url of [
+    'mailto:writer@example.com',
+    'mailto:writer+notes@example.com,reader@example.org?subject=Hello%20Prism&body=First%20line%0D%0ASecond%20line',
+    'mailto:writer@example.com?cc=editor+notes@example.com&bcc=reader@example.org,reviewer@example.org',
+    'mailto:writer@example.com?subject=%E3%81%93%E3%82%93%E3%81%AB%E3%81%A1%E3%81%AF&body=One%0ATwo',
+  ]) assert.equal(validateExternalURL(url), url);
+});
+
+test('external links reject unsafe schemes, credentials, malformed mailto, and attachment headers', () => {
+  for (const url of [
+    'file:///etc/passwd', 'javascript:alert(1)', 'shell:open', 'data:text/html,hello',
+    'https://user:password@example.com', 'mailto:', 'mailto:not-an-address',
+    'mailto:writer@example.com,', 'mailto://writer@example.com', 'mailto:a..b@example.com',
+    'mailto:writer@example.com#fragment', 'mailto:writer%0A@example.com',
+    'mailto:writer@example.com?attach=/etc/passwd', 'mailto:writer@example.com?attachment=file:///etc/passwd',
+    'mailto:writer@example.com?from=other@example.com', 'mailto:writer@example.com?cc=not-an-address',
+    'mailto:writer@example.com?subject=hello%0D%0ABcc:other@example.com',
+    'mailto:writer@example.com?body=hello%00world', 'mailto:writer@example.com?body=hello%09world',
+    'mailto:writer@example.com?subject=first&SUBJECT=second', 'mailto:writer@example.com?subject=%ZZ',
+    'mailto:writer@example.com?subject', 'mailto:writer@example.com\n',
+  ]) assert.throws(() => validateExternalURL(url), Error, url);
+  assert.throws(() => validateExternalURL(null));
 });
