@@ -86,6 +86,28 @@ test('validates and persists editable metadata while protecting storage identifi
   assert.deepEqual((await store.load()).documents[0].tags, ['Reports', 'Finance']);
 });
 
+test('tag uniqueness and catalog validity remain stable across English and Turkish locales', async t => {
+  const originalLowerCase = String.prototype.toLocaleLowerCase;
+  let defaultLocale = 'en-US';
+  // Change only the default-locale behavior, as moving this catalog between
+  // operating systems would, while keeping real Intl casing rules in use.
+  t.mock.method(String.prototype, 'toLocaleLowerCase', function (this: string, locales?: string | string[]) {
+    return originalLowerCase.call(this, locales ?? defaultLocale);
+  });
+  const { root, source, store } = await fixture(t);
+  const id = (await store.import([source])).importedIds[0];
+  await store.update(id, { tags: ['I', 'ı'] });
+  assert.equal('I'.toLocaleLowerCase(), 'i');
+  defaultLocale = 'tr';
+  assert.equal('I'.toLocaleLowerCase(), 'ı');
+  const turkish = await LibraryStore.open(root);
+  assert.deepEqual((await turkish.load()).documents[0].tags, ['I', 'ı']);
+  assert.deepEqual((await turkish.update(id, { tags: ['I', 'ı', 'i'] })).tags, ['I', 'ı']);
+  defaultLocale = 'en-US';
+  const english = await LibraryStore.open(root);
+  assert.deepEqual((await english.load()).documents[0].tags, ['I', 'ı']);
+});
+
 test('rejects unknown IDs and path traversal for all document operations', async t => {
   const { store } = await fixture(t);
   for (const id of ['../outside.pdf', '/tmp/secret', '00000000-0000-4000-8000-000000000000', null]) {

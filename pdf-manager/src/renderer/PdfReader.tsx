@@ -13,7 +13,7 @@ function loadPdf(data: Uint8Array): PDFDocumentLoadingTask {
     cMapPacked: true,
     standardFontDataUrl: new URL('./standard_fonts/', import.meta.url).href,
     wasmUrl: new URL('./wasm/', import.meta.url).href,
-    maxImageSize: 24_000_000,
+    // Let PDF.js downsample large scans. maxImageSize would silently omit them.
     canvasMaxAreaInBytes: 48_000_000,
     enableXfa: false,
   });
@@ -138,8 +138,8 @@ export function PdfReader({ document: entry, onUpdate, onClose }: PdfReaderProps
         const viewport = page.getViewport({ scale, rotation: combinedRotation });
         const outputScale = Math.min(window.devicePixelRatio || 1, 2, 4096 / Math.max(viewport.width, viewport.height), Math.sqrt(12_000_000 / (viewport.width * viewport.height)));
         canvas = window.document.createElement('canvas');
-        canvas.width = Math.max(1, Math.ceil(viewport.width * outputScale));
-        canvas.height = Math.max(1, Math.ceil(viewport.height * outputScale));
+        canvas.width = Math.max(1, Math.floor(viewport.width * outputScale));
+        canvas.height = Math.max(1, Math.floor(viewport.height * outputScale));
         canvas.style.width = `${viewport.width}px`;
         canvas.style.height = `${viewport.height}px`;
         canvas.setAttribute('role', 'img');

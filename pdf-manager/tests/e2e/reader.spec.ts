@@ -1,8 +1,9 @@
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { deflateSync } from 'node:zlib';
 
 const passwordPadding = Buffer.from('28bf4e5e4e758a4164004e56fffa01082e2e00b6d0683e802f0ca9fe6453697a', 'hex');
 const md5 = (value: Uint8Array) => createHash('md5').update(value).digest();
@@ -53,6 +54,31 @@ function fixturePdf(password?: string): Buffer {
   }
   const startXref = pieces.reduce((sum, piece) => sum + piece.length, 0);
   pieces.push(Buffer.from(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R${key ? ` /Encrypt 8 0 R /ID [<${fileId.toString('hex')}> <${fileId.toString('hex')}>]` : ''} >>\nstartxref\n${startXref}\n%%EOF\n`));
+  return Buffer.concat(pieces);
+}
+
+function largeScanPdf(): Buffer {
+  // A real 30 MP image with black and white halves. One-bit pixels keep its
+  // decoded fixture at 3.75 MB; Flate compression keeps the PDF below 30 KB.
+  const pixels = Buffer.alloc(6000 * 5000 / 8, 255);
+  for (let row = 0; row < 5000; row++) pixels.fill(0, row * 750, row * 750 + 375);
+  const image = deflateSync(pixels);
+  const content = Buffer.from('q 1200 0 0 1500 0 0 cm /Scan Do Q');
+  const objects = [
+    Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'),
+    Buffer.from('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
+    Buffer.from('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1200 1500] /Resources << /XObject << /Scan 5 0 R >> >> /Contents 4 0 R >>'),
+    Buffer.concat([Buffer.from(`<< /Length ${content.length} >>\nstream\n`), content, Buffer.from('\nendstream')]),
+    Buffer.concat([Buffer.from(`<< /Type /XObject /Subtype /Image /Width 6000 /Height 5000 /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /FlateDecode /Length ${image.length} >>\nstream\n`), image, Buffer.from('\nendstream')]),
+  ];
+  const pieces = [Buffer.from('%PDF-1.4\n')];
+  const offsets: number[] = [];
+  for (let index = 0; index < objects.length; index++) {
+    offsets.push(pieces.reduce((sum, piece) => sum + piece.length, 0));
+    pieces.push(Buffer.from(`${index + 1} 0 obj\n`), objects[index], Buffer.from('\nendobj\n'));
+  }
+  const startXref = pieces.reduce((sum, piece) => sum + piece.length, 0);
+  pieces.push(Buffer.from(`xref\n0 6\n0000000000 65535 f \n${offsets.map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${startXref}\n%%EOF\n`));
   return Buffer.concat(pieces);
 }
 
@@ -224,6 +250,44 @@ test('keeps the library usable after a damaged PDF fails to render', async () =>
   await expect(page.getByRole('alert')).toContainText('could not be read as a PDF');
   await page.getByRole('button', { name: 'Back to library', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'All documents', exact: true })).toBeVisible();
+  expect(rendererErrors).toEqual([]);
+});
+
+test('renders a large scanned image in thumbnails and the bounded reader canvas', async () => {
+  const source = path.join(temporary, 'Large scan.pdf');
+  const bytes = largeScanPdf();
+  expect(bytes.length).toBeLessThan(30_000);
+  await writeFile(source, bytes);
+  await importFiles([source]);
+
+  async function expectScanPixels(canvas: Locator) {
+    await expect(canvas).toBeVisible();
+    const sample = await canvas.evaluate((element: HTMLCanvasElement) => {
+      const context = element.getContext('2d')!;
+      const left = Array.from(context.getImageData(Math.floor(element.width / 4), Math.floor(element.height / 2), 1, 1).data);
+      const right = Array.from(context.getImageData(Math.floor(element.width * 3 / 4), Math.floor(element.height / 2), 1, 1).data);
+      return { left, right, width: element.width, height: element.height };
+    });
+    expect(sample.left.slice(0, 3).every(channel => channel < 20)).toBe(true);
+    expect(sample.right.slice(0, 3).every(channel => channel > 235)).toBe(true);
+    expect(sample.left[3]).toBe(255);
+    expect(sample.right[3]).toBe(255);
+    return sample;
+  }
+
+  const thumbnail = await expectScanPixels(page.locator('.pdf-thumbnail-ready canvas'));
+  expect(thumbnail.width).toBeLessThanOrEqual(320);
+  expect(thumbnail.height).toBeLessThanOrEqual(440);
+  await page.getByRole('button', { name: 'Open Large scan', exact: true }).click();
+  await expectScanPixels(page.locator('.pdf-paper canvas[data-page-number="1"]'));
+  await page.getByLabel('Page zoom', { exact: true }).selectOption('3');
+  // This large page at 300% exceeds both backing-surface limits before scaling.
+  await expect.poll(() => page.locator('.pdf-paper canvas').evaluate(element => element.getBoundingClientRect().width)).toBe(3600);
+  const reader = await expectScanPixels(page.locator('.pdf-paper canvas'));
+  expect(reader.width).toBeLessThanOrEqual(4096);
+  expect(reader.height).toBeLessThanOrEqual(4096);
+  expect(reader.width * reader.height).toBeLessThanOrEqual(12_000_000);
+  await expect(page.getByRole('alert')).toHaveCount(0);
   expect(rendererErrors).toEqual([]);
 });
 

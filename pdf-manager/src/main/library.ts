@@ -36,7 +36,7 @@ function timestamp(value: unknown): value is string {
 function page(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 && value <= 1_000_000; }
 function validTags(value: unknown): value is string[] {
   return Array.isArray(value) && value.length <= 12 && value.every(tag => text(tag, 40))
-    && new Set(value.map(tag => tag.toLocaleLowerCase())).size === value.length;
+    && new Set(value.map(tag => tag.toLowerCase())).size === value.length;
 }
 function validDocument(value: unknown): value is PDFDocument {
   if (!object(value) || Object.keys(value).length !== documentKeys.length || !documentKeys.every(key => Object.hasOwn(value, key))) return false;
@@ -315,7 +315,7 @@ export class LibraryStore {
       if (Object.hasOwn(patch, 'tags')) {
         if (!Array.isArray(patch.tags) || patch.tags.some(tag => typeof tag !== 'string')) throw new Error('Tags must be text.');
         const tags = patch.tags.map(tag => (tag as string).trim()).filter(Boolean);
-        normalized.tags = tags.filter((tag, index) => tags.findIndex(other => other.toLocaleLowerCase() === tag.toLocaleLowerCase()) === index);
+        normalized.tags = tags.filter((tag, index) => tags.findIndex(other => other.toLowerCase() === tag.toLowerCase()) === index);
         if (!validTags(normalized.tags)) throw new Error('Use up to 12 tags, each between 1 and 40 characters.');
       }
       if (Object.hasOwn(patch, 'favorite') && typeof patch.favorite !== 'boolean') throw new Error('Favorite must be true or false.');
