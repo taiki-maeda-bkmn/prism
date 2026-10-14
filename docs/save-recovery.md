@@ -12,6 +12,18 @@ The final external-change check and a filesystem rename cannot form a portable c
 
 The recovery directory stays beside the note so capture does not cross filesystem boundaries. Retaining the captured inode also preserves later writes through an already-open external file handle.
 
+## File metadata
+
+The draft begins as an independent copy of the original file, including its supported metadata. Updating its text does not change its access-control entries. Publication and restoration use the same metadata-preserving copy operation.
+
+- Linux uses GNU `/bin/cp` to preserve ownership, permissions, ACLs, and extended attributes.
+- macOS uses the system `/bin/cp -p` to preserve ACLs, extended attributes, Finder tags, and resource forks.
+- Windows uses native copying for file attributes and alternate data streams, plus Windows PowerShell and handle-based security APIs to preserve owner, group, and discretionary ACLs, including inheritance protection.
+
+POSIX destinations are claimed with exclusive creation before invoking the copier. The copier receives inherited file handles rather than notebook paths. The Windows security helper also operates on inherited handles. Replacing a pathname cannot redirect these metadata changes to another file.
+
+Missing system helpers or insufficient permissions produce a save error. Failed copies are retained: another application may already have written into the same inode, so matching inode numbers alone do not justify deleting them. Original and draft copies remain available through the recovery transaction. Privileged audit ACLs are outside the metadata copied by the Windows helper.
+
 ## Loading after interruption
 
 Inspect unfinished transactions and restore a captured original only when its validated destination is missing. Never replace an existing destination. Mark settled transactions complete so later deliberate deletion cannot resurrect a note from completed history. Recovery paths must remain inside the notebook and reject symlinks.
@@ -25,5 +37,6 @@ Inspect unfinished transactions and restore a captured original only when its va
 - Restart with an unfinished transaction and an existing note; preserve the existing note.
 - Delete a note after a completed save; do not restore it from completed history.
 - Exercise exclusive-copy fallback, save failures, permissions, hard-link aliases, and the native save/draft flows.
+- Verify actual Linux ACLs/xattrs, macOS Finder metadata/resource forks, and Windows discretionary ACLs/alternate data streams on both live and retained files.
 
 Recovery copies consume disk space and remain available for manual inspection. Automatic retention limits and a recovery browser are follow-up work.

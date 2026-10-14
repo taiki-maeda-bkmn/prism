@@ -4,8 +4,10 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Note, Workspace } from '../shared/types';
 import { RECOVERY_DIRECTORY, SaveRecovery, type RecoveryIO } from './recovery';
+import { copyFileWithMetadata } from './metadata';
+import { MAX_NOTE_BYTES } from './limits';
 
-export const MAX_NOTE_BYTES = 2 * 1024 * 1024;
+export { MAX_NOTE_BYTES } from './limits';
 export const MAX_NOTES = 2_000;
 const MAX_WORKSPACE_BYTES = 64 * 1024 * 1024;
 const MAX_ENTRIES = 20_000;
@@ -56,7 +58,7 @@ export class WorkspaceStore {
 
   private constructor(root: string, private readonly identity: Pick<Stats, 'ino' | 'dev'>, private readonly createIO: CreateNoteIO) { this.root = root; }
 
-  static async open(directory: string, createIO: CreateNoteIO = fs): Promise<WorkspaceStore> {
+  static async open(directory: string, createIO: CreateNoteIO = { ...fs, copyFile: copyFileWithMetadata }): Promise<WorkspaceStore> {
     const root = await fs.realpath(directory);
     const stat = await fs.lstat(root);
     if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Choose a folder for your notebook.');
@@ -220,7 +222,7 @@ export class WorkspaceStore {
       const current = await this.readSnapshot(notePath);
       if (!sameFile(expected, current)) throw new Error('This note was changed by another application. Your draft is safe; copy it before refreshing.');
       const parent = await this.safeParent(notePath);
-      const transaction = await SaveRecovery.prepare(parent, notePath, diskContent, expected.hash, current.mode,
+      const transaction = await SaveRecovery.prepare(parent, notePath, diskContent, expected.hash,
         () => this.safeParent(notePath));
       const recoveryPath = path.relative(this.root, transaction.directory);
       const capturedPath = path.relative(this.root, transaction.original).split(path.sep).join('/');

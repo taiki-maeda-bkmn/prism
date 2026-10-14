@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
+import { copyFileWithMetadata } from './metadata';
 
 export const RECOVERY_DIRECTORY = '.prism-recovery';
 const codeOf = (error: unknown) => (error as NodeJS.ErrnoException)?.code;
@@ -55,7 +56,7 @@ export class SaveRecovery {
     this.target = path.join(path.dirname(path.dirname(directory)), path.basename(manifest.notePath));
   }
 
-  static async prepare(parent: string, notePath: string, content: string, originalHash: string, mode: number, checkParent: () => Promise<unknown>): Promise<SaveRecovery> {
+  static async prepare(parent: string, notePath: string, content: string, originalHash: string, checkParent: () => Promise<unknown>): Promise<SaveRecovery> {
     await checkParent();
     const recoveryRoot = path.join(parent, RECOVERY_DIRECTORY);
     try { await fs.mkdir(recoveryRoot, { mode: 0o700 }); }
@@ -67,10 +68,15 @@ export class SaveRecovery {
     const transaction = new SaveRecovery(directory, manifest, directoryID, recoveryID, checkParent);
     await transaction.guard();
     await fs.writeFile(path.join(directory, 'manifest.json'), JSON.stringify(manifest), { encoding: 'utf8', flag: 'wx', mode: 0o600, flush: true });
-    const handle = await fs.open(transaction.draft, 'wx', 0o600);
+    // Copy the original metadata onto an independent inode before changing bytes.
+    await copyFileWithMetadata(transaction.target, transaction.draft, constants.COPYFILE_EXCL);
+    const draft = await fs.lstat(transaction.draft);
+    const handle = await fs.open(transaction.draft, constants.O_RDWR | (constants.O_NOFOLLOW || 0));
     try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || opened.ino !== draft.ino || opened.dev !== draft.dev) throw new Error('The recovery draft changed before writing.');
+      await handle.truncate(0);
       await handle.writeFile(content, 'utf8');
-      await handle.chmod(mode & 0o777);
       await handle.sync();
     } finally { await handle.close(); }
     return transaction;
