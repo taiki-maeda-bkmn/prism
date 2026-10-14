@@ -138,6 +138,42 @@ test('resolves relative, root, percent-encoded and extensionless note links', ()
   assert.equal(resolveLink('prism-note:Ideas%2FResearch%20notes', 'Home.md', notes)?.path, 'Ideas/Research notes.md');
 });
 
+test('extensionless Markdown destinations agree across preview, graph links and backlinks', () => {
+  const cases = [
+    ['Solo', 'Solo.md'],
+    ['./Neighbor#details', 'Projects/Neighbor.md'],
+    ['../Topics/Thought#setup', 'Topics/Thought.md'],
+    ['/Topics/Thought', 'Topics/Thought.md'],
+    ['Topics/Thought?read=true#setup', 'Topics/Thought.md'],
+    ['Space%20name#heading', 'Space name.md'],
+    ['Percent%2525', 'Percent%25.md'],
+    ['prism-note:Solo', 'Solo.md'],
+  ];
+  for (const [target, expected] of cases) {
+    const source = note('Projects/Source.md', `[Linked note](${target})`);
+    const notes = [source, ...[...new Set(cases.map(([, path]) => path))].map(path => note(path))];
+    const previewHref = JSDOM.fragment(renderMarkdown(source.content)).querySelector('a')?.getAttribute('href');
+    assert.ok(previewHref);
+    assert.equal(resolveNoteLink(previewHref, source.path, notes)?.note.path, expected, `preview: ${target}`);
+    assert.deepEqual(getNoteLinks(source), [target]);
+    assert.deepEqual(getNoteLinks(source).map(link => resolveLink(link, source.path, notes)?.path), [expected], `graph: ${target}`);
+    assert.deepEqual(getBacklinks(expected, notes).map(item => item.path), [source.path], `backlinks: ${target}`);
+  }
+});
+
+test('local candidate extraction creates no edges for missing targets, assets, external URLs or same-note fragments', () => {
+  const source = note('Projects/Source.md', '[missing](Missing) [asset](image.png) [neighbor](./Neighbor) [self](Source#heading) [section](#heading) [query](?read=true#heading) [empty]()\n\n![image](Other) `[code](Other)` [external](https://example.com/Other) [file](file:///Other)');
+  const neighbor = note('Projects/Neighbor.md');
+  const other = note('Projects/Other.md');
+  const notes = [source, neighbor, other];
+  assert.deepEqual(extractLinks(source.content), ['Missing', 'image.png', './Neighbor', 'Source#heading']);
+  const connections = getNoteLinks(source).map(link => resolveLink(link, source.path, notes)).filter(target => target && target.path !== source.path);
+  assert.deepEqual(connections, [neighbor]);
+  assert.deepEqual(getBacklinks(neighbor.path, notes), [source]);
+  assert.deepEqual(getBacklinks(source.path, notes), []);
+  assert.deepEqual(getBacklinks(other.path, notes), []);
+});
+
 test('ambiguous basenames and invalid paths never jump to another file', () => {
   const notes = [note('One/Note.md'), note('Two/Note.md'), note('Home.md')];
   assert.equal(resolveLink('Note', 'Home.md', notes), undefined);

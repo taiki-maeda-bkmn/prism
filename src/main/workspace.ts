@@ -3,6 +3,7 @@ import { constants, type Stats } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Note, Workspace } from '../shared/types';
+import { RECOVERY_DIRECTORY, SaveRecovery, type RecoveryIO } from './recovery';
 
 export const MAX_NOTE_BYTES = 2 * 1024 * 1024;
 export const MAX_NOTES = 2_000;
@@ -24,7 +25,7 @@ type Snapshot = {
   mode: number;
 };
 
-type CreateNoteIO = Pick<typeof fs, 'link' | 'copyFile'>;
+type CreateNoteIO = Pick<typeof fs, 'link' | 'copyFile'> & Partial<Pick<typeof fs, 'rename'>>;
 
 export function validateNotePath(value: unknown, create = false): string {
   if (typeof value !== 'string' || !value || value.length > 1024 || value.includes('\\')) {
@@ -65,6 +66,10 @@ export class WorkspaceStore {
     const result = this.pending.then(operation);
     this.pending = result.catch(() => undefined);
     return result;
+  }
+
+  private recoveryIO(): RecoveryIO {
+    return { rename: this.createIO.rename || fs.rename, copyFile: this.createIO.copyFile };
   }
 
   private async assertRoot(): Promise<void> {
@@ -135,6 +140,7 @@ export class WorkspaceStore {
       const warnings: string[] = [];
       const seen = new Set<string>();
       let visited = 0;
+      let recoveryVisits = 0;
       let totalBytes = 0;
       let stopped = false;
       const warn = (message: string) => { if (warnings.length < 40) warnings.push(message); };
@@ -145,7 +151,31 @@ export class WorkspaceStore {
         if (info.isSymbolicLink() || !info.isDirectory() || await fs.realpath(directory) !== directory) {
           warn(`${relative || 'Notebook'}: symbolic links are skipped.`); return;
         }
-        const entries = (await fs.readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+        let entries = (await fs.readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+        const recovery = entries.find((entry) => entry.name === RECOVERY_DIRECTORY);
+        if (recovery) {
+          const recoveryRoot = path.join(directory, RECOVERY_DIRECTORY);
+          try {
+            if (!recovery.isDirectory() || recovery.isSymbolicLink() || await fs.realpath(recoveryRoot) !== recoveryRoot) throw new Error('Recovery directories cannot be symbolic links.');
+            const transactions = (await fs.readdir(recoveryRoot, { withFileTypes: true })).sort((a, b) => b.name.localeCompare(a.name));
+            let restored = false;
+            for (const entry of transactions) {
+              if (!/^save-[0-9]+-[a-zA-Z0-9]+$/.test(entry.name)) continue;
+              if (++recoveryVisits > MAX_ENTRIES) { warn('Some older recovery records were skipped. They remain available for manual recovery.'); break; }
+              const transactionPath = path.join(recoveryRoot, entry.name);
+              const recoveryPath = path.relative(this.root, transactionPath);
+              try {
+                const transaction = await SaveRecovery.open(transactionPath, relative, validateNotePath,
+                  () => this.safeParent(relative ? `${relative}/recovery.md` : 'recovery.md'));
+                if (!transaction || await transaction.isComplete()) continue;
+                const result = await transaction.settle(this.recoveryIO(), MAX_NOTE_BYTES);
+                restored ||= result === 'restored';
+                warn(`${result === 'restored' ? `Recovered ${transaction.manifest.notePath}.` : `Retained recovery copies for ${transaction.manifest.notePath}.`} Copies: ${recoveryPath}`);
+              } catch (error) { warn(`${recoveryPath}: ${error instanceof Error ? error.message : 'Recovery needs manual attention.'}`); }
+            }
+            if (restored) entries = (await fs.readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+          } catch (error) { warn(`${relative || 'Notebook'}: ${error instanceof Error ? error.message : 'Recovery records could not be read.'}`); }
+        }
         for (const entry of entries) {
           if (stopped) return;
           if (++visited > MAX_ENTRIES) { warn(`Notebook scan stopped after ${MAX_ENTRIES.toLocaleString()} entries.`); stopped = true; return; }
@@ -185,29 +215,38 @@ export class WorkspaceStore {
       const current = await this.readSnapshot(notePath);
       if (!sameFile(expected, current)) throw new Error('This note was changed by another application. Your draft is safe; copy it before refreshing.');
       const parent = await this.safeParent(notePath);
-      const target = path.join(parent, path.basename(notePath));
-      const temporary = path.join(parent, `.prism-${randomUUID()}.tmp`);
-      let installed = false;
+      const transaction = await SaveRecovery.prepare(parent, notePath, content, expected.hash, current.mode,
+        () => this.safeParent(notePath));
+      const recoveryPath = path.relative(this.root, transaction.directory);
+      const capturedPath = path.relative(this.root, transaction.original).split(path.sep).join('/');
       try {
-        const handle = await fs.open(temporary, 'wx', 0o600);
-        try {
-          await handle.writeFile(content, 'utf8');
-          await handle.chmod(current.mode & 0o777);
-          await handle.sync();
-        } finally { await handle.close(); }
-        await this.safeParent(notePath);
-        const latest = await this.readSnapshot(notePath);
-        if (!sameFile(expected, latest)) throw new Error('This note changed during saving. Your draft is safe; copy it before refreshing.');
-        await fs.rename(temporary, target);
-        installed = true;
+        await transaction.capture(this.recoveryIO());
+        const captured = await this.readSnapshot(capturedPath);
+        if (!sameFile(expected, captured)) throw new Error('This note changed during saving. The external version was preserved.');
+        await transaction.publish(this.recoveryIO());
+        if (!sameFile(expected, await this.readSnapshot(capturedPath))) throw new Error('Another application changed the captured note during saving. Both versions were preserved.');
         const saved = await this.readSnapshot(notePath);
-        if (saved.hash !== createHash('sha256').update(content, 'utf8').digest('hex')) {
-          throw new Error('Another application changed the note immediately after saving. Your draft is safe; copy it before refreshing.');
-        }
+        if (saved.hash !== transaction.manifest.draftHash) throw new Error('Another application changed the note immediately after saving.');
+        await transaction.complete();
         this.snapshots.set(notePath, saved);
         return saved.note;
-      } finally {
-        if (!installed) await fs.unlink(temporary).catch(() => undefined);
+      } catch (error) {
+        let recoveryWarning = '';
+        try {
+          const settled = await transaction.settle(this.recoveryIO(), MAX_NOTE_BYTES);
+          if (settled === 'restored') {
+            // Keep the renderer's version usable when only our restoration changed the inode.
+            const captured = await this.readSnapshot(capturedPath);
+            const restored = await this.readSnapshot(notePath);
+            if (sameFile(expected, captured) && restored.hash === expected.hash && restored.size === expected.size) {
+              restored.note.modified = expected.note.modified;
+              this.snapshots.set(notePath, restored);
+            }
+          }
+        }
+        catch { recoveryWarning = ' Automatic restoration could not finish; reopen the notebook to retry.'; }
+        const reason = error instanceof Error ? error.message : 'The note could not be saved.';
+        throw new Error(`${reason} Your draft is safe. Recovery copies: ${recoveryPath}.${recoveryWarning}`, { cause: error });
       }
     });
   }

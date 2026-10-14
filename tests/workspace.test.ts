@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
@@ -7,11 +8,28 @@ import { pathToFileURL } from 'node:url';
 import test, { type TestContext } from 'node:test';
 import { ensureStarterNotebook, MAX_NOTE_BYTES, validateNotePath, WorkspaceStore } from '../src/main/workspace';
 import { isRendererResource, validateExternalURL } from '../src/main/security';
+import { RECOVERY_DIRECTORY, SaveRecovery } from '../src/main/recovery';
 
 async function fixture(t: TestContext) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-workspace-test-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   return { root, store: await WorkspaceStore.open(root) };
+}
+
+async function recoveryDirectories(root: string): Promise<string[]> {
+  const directory = path.join(root, RECOVERY_DIRECTORY);
+  return (await fs.readdir(directory)).sort().map((name) => path.join(directory, name));
+}
+
+async function pendingRecovery(root: string, notePath = 'Note.md') {
+  const canonical = await fs.realpath(root);
+  const target = path.join(canonical, notePath);
+  const original = await fs.readFile(target);
+  const hash = createHash('sha256').update(original).digest('hex');
+  const transaction = await SaveRecovery.prepare(path.dirname(target), notePath, 'Retained draft', hash,
+    (await fs.stat(target)).mode, async () => undefined);
+  await transaction.capture(fs);
+  return transaction;
 }
 
 test('loads nested Markdown notes while ignoring hidden and dependency directories', async (t) => {
@@ -53,7 +71,7 @@ test('a replacement directory at the same notebook path cannot receive reads or 
   assert.equal((await reopened.create('New.md')).path, 'New.md');
 });
 
-test('saving atomically replaces the note and preserves its permissions', async (t) => {
+test('saving preserves the previous version and exclusively publishes a draft with its permissions', async (t) => {
   const { root, store } = await fixture(t);
   const target = path.join(root, 'Note.md');
   await fs.writeFile(target, '# Before');
@@ -64,7 +82,257 @@ test('saving atomically replaces the note and preserves its permissions', async 
   assert.equal(await fs.readFile(target, 'utf8'), saved.content);
   assert.ok(saved.modified > original.modified);
   if (process.platform !== 'win32') assert.equal((await fs.stat(target)).mode & 0o777, 0o660);
-  assert.deepEqual(await fs.readdir(root), ['Note.md']);
+  assert.deepEqual(await fs.readdir(root), [RECOVERY_DIRECTORY, 'Note.md']);
+  const [recovery] = await recoveryDirectories(root);
+  assert.equal(await fs.readFile(path.join(recovery, 'original.md'), 'utf8'), '# Before');
+  assert.equal(await fs.readFile(path.join(recovery, 'draft.md'), 'utf8'), saved.content);
+  assert.equal(await fs.readFile(path.join(recovery, 'complete'), 'utf8'), '1\n');
+});
+
+test('an external replacement in the final capture gap is restored without losing the draft', async (t) => {
+  const { root } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  await fs.writeFile(target, 'Original');
+  const store = await WorkspaceStore.open(root, {
+    ...fs,
+    rename: async (source, destination) => {
+      const external = path.join(root, 'external.tmp');
+      await fs.writeFile(external, 'External final-gap edit');
+      await fs.rename(external, source);
+      await fs.rename(source, destination);
+    },
+  });
+  const [original] = (await store.load()).notes;
+  await assert.rejects(store.save('Note.md', 'My draft', original.modified), /changed during saving.*Recovery copies/);
+  assert.equal(await fs.readFile(target, 'utf8'), 'External final-gap edit');
+  const [recovery] = await recoveryDirectories(root);
+  assert.equal(await fs.readFile(path.join(recovery, 'original.md'), 'utf8'), 'External final-gap edit');
+  assert.equal(await fs.readFile(path.join(recovery, 'draft.md'), 'utf8'), 'My draft');
+  await assert.rejects(store.save('Note.md', 'My draft', original.modified), /changed by another application/);
+});
+
+test('a competing destination after capture is never overwritten by publication or rollback', async (t) => {
+  const { root } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  await fs.writeFile(target, 'Original');
+  const store = await WorkspaceStore.open(root, {
+    ...fs,
+    rename: async (source, destination) => {
+      await fs.rename(source, destination);
+      await fs.writeFile(source, 'Competing writer', { flag: 'wx' });
+    },
+  });
+  const [original] = (await store.load()).notes;
+  await assert.rejects(store.save('Note.md', 'My draft', original.modified), /Recovery copies/);
+  assert.equal(await fs.readFile(target, 'utf8'), 'Competing writer');
+  const [recovery] = await recoveryDirectories(root);
+  assert.equal(await fs.readFile(path.join(recovery, 'original.md'), 'utf8'), 'Original');
+  assert.equal(await fs.readFile(path.join(recovery, 'draft.md'), 'utf8'), 'My draft');
+  assert.equal(await fs.readFile(path.join(recovery, 'complete'), 'utf8'), '1\n');
+  assert.equal((await (await WorkspaceStore.open(root)).load()).notes[0].content, 'Competing writer');
+});
+
+test('a write through an old open handle during publication is reported and retained', async (t) => {
+  const { root } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  await fs.writeFile(target, 'Original');
+  const handle = await fs.open(target, 'r+');
+  t.after(() => handle.close());
+  const store = await WorkspaceStore.open(root, {
+    ...fs,
+    copyFile: async (source, destination, flags) => {
+      await fs.copyFile(source, destination, flags);
+      if (path.basename(String(source)) === 'draft.md') {
+        await handle.truncate(0);
+        await handle.writeFile('Late external edit');
+        await handle.sync();
+      }
+    },
+  });
+  const [original] = (await store.load()).notes;
+  await assert.rejects(store.save('Note.md', 'My draft', original.modified), /captured note during saving/);
+  const [recovery] = await recoveryDirectories(root);
+  assert.equal(await fs.readFile(path.join(recovery, 'original.md'), 'utf8'), 'Late external edit');
+  assert.equal(await fs.readFile(target, 'utf8'), 'My draft');
+});
+
+test('late writes through the original inode and later live edits cannot alter the retained draft', async (t) => {
+  const { root, store } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  await fs.writeFile(target, 'Original');
+  const handle = await fs.open(target, 'r+');
+  t.after(() => handle.close());
+  const [original] = (await store.load()).notes;
+  await store.save('Note.md', 'My draft', original.modified);
+  await handle.truncate(0);
+  await handle.writeFile('External edit after save returned');
+  await fs.writeFile(target, 'Later live edit');
+  const [recovery] = await recoveryDirectories(root);
+  assert.equal(await fs.readFile(path.join(recovery, 'original.md'), 'utf8'), 'External edit after save returned');
+  assert.equal(await fs.readFile(path.join(recovery, 'draft.md'), 'utf8'), 'My draft');
+  assert.equal(await fs.readFile(target, 'utf8'), 'Later live edit');
+});
+
+test('failed publication restores an unchanged original and permits retry with the same draft token', async (t) => {
+  const { root } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  await fs.writeFile(target, 'Original');
+  let diskFull = true;
+  const store = await WorkspaceStore.open(root, {
+    ...fs,
+    copyFile: async (source, destination, flags) => {
+      assert.equal(flags, constants.COPYFILE_EXCL);
+      if (diskFull && path.basename(String(source)) === 'draft.md') throw Object.assign(new Error('Disk full'), { code: 'ENOSPC' });
+      await fs.copyFile(source, destination, flags);
+    },
+  });
+  const [original] = (await store.load()).notes;
+  await assert.rejects(store.save('Note.md', 'My draft', original.modified), /Disk full/);
+  assert.equal(await fs.readFile(target, 'utf8'), 'Original');
+  diskFull = false;
+  assert.equal((await store.save('Note.md', 'My draft', original.modified)).content, 'My draft');
+});
+
+test('failed restoration retains both versions for a fresh store to recover', async (t) => {
+  const { root } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  await fs.writeFile(target, 'Original');
+  const store = await WorkspaceStore.open(root, {
+    ...fs,
+    copyFile: async () => { throw Object.assign(new Error('Disk full'), { code: 'ENOSPC' }); },
+  });
+  const [original] = (await store.load()).notes;
+  await assert.rejects(store.save('Note.md', 'My draft', original.modified), /Automatic restoration could not finish/);
+  await assert.rejects(fs.stat(target), { code: 'ENOENT' });
+  const [recovery] = await recoveryDirectories(root);
+  assert.equal(await fs.readFile(path.join(recovery, 'draft.md'), 'utf8'), 'My draft');
+  await assert.rejects(fs.stat(path.join(recovery, 'complete')), { code: 'ENOENT' });
+  const loaded = await (await WorkspaceStore.open(root)).load();
+  assert.equal(loaded.notes[0].content, 'Original');
+  assert.match(loaded.warnings.join(' '), /Recovered Note.md/);
+});
+
+test('restart recovers an interrupted capture in a nested folder and completes it only once', async (t) => {
+  const { root } = await fixture(t);
+  await fs.mkdir(path.join(root, 'Ideas'));
+  const target = path.join(root, 'Ideas', 'Note.md');
+  await fs.writeFile(target, 'Original');
+  const transaction = await pendingRecovery(root, 'Ideas/Note.md');
+  await assert.rejects(fs.stat(target), { code: 'ENOENT' });
+  const loaded = await (await WorkspaceStore.open(root)).load();
+  assert.deepEqual(loaded.notes.map((note) => [note.path, note.content]), [['Ideas/Note.md', 'Original']]);
+  assert.equal(await fs.readFile(transaction.draft, 'utf8'), 'Retained draft');
+  assert.equal(await transaction.isComplete(), true);
+  await fs.unlink(target);
+  assert.deepEqual((await (await WorkspaceStore.open(root)).load()).notes, []);
+});
+
+test('restart after publication before the marker keeps the published note and settles the journal', async (t) => {
+  const { root } = await fixture(t);
+  await fs.writeFile(path.join(root, 'Note.md'), 'Original');
+  const transaction = await pendingRecovery(root);
+  await transaction.publish(fs);
+  assert.equal(await transaction.isComplete(), false);
+  const loaded = await (await WorkspaceStore.open(root)).load();
+  assert.equal(loaded.notes[0].content, 'Retained draft');
+  assert.equal(await fs.readFile(transaction.original, 'utf8'), 'Original');
+  assert.equal(await transaction.isComplete(), true);
+});
+
+test('completed recovery history never resurrects a deliberately deleted saved note', async (t) => {
+  const { root, store } = await fixture(t);
+  const target = path.join(root, 'Note.md');
+  await fs.writeFile(target, 'Original');
+  const [original] = (await store.load()).notes;
+  await store.save('Note.md', 'My draft', original.modified);
+  await fs.unlink(target);
+  const loaded = await (await WorkspaceStore.open(root)).load();
+  assert.deepEqual(loaded.notes, []);
+  assert.deepEqual(loaded.warnings, []);
+  assert.equal((await recoveryDirectories(root)).length, 1);
+});
+
+test('saving works without hard-link support and always copies exclusively', async (t) => {
+  const { root } = await fixture(t);
+  await fs.writeFile(path.join(root, 'Note.md'), 'Original');
+  let copies = 0;
+  const store = await WorkspaceStore.open(root, {
+    ...fs,
+    link: async () => { throw Object.assign(new Error('Unsupported'), { code: 'ENOTSUP' }); },
+    copyFile: async (source, destination, flags) => {
+      copies++;
+      assert.equal(flags, constants.COPYFILE_EXCL);
+      await fs.copyFile(source, destination, flags);
+    },
+  });
+  const [original] = (await store.load()).notes;
+  assert.equal((await store.save('Note.md', 'My draft', original.modified)).content, 'My draft');
+  assert.equal(copies, 1);
+});
+
+test('malformed, oversized, or cross-folder recovery manifests cannot create notes or block ordinary notes', async (t) => {
+  for (const corrupt of ['traversal', 'wrong-parent', 'hash-array', 'oversized'] as const) {
+    const { root } = await fixture(t);
+    await fs.writeFile(path.join(root, 'Note.md'), 'Original');
+    const transaction = await pendingRecovery(root);
+    await fs.writeFile(path.join(root, 'Good.md'), 'Unrelated note');
+    const manifest: Record<string, unknown> = { ...transaction.manifest };
+    if (corrupt === 'traversal') manifest.notePath = '../Escape.md';
+    if (corrupt === 'wrong-parent') manifest.notePath = 'Other/Note.md';
+    if (corrupt === 'hash-array') manifest.originalHash = [manifest.originalHash];
+    await fs.writeFile(path.join(transaction.directory, 'manifest.json'), corrupt === 'oversized' ? ' '.repeat(8193) : JSON.stringify(manifest));
+    const loaded = await (await WorkspaceStore.open(root)).load();
+    assert.deepEqual(loaded.notes.map((note) => note.path), ['Good.md']);
+    assert.equal(loaded.warnings.length, 1);
+    await assert.rejects(fs.stat(path.join(root, 'Note.md')), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(transaction.original, 'utf8'), 'Original');
+  }
+});
+
+test('corrupt completion markers and oversized captured notes are preserved for manual recovery', async (t) => {
+  for (const corruptMarker of [true, false]) {
+    const { root } = await fixture(t);
+    await fs.writeFile(path.join(root, 'Note.md'), 'Original');
+    const transaction = await pendingRecovery(root);
+    if (corruptMarker) await fs.writeFile(path.join(transaction.directory, 'complete'), 'corrupt');
+    else await fs.writeFile(transaction.original, Buffer.alloc(MAX_NOTE_BYTES + 1, 'x'));
+    const loaded = await (await WorkspaceStore.open(root)).load();
+    assert.deepEqual(loaded.notes, []);
+    assert.match(loaded.warnings.join(' '), /manual recovery/);
+    await assert.rejects(fs.stat(path.join(root, 'Note.md')), { code: 'ENOENT' });
+    assert.equal((await fs.stat(transaction.original)).size, corruptMarker ? 'Original'.length : MAX_NOTE_BYTES + 1);
+  }
+});
+
+test('symlinks in recovery metadata or captured content cannot be replayed', { skip: process.platform === 'win32' }, async (t) => {
+  for (const linked of ['manifest.json', 'original.md', 'complete']) {
+    const { root } = await fixture(t);
+    await fs.writeFile(path.join(root, 'Note.md'), 'Original');
+    const transaction = await pendingRecovery(root);
+    const outside = path.join(root, 'Outside.txt');
+    await fs.writeFile(outside, linked === 'complete' ? '1\n' : 'Private content');
+    const link = path.join(transaction.directory, linked);
+    await fs.unlink(link).catch(() => undefined);
+    await fs.symlink(outside, link);
+    const loaded = await (await WorkspaceStore.open(root)).load();
+    assert.deepEqual(loaded.notes, []);
+    assert.equal(loaded.warnings.length, 1);
+    await assert.rejects(fs.stat(path.join(root, 'Note.md')), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(outside, 'utf8'), linked === 'complete' ? '1\n' : 'Private content');
+  }
+});
+
+test('a symlink recovery root cannot redirect saved copies or replay', { skip: process.platform === 'win32' }, async (t) => {
+  const { root, store } = await fixture(t);
+  const outside = path.join(root, 'Outside');
+  await fs.mkdir(outside);
+  await fs.writeFile(path.join(root, 'Note.md'), 'Original');
+  await fs.symlink(outside, path.join(root, RECOVERY_DIRECTORY));
+  const loaded = await store.load();
+  assert.match(loaded.warnings.join(' '), /symbolic links/);
+  await assert.rejects(store.save('Note.md', 'My draft', loaded.notes[0].modified), /symbolic link/);
+  assert.deepEqual(await fs.readdir(outside), []);
+  assert.equal(await fs.readFile(path.join(root, 'Note.md'), 'utf8'), 'Original');
 });
 
 test('an external modification is never overwritten', async (t) => {
@@ -241,7 +509,7 @@ test('replacing a loaded note with a symlink cannot redirect a save', { skip: pr
   assert.equal(await fs.readFile(path.join(root, 'Other.txt'), 'utf8'), 'Other content');
 });
 
-test('atomic save does not mutate other hard links to the previous file', async (t) => {
+test('recoverable save does not mutate other hard links to the previous file', async (t) => {
   const { root, store } = await fixture(t);
   await fs.writeFile(path.join(root, 'Note.md'), 'Original');
   await fs.link(path.join(root, 'Note.md'), path.join(root, 'Archive.txt'));

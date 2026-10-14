@@ -106,7 +106,10 @@ export function extractLinks(content: string): string[] {
         if (!wiki.embedded && !isExternal(wiki.target)) links.add(wikiHref(wiki.target));
       } else if (token.type === 'link') {
         const target = (token as Tokens.Link).href;
-        if (!isExternal(target) && /\.(?:md|markdown)$/i.test(decodePath(target.split(/[?#]/, 1)[0]))) links.add(target);
+        // The resolver accepts extensionless and relative paths too. Keep local
+        // candidates here and let it filter missing files, assets and ambiguity.
+        // A fragment/query alone stays within this note and cannot form an edge.
+        if (target.startsWith('prism-note:') || (!isExternal(target) && target.split(/[?#]/, 1)[0])) links.add(target);
         continue;
       }
       if ('tokens' in token && Array.isArray(token.tokens)) visit(token.tokens);

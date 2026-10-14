@@ -299,7 +299,7 @@ test('opens percent-containing filenames consistently in previews, graphs, and b
     await mkdir(linkNotebook, { recursive: true });
     await mkdir(linkUserData, { recursive: true });
     const fixtures: Record<string, string> = {
-      'Welcome to Prism.md': '# Welcome to Prism\n\n[[Percent%25]]\n\n[URI note](Space%2520.md)\n',
+      'Welcome to Prism.md': '# Welcome to Prism\n\n[[Percent%25]]\n\n[Extensionless](Percent%2525)\n\n[URI note](Space%2520.md)\n',
       'Percent%25.md': '# Literal percent25 target\n',
       'Percent%.md': '# Percent collision\n',
       'Space%20.md': '# Encoded space target\n',
@@ -317,6 +317,7 @@ test('opens percent-containing filenames consistently in previews, graphs, and b
 
     for (const target of [
       { label: 'Percent%25', title: 'Literal percent25 target', collision: 'Percent collision' },
+      { label: 'Extensionless', title: 'Literal percent25 target', collision: 'Percent collision' },
       { label: 'URI note', title: 'Encoded space target', collision: 'Space collision' },
     ]) {
       await linkPage.getByRole('navigation', { name: 'Notes', exact: true }).getByTitle('Welcome to Prism.md', { exact: true }).click();
