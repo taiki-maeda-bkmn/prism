@@ -30,30 +30,61 @@ public static class PrismFileSecurity {
   [DllImport("advapi32.dll", SetLastError = true)]
   [return: MarshalAs(UnmanagedType.Bool)]
   static extern bool GetSecurityDescriptorControl(IntPtr descriptor, out ushort control, out uint revision);
+  [DllImport("advapi32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  static extern bool EqualSid(IntPtr first, IntPtr second);
   [DllImport("kernel32.dll")]
   static extern IntPtr LocalFree(IntPtr memory);
 
+  static Win32Exception NativeError(string operation, uint error) {
+    return new Win32Exception((int)error, operation + " failed (Win32 " + error + "): "
+      + new Win32Exception((int)error).Message);
+  }
+
+  static bool SameSid(IntPtr first, IntPtr second) {
+    return first == second || (first != IntPtr.Zero && second != IntPtr.Zero && EqualSid(first, second));
+  }
+
   public static void Copy() {
     IntPtr source = GetStdHandle(-10), destination = GetStdHandle(-11);
-    if (source == IntPtr.Zero || source == new IntPtr(-1)
-      || destination == IntPtr.Zero || destination == new IntPtr(-1))
-      throw new InvalidOperationException("Missing file handles for metadata preservation.");
+    if (source == IntPtr.Zero || source == new IntPtr(-1))
+      throw new InvalidOperationException("GetStdHandle(source stdin) did not provide a file handle.");
+    if (destination == IntPtr.Zero || destination == new IntPtr(-1))
+      throw new InvalidOperationException("GetStdHandle(destination stdout) did not provide a file handle.");
     IntPtr owner, group, dacl, sacl, descriptor;
     uint error = GetSecurityInfo(source, 1, 7, out owner, out group, out dacl, out sacl, out descriptor);
-    if (error != 0) throw new Win32Exception((int)error);
+    if (error != 0) throw NativeError("GetSecurityInfo(source owner/group/DACL)", error);
+    IntPtr destinationDescriptor = IntPtr.Zero;
     try {
+      IntPtr destinationOwner, destinationGroup, destinationDacl, destinationSacl;
+      error = GetSecurityInfo(destination, 1, 3, out destinationOwner, out destinationGroup,
+        out destinationDacl, out destinationSacl, out destinationDescriptor);
+      if (error != 0) throw NativeError("GetSecurityInfo(destination owner/group)", error);
+      bool ownerChanged = !SameSid(owner, destinationOwner);
+      bool groupChanged = !SameSid(group, destinationGroup);
       ushort control;
       uint revision;
       if (!GetSecurityDescriptorControl(descriptor, out control, out revision))
-        throw new Win32Exception(Marshal.GetLastWin32Error());
-      // WRITE_DAC | WRITE_OWNER; Node's ordinary writable handle lacks these.
-      using (SafeFileHandle writable = ReOpenFile(destination, 0x000C0000, 7, 0)) {
-        if (writable.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
+        throw NativeError("GetSecurityDescriptorControl(source)", (uint)Marshal.GetLastWin32Error());
+      // Ownership grants WRITE_DAC without necessarily granting WRITE_OWNER.
+      // Request ownership rights only when there is an ownership change to make.
+      uint access = 0x00040000u | (ownerChanged || groupChanged ? 0x00080000u : 0u);
+      using (SafeFileHandle writable = ReOpenFile(destination, access, 7, 0)) {
+        if (writable.IsInvalid) {
+          uint reopenError = (uint)Marshal.GetLastWin32Error();
+          throw NativeError("ReOpenFile(destination access=0x" + access.ToString("X") + ")", reopenError);
+        }
         uint protection = (control & 0x1000) != 0 ? 0x80000000u : 0x20000000u;
-        error = SetSecurityInfo(writable, 1, 7 | protection, owner, group, dacl, IntPtr.Zero);
-        if (error != 0) throw new Win32Exception((int)error);
+        uint information = 4u | protection | (ownerChanged ? 1u : 0u) | (groupChanged ? 2u : 0u);
+        error = SetSecurityInfo(writable, 1, information, ownerChanged ? owner : IntPtr.Zero,
+          groupChanged ? group : IntPtr.Zero, dacl, IntPtr.Zero);
+        if (error != 0)
+          throw NativeError("SetSecurityInfo(destination information=0x" + information.ToString("X") + ")", error);
       }
-    } finally { LocalFree(descriptor); }
+    } finally {
+      if (destinationDescriptor != IntPtr.Zero) LocalFree(destinationDescriptor);
+      LocalFree(descriptor);
+    }
   }
 }
 '@
@@ -68,10 +99,14 @@ public static class PrismFileSecurity {
 /** Preserve owner/group/DACL on the pinned destination; native copying handles streams/attributes. */
 export function preserveWindowsMetadata(source: FileHandle, destination: FileHandle): Promise<void> {
   const executable = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const env = { ...process.env };
+  // PowerShell 7 module paths are incompatible with the Windows PowerShell host.
+  for (const key of Object.keys(env)) if (key.toLowerCase() === 'psmodulepath') delete env[key];
   return new Promise((resolve, reject) => {
     const child = spawn(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(aclCommand, 'utf16le').toString('base64')], {
       windowsHide: true,
       stdio: [source.fd, destination.fd, 'pipe'],
+      env,
     });
     let diagnostic = '';
     let expired = false;

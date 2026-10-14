@@ -157,8 +157,11 @@ test('macOS saves retain the resource fork on live and recovery files', { skip: 
 });
 
 async function powershell(script: string, file: string) {
+  const env: NodeJS.ProcessEnv = { ...process.env, PRISM_METADATA_TARGET: file };
+  // Windows PowerShell must resolve its own modules even when CI starts in pwsh.
+  for (const key of Object.keys(env)) if (key.toLowerCase() === 'psmodulepath') delete env[key];
   const { stdout } = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `$ErrorActionPreference = 'Stop'\n[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n${script}`], {
-    env: { ...process.env, PRISM_METADATA_TARGET: file },
+    env,
     windowsHide: true,
   });
   return stdout.trim();

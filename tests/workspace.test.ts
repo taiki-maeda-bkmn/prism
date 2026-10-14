@@ -440,6 +440,23 @@ test('unsupported hard links fall back to exclusive copy without overwriting not
   }
 });
 
+test('new notes do not depend on save metadata helpers when hard links are unsupported', async (t) => {
+  const { root } = await fixture(t);
+  let metadataCopies = 0;
+  const store = await WorkspaceStore.open(root, {
+    ...fs,
+    link: async () => { throw Object.assign(new Error('Hard links are unsupported'), { code: 'EOPNOTSUPP' }); },
+    recoveryCopyFile: async () => { metadataCopies++; throw new Error('Metadata helper unavailable'); },
+  });
+  const created = await store.create('Portable.md');
+  assert.equal(created.content, '# Portable\n\n');
+  assert.equal(await fs.readFile(path.join(root, created.path), 'utf8'), created.content);
+  assert.deepEqual(await fs.readdir(root), ['Portable.md']);
+  assert.equal(metadataCopies, 0);
+  await assert.rejects(store.create(created.path), /already exists/);
+  assert.equal(await fs.readFile(path.join(root, created.path), 'utf8'), created.content);
+});
+
 test('exclusive copy preserves a destination created while hard-link installation was failing', async (t) => {
   const { root } = await fixture(t);
   const store = await WorkspaceStore.open(root, {

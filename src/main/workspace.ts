@@ -28,7 +28,9 @@ type Snapshot = {
   hasBOM: boolean;
 };
 
-type CreateNoteIO = Pick<typeof fs, 'link' | 'copyFile'> & Partial<Pick<typeof fs, 'rename'>>;
+type CreateNoteIO = Pick<typeof fs, 'link' | 'copyFile'> & Partial<Pick<typeof fs, 'rename'>> & {
+  recoveryCopyFile?: typeof fs.copyFile;
+};
 
 export function validateNotePath(value: unknown, create = false): string {
   if (typeof value !== 'string' || !value || value.length > 1024 || value.includes('\\')) {
@@ -58,7 +60,7 @@ export class WorkspaceStore {
 
   private constructor(root: string, private readonly identity: Pick<Stats, 'ino' | 'dev'>, private readonly createIO: CreateNoteIO) { this.root = root; }
 
-  static async open(directory: string, createIO: CreateNoteIO = { ...fs, copyFile: copyFileWithMetadata }): Promise<WorkspaceStore> {
+  static async open(directory: string, createIO: CreateNoteIO = { ...fs, recoveryCopyFile: copyFileWithMetadata }): Promise<WorkspaceStore> {
     const root = await fs.realpath(directory);
     const stat = await fs.lstat(root);
     if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Choose a folder for your notebook.');
@@ -72,7 +74,7 @@ export class WorkspaceStore {
   }
 
   private recoveryIO(): RecoveryIO {
-    return { rename: this.createIO.rename || fs.rename, copyFile: this.createIO.copyFile };
+    return { rename: this.createIO.rename || fs.rename, copyFile: this.createIO.recoveryCopyFile || this.createIO.copyFile };
   }
 
   private async assertRoot(): Promise<void> {
