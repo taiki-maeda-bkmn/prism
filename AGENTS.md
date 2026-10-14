@@ -11,3 +11,4 @@
 - Please create a branch per requirement, and keep updating the branch by communicating with copilot as a reviewer.
 - Branch creation, commit, push, ... all of these operations must be done automatically. Don't wait my answer.
 - Just in case, don't merge the PR if it totally resolved copilot comments.
+- If the next action is too large, please create another markdown file to break it down.
