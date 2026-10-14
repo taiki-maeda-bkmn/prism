@@ -66,9 +66,10 @@ public static class PrismFileSecurity {
       uint revision;
       if (!GetSecurityDescriptorControl(descriptor, out control, out revision))
         throw NativeError("GetSecurityDescriptorControl(source)", (uint)Marshal.GetLastWin32Error());
-      // Ownership grants WRITE_DAC without necessarily granting WRITE_OWNER.
+      // Keep READ_CONTROL and FILE_READ_ATTRIBUTES while granting WRITE_DAC so
+      // the ACL API can inspect the file and its existing inheritance settings.
       // Request ownership rights only when there is an ownership change to make.
-      uint access = 0x00040000u | (ownerChanged || groupChanged ? 0x00080000u : 0u);
+      uint access = 0x00060080u | (ownerChanged || groupChanged ? 0x00080000u : 0u);
       using (SafeFileHandle writable = ReOpenFile(destination, access, 7, 0)) {
         if (writable.IsInvalid) {
           uint reopenError = (uint)Marshal.GetLastWin32Error();
@@ -79,7 +80,8 @@ public static class PrismFileSecurity {
         error = SetSecurityInfo(writable, 1, information, ownerChanged ? owner : IntPtr.Zero,
           groupChanged ? group : IntPtr.Zero, dacl, IntPtr.Zero);
         if (error != 0)
-          throw NativeError("SetSecurityInfo(destination information=0x" + information.ToString("X") + ")", error);
+          throw NativeError("SetSecurityInfo(destination access=0x" + access.ToString("X")
+            + ", information=0x" + information.ToString("X") + ")", error);
       }
     } finally {
       if (destinationDescriptor != IntPtr.Zero) LocalFree(destinationDescriptor);
