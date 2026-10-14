@@ -27,7 +27,7 @@ async function pendingRecovery(root: string, notePath = 'Note.md') {
   const original = await fs.readFile(target);
   const hash = createHash('sha256').update(original).digest('hex');
   const transaction = await SaveRecovery.prepare(path.dirname(target), notePath, 'Retained draft', hash,
-    (await fs.stat(target)).mode, async () => undefined);
+    async () => undefined);
   await transaction.capture(fs);
   return transaction;
 }
