@@ -288,3 +288,71 @@ test('retries loading the starter notebook after a filesystem error is repaired'
     await rm(retryDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
+
+test('opens percent-containing filenames consistently in previews, graphs, and backlinks', async ({}, testInfo) => {
+  const linkDirectory = await mkdtemp(path.join(os.tmpdir(), 'prism-percent-links-'));
+  const linkNotebook = path.join(linkDirectory, 'notebook');
+  const linkUserData = path.join(linkDirectory, 'user-data');
+  let linkApp: ElectronApplication | undefined;
+  let linkPage: Page | undefined;
+  try {
+    await mkdir(linkNotebook, { recursive: true });
+    await mkdir(linkUserData, { recursive: true });
+    const fixtures: Record<string, string> = {
+      'Welcome to Prism.md': '# Welcome to Prism\n\n[[Percent%25]]\n\n[URI note](Space%2520.md)\n',
+      'Percent%25.md': '# Literal percent25 target\n',
+      'Percent%.md': '# Percent collision\n',
+      'Space%20.md': '# Encoded space target\n',
+      'Space .md': '# Space collision\n',
+    };
+    await Promise.all(Object.entries(fixtures).map(([name, content]) => writeFile(path.join(linkNotebook, name), content)));
+    linkApp = await electron.launch({
+      args: ['--no-sandbox', '.'], cwd: process.cwd(),
+      env: { ...process.env, PRISM_USER_DATA: linkUserData, PRISM_WORKSPACE: linkNotebook },
+    });
+    linkPage = await linkApp.firstWindow();
+    await expect(linkPage.locator('.note-heading h1')).toHaveText('Welcome to Prism');
+    await expect(linkPage.locator('.note-tree .note-item')).toHaveCount(5);
+    const graph = linkPage.getByRole('group', { name: 'Note graph. Select a note to open it. Drag the background to pan.' });
+
+    for (const target of [
+      { label: 'Percent%25', title: 'Literal percent25 target', collision: 'Percent collision' },
+      { label: 'URI note', title: 'Encoded space target', collision: 'Space collision' },
+    ]) {
+      await linkPage.getByRole('navigation', { name: 'Notes', exact: true }).getByTitle('Welcome to Prism.md', { exact: true }).click();
+      await linkPage.locator('.markdown-body').getByRole('link', { name: target.label, exact: true }).click();
+      await expect(linkPage.locator('.note-heading h1')).toHaveText(target.title);
+      await expect(linkPage.locator('.backlink')).toHaveCount(1);
+      await expect(linkPage.locator('.backlinks-section').getByRole('button', { name: 'Welcome to Prism', exact: true })).toBeVisible();
+
+      await linkPage.getByRole('button', { name: 'Graph view', exact: true }).click();
+      await expect(graph.getByRole('button')).toHaveCount(5);
+      await expect(linkPage.locator('.graph-caption')).toContainText('2 connections');
+      await expect(graph.locator('.graph-edge-highlight')).toHaveCount(1);
+      await expect(graph.getByRole('button', { name: 'Open Welcome to Prism', exact: true })).toHaveClass(/graph-node-connected/);
+      await expect(graph.getByRole('button', { name: `Open ${target.collision}`, exact: true })).not.toHaveClass(/graph-node-connected/);
+
+      await graph.getByRole('button', { name: `Open ${target.collision}`, exact: true }).click();
+      await expect(linkPage.locator('.note-heading h1')).toHaveText(target.collision);
+      await expect(linkPage.locator('.backlink')).toHaveCount(0);
+      await linkPage.getByRole('button', { name: 'Graph view', exact: true }).click();
+      await expect(graph.locator('.graph-edge-highlight')).toHaveCount(0);
+    }
+    await expect(linkPage.locator('.message-banner.error')).toHaveCount(0);
+  } catch (error) {
+    if (linkPage && !linkPage.isClosed()) {
+      const screenshot = await linkPage.screenshot().catch(() => undefined);
+      if (screenshot) await testInfo.attach('Percent filename link failure', { body: screenshot, contentType: 'image/png' });
+    }
+    throw error;
+  } finally {
+    if (linkApp) {
+      const child = linkApp.process();
+      const closed = linkApp.waitForEvent('close', { timeout: 5_000 }).catch(() => undefined);
+      await linkApp.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
+      await closed;
+      if (child.exitCode === null) child.kill();
+    }
+    await rm(linkDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});

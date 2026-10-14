@@ -13,6 +13,10 @@ async function fixture(t: TestContext) {
   return { root, store: await WorkspaceStore.open(root) };
 }
 
+function starterHandle(handle: fs.FileHandle, writeFile: (content: string, encoding: 'utf8') => Promise<void>) {
+  return { stat: () => handle.stat(), writeFile, sync: () => handle.sync(), close: () => handle.close() };
+}
+
 test('loads nested Markdown notes while ignoring hidden and dependency directories', async (t) => {
   const { root, store } = await fixture(t);
   await fs.mkdir(path.join(root, 'Ideas'));
@@ -189,6 +193,174 @@ test('starter notebook is linked and existing notes are never reseeded', async (
   assert.equal(await ensureStarterNotebook(root), notebook);
   assert.equal(await fs.readFile(path.join(notebook, 'Welcome to Prism.md'), 'utf8'), 'My own welcome');
   await assert.rejects(fs.stat(path.join(notebook, 'Connected thinking.md')), { code: 'ENOENT' });
+});
+
+test('a partial starter write is cleaned up so retry creates all four notes', async (t) => {
+  const { root } = await fixture(t);
+  const failure = Object.assign(new Error('The disk is full.'), { code: 'ENOSPC' });
+  let writes = 0;
+  await assert.rejects(ensureStarterNotebook(root, {
+    ...fs,
+    open: async (file, flags) => {
+      const handle = await fs.open(file, flags);
+      return starterHandle(handle, async (content, encoding) => {
+        if (++writes === 2) {
+          await handle.writeFile(content.slice(0, 12), encoding);
+          throw failure;
+        }
+        await handle.writeFile(content, encoding);
+      });
+    },
+  }), (error) => error === failure);
+  await assert.rejects(fs.stat(path.join(root, 'Prism notebook')), { code: 'ENOENT' });
+  const notebook = await ensureStarterNotebook(root);
+  const loaded = await (await WorkspaceStore.open(notebook)).load();
+  assert.equal(loaded.notes.length, 4);
+  assert.ok(loaded.notes.every((note) => note.content.includes('[[') && !note.content.includes('Partial content')));
+});
+
+test('a starter subdirectory failure also removes only the newly created notebook', async (t) => {
+  const { root } = await fixture(t);
+  const failure = Object.assign(new Error('Cannot create Ideas.'), { code: 'ENOSPC' });
+  await assert.rejects(ensureStarterNotebook(root, {
+    ...fs,
+    mkdir: async (directory, options) => {
+      if (path.basename(directory) === 'Ideas') throw failure;
+      return fs.mkdir(directory, options);
+    },
+  }), (error) => error === failure);
+  await assert.rejects(fs.stat(path.join(root, 'Prism notebook')), { code: 'ENOENT' });
+  const notebook = await ensureStarterNotebook(root);
+  assert.equal((await (await WorkspaceStore.open(notebook)).load()).notes.length, 4);
+});
+
+test('starter cleanup errors preserve the original failure', async (t) => {
+  const { root } = await fixture(t);
+  const original = new Error('Original seed failure');
+  let cleanupAttempted = false;
+  await assert.rejects(ensureStarterNotebook(root, {
+    ...fs,
+    open: async () => { throw original; },
+    rmdir: async () => { cleanupAttempted = true; throw new Error('Cleanup failed'); },
+  }), (error) => error === original);
+  assert.equal(cleanupAttempted, true);
+});
+
+test('an existing empty starter notebook is preserved without seeding or cleanup', async (t) => {
+  const { root } = await fixture(t);
+  const notebook = path.join(root, 'Prism notebook');
+  await fs.mkdir(notebook);
+  let cleanupCalls = 0;
+  const returned = await ensureStarterNotebook(root, {
+    ...fs,
+    open: async () => { assert.fail('Existing notebooks must not be seeded.'); },
+    unlink: async () => { cleanupCalls++; },
+    rmdir: async () => { cleanupCalls++; },
+  });
+  assert.equal(returned, notebook);
+  assert.equal(cleanupCalls, 0);
+  assert.deepEqual(await fs.readdir(notebook), []);
+});
+
+test('a concurrent starter caller cannot clean up the notebook owned by the winner', async (t) => {
+  const { root } = await fixture(t);
+  let releaseWrite!: () => void;
+  let reportStarted!: () => void;
+  const blockedWrite = new Promise<void>((resolve) => { releaseWrite = resolve; });
+  const started = new Promise<void>((resolve) => { reportStarted = resolve; });
+  const winner = ensureStarterNotebook(root, {
+    ...fs,
+    open: async (file, flags) => {
+      reportStarted();
+      await blockedWrite;
+      return fs.open(file, flags);
+    },
+  });
+  await started;
+  let returned: string;
+  let cleanupCalls = 0;
+  try {
+    returned = await ensureStarterNotebook(root, {
+      ...fs,
+      open: async () => { assert.fail('The losing caller must not write notes.'); },
+      unlink: async () => { cleanupCalls++; },
+      rmdir: async () => { cleanupCalls++; },
+    });
+  } finally { releaseWrite(); }
+  assert.equal(await winner, returned);
+  assert.equal(cleanupCalls, 0);
+  assert.equal((await (await WorkspaceStore.open(returned)).load()).notes.length, 4);
+});
+
+test('failed starter cleanup preserves a folder that replaced the directory it created', async (t) => {
+  const { root } = await fixture(t);
+  const notebook = path.join(root, 'Prism notebook');
+  const failure = new Error('Seed failure after the folder was replaced');
+  await assert.rejects(ensureStarterNotebook(root, {
+    ...fs,
+    open: async () => {
+      await fs.rename(notebook, path.join(root, 'Original partial notebook'));
+      await fs.mkdir(notebook);
+      await fs.writeFile(path.join(notebook, 'My notes.md'), 'My existing work');
+      throw failure;
+    },
+  }), (error) => error === failure);
+  assert.equal(await fs.readFile(path.join(notebook, 'My notes.md'), 'utf8'), 'My existing work');
+});
+
+test('starter rollback preserves a foreign note that caused an exclusive-create conflict', async (t) => {
+  const { root } = await fixture(t);
+  const notebook = path.join(root, 'Prism notebook');
+  await assert.rejects(ensureStarterNotebook(root, {
+    ...fs,
+    open: async (file, flags) => {
+      await fs.writeFile(file, 'My restored welcome');
+      return fs.open(file, flags);
+    },
+  }), { code: 'EEXIST' });
+  assert.equal(await fs.readFile(path.join(notebook, 'Welcome to Prism.md'), 'utf8'), 'My restored welcome');
+  assert.deepEqual(await fs.readdir(notebook), ['Welcome to Prism.md']);
+});
+
+test('starter rollback preserves unrelated files added inside its new directories', async (t) => {
+  const { root } = await fixture(t);
+  const notebook = path.join(root, 'Prism notebook');
+  const failure = new Error('Later seed operation failed');
+  let opens = 0;
+  await assert.rejects(ensureStarterNotebook(root, {
+    ...fs,
+    open: async (file, flags) => {
+      if (++opens === 2) {
+        await fs.writeFile(path.join(notebook, 'Ideas', 'My idea.md'), 'Keep this thought');
+        throw failure;
+      }
+      return fs.open(file, flags);
+    },
+  }), (error) => error === failure);
+  assert.equal(await fs.readFile(path.join(notebook, 'Ideas', 'My idea.md'), 'utf8'), 'Keep this thought');
+  await assert.rejects(fs.stat(path.join(notebook, 'Welcome to Prism.md')), { code: 'ENOENT' });
+});
+
+test('starter rollback preserves replacements and edits of files it originally created', async (t) => {
+  for (const replace of [false, true]) {
+    const { root } = await fixture(t);
+    const notebook = path.join(root, 'Prism notebook');
+    const welcome = path.join(notebook, 'Welcome to Prism.md');
+    const failure = new Error('Later seed operation failed');
+    let opens = 0;
+    await assert.rejects(ensureStarterNotebook(root, {
+      ...fs,
+      open: async (file, flags) => {
+        if (++opens === 2) {
+          if (replace) await fs.rename(welcome, path.join(root, 'Original welcome.md'));
+          await fs.writeFile(welcome, 'My edited welcome');
+          throw failure;
+        }
+        return fs.open(file, flags);
+      },
+    }), (error) => error === failure);
+    assert.equal(await fs.readFile(welcome, 'utf8'), 'My edited welcome');
+  }
 });
 
 test('renderer resource policy only allows bundled assets', async (t) => {

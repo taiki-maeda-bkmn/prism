@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
+import { constants, type Stats } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Note, Workspace } from '../shared/types';
@@ -232,13 +232,76 @@ const starterNotes: Record<string, string> = {
   'Ideas/Small beginnings.md': `# Small beginnings\n\nA place for thoughts that aren't quite ready yet.\n\n## What if…\n\n- A notebook felt like a window instead of a wall?\n- Every interesting question had a place to land?\n- Small, daily notes quietly became something larger?\n\n## A seed to keep\n\nThe best system is the one that makes it easy to begin. Today, one sentence is enough.\n\nTry [[Writing in Markdown]] when your idea needs a little shape. Add a link to [[Connected thinking]] when it finds a friend.\n\n[[Welcome to Prism|Back to the beginning]]\n`,
 };
 
+interface StarterFileHandle {
+  stat(): Promise<Stats>;
+  writeFile(content: string, encoding: 'utf8'): Promise<void>;
+  sync(): Promise<void>;
+  close(): Promise<void>;
+}
+
+interface StarterNotebookIO {
+  mkdir(directory: string, options?: { recursive: boolean }): Promise<unknown>;
+  open(file: string, flags: 'wx'): Promise<StarterFileHandle>;
+  unlink(file: string): Promise<void>;
+  rmdir(directory: string): Promise<void>;
+}
+
+type OwnedStarterPath = { path: string; ino: number; dev: number };
+type OwnedStarterFile = OwnedStarterPath & { content: string; complete: boolean };
+
+async function ownsStarterPath(owned: OwnedStarterPath, directory: boolean): Promise<boolean> {
+  const current = await fs.lstat(owned.path);
+  return (directory ? current.isDirectory() : current.isFile()) && current.ino === owned.ino && current.dev === owned.dev;
+}
+
 /** Existing notebooks are never reseeded or overwritten, including empty ones. */
-export async function ensureStarterNotebook(userData: string): Promise<string> {
-  await fs.mkdir(userData, { recursive: true });
+export async function ensureStarterNotebook(userData: string, io: StarterNotebookIO = fs): Promise<string> {
+  await io.mkdir(userData, { recursive: true });
   const directory = path.join(userData, 'Prism notebook');
-  try { await fs.mkdir(directory); }
+  try { await io.mkdir(directory); }
   catch (error) { if (codeOf(error) === 'EEXIST') return directory; throw error; }
-  await fs.mkdir(path.join(directory, 'Ideas'));
-  for (const [name, content] of Object.entries(starterNotes)) await fs.writeFile(path.join(directory, name), content, { encoding: 'utf8', flag: 'wx' });
-  return directory;
+  const directories: OwnedStarterPath[] = [{ path: directory, ...await fs.lstat(directory) }];
+  const files: OwnedStarterFile[] = [];
+  try {
+    const ideas = path.join(directory, 'Ideas');
+    await io.mkdir(ideas);
+    directories.push({ path: ideas, ...await fs.lstat(ideas) });
+    for (const [name, content] of Object.entries(starterNotes)) {
+      const file = path.join(directory, name);
+      const handle = await io.open(file, 'wx');
+      try {
+        const owned = { path: file, content, complete: false, ...await handle.stat() };
+        files.push(owned);
+        await handle.writeFile(content, 'utf8');
+        await handle.sync();
+        owned.complete = true;
+      } catch (error) {
+        await handle.close().catch(() => undefined);
+        throw error;
+      }
+      await handle.close();
+    }
+    return directory;
+  } catch (error) {
+    for (const file of files.reverse()) {
+      try {
+        const parents = directories.filter((parent) => file.path.startsWith(`${parent.path}${path.sep}`));
+        if (!(await Promise.all(parents.map((parent) => ownsStarterPath(parent, true)))).every(Boolean)
+          || !await ownsStarterPath(file, false)) continue;
+        const expected = Buffer.from(file.content, 'utf8');
+        if ((await fs.stat(file.path)).size > expected.length) continue;
+        const current = await fs.readFile(file.path);
+        // Preserve edits made to an owned file, as well as files created by others.
+        if (file.complete ? !current.equals(expected) : !current.equals(expected.subarray(0, current.length))) continue;
+        if (await ownsStarterPath(file, false)) await io.unlink(file.path);
+      } catch { /* Cleanup failure must not hide the original seeding error. */ }
+    }
+    for (const owned of directories.reverse()) {
+      try {
+        // rmdir only removes an empty directory, preserving unrelated restored/user files.
+        if (await ownsStarterPath(owned, true)) await io.rmdir(owned.path);
+      } catch { /* Existing content or cleanup errors leave the directory intact. */ }
+    }
+    throw error;
+  }
 }

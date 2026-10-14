@@ -21,10 +21,12 @@ Transparent windows depend on the host compositor. The implementation uses a tra
 
 Implementation branch: `feat/prism-desktop`. Commit and push changes automatically, request Copilot review, address actionable review feedback, and leave the pull request open. Do not merge automatically.
 
+Before reporting the work complete, check CI and the Codex review against the current PR commit. Wait for the review summary to show that commit as completed, address any new findings, and check for unresolved threads. A new push requires checking the new commit again; resolved comments on an earlier commit do not complete this check.
+
 ## Verification
 
-- 30 Markdown, filesystem, external-link, and resource-access tests pass locally.
-- The native Electron journey covers editor modes, preview, disk saves, draft retention, close cancellation, refresh/discard, invalid and duplicate names, graph navigation, backlinks, and persisted appearance.
+- 42 Markdown, filesystem, external-link, and resource-access tests pass locally, including literal percent filenames and retrying partial starter-notebook creation while preserving unrelated files and edits.
+- Three native Electron scenarios cover editor modes, preview, disk saves, draft retention, close cancellation, refresh/discard, invalid and duplicate names, graph navigation, backlinks, persisted appearance, startup retry, and percent-containing filenames.
 - Native window capture confirms alpha 255 when opaque and approximately 89 at 35% background opacity.
 - A normal launch with the sandbox enabled succeeds in the local Linux/WSLg environment. Windows/macOS compositor behavior still needs physical desktop testing.
 - Linux and Windows build/unit checks and a Linux desktop journey run in GitHub Actions. Current results and review activity are on [PR #2](https://github.com/beautysamurai/prism/pull/2).

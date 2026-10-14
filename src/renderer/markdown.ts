@@ -12,6 +12,7 @@ interface WikiToken extends Tokens.Generic {
 const escapeHTML = (text: string): string => text.replace(/[&<>"']/g, character => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 })[character]!);
+const wikiHref = (target: string): string => `prism-note:${encodeURIComponent(target)}`;
 
 const markdown = new Marked({
   gfm: true,
@@ -35,7 +36,7 @@ const markdown = new Marked({
     renderer(token) {
       const wiki = token as WikiToken;
       if (wiki.embedded) return escapeHTML(wiki.raw);
-      return `<a class="wiki-link" href="prism-note:${encodeURIComponent(wiki.target)}">${escapeHTML(wiki.label)}</a>`;
+      return `<a class="wiki-link" href="${wikiHref(wiki.target)}">${escapeHTML(wiki.label)}</a>`;
     },
   }],
 });
@@ -90,7 +91,11 @@ function isExternal(target: string): boolean {
   return /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(target);
 }
 
-/** Read actual Markdown tokens so examples inside code and images aren't edges. */
+/**
+ * Read actual Markdown tokens so examples inside code and images aren't edges.
+ * Wiki targets use their preview href to retain literal filename characters;
+ * ordinary Markdown destinations retain their URI path/fragment semantics.
+ */
 export function extractLinks(content: string): string[] {
   const links = new Set<string>();
   function visit(tokens: Token[]) {
@@ -98,7 +103,7 @@ export function extractLinks(content: string): string[] {
       if (['image', 'code', 'codespan', 'html'].includes(token.type)) continue;
       if (token.type === 'wikilink') {
         const wiki = token as WikiToken;
-        if (!wiki.embedded && !isExternal(wiki.target)) links.add(wiki.target);
+        if (!wiki.embedded && !isExternal(wiki.target)) links.add(wikiHref(wiki.target));
       } else if (token.type === 'link') {
         const target = (token as Tokens.Link).href;
         if (!isExternal(target) && /\.(?:md|markdown)$/i.test(decodePath(target.split(/[?#]/, 1)[0]))) links.add(target);
@@ -168,10 +173,8 @@ export function getNoteLinks(note: Note): readonly string[] {
 }
 
 /** Prefer the current folder, then vault paths, then an unambiguous basename. */
-export function resolveLink(target: string, fromPath: string, notes: Note[]): Note | undefined {
-  const raw = target.startsWith('prism-note:') ? decodePath(target.slice(11)) : target;
-  if (isExternal(raw)) return undefined;
-  const path = decodePath(raw.split(/[?#]/, 1)[0]).replace(/\\/g, '/');
+function resolveNotePath(rawPath: string, fromPath: string, notes: Note[]): Note | 'ambiguous' | undefined {
+  const path = rawPath.replace(/\\/g, '/');
   if (!path) return notes.find(note => note.path === fromPath);
   const index = linkIndex(notes);
   const directory = fromPath.includes('/') ? fromPath.slice(0, fromPath.lastIndexOf('/') + 1) : '';
@@ -182,15 +185,37 @@ export function resolveLink(target: string, fromPath: string, notes: Note[]): No
     if (candidate === undefined) continue;
     const exact = index.exact.get(withoutExtension(candidate)) ?? [];
     if (exact.length === 1) return exact[0];
-    if (exact.length > 1) return exact.find(note => note.path === candidate);
+    if (exact.length > 1) return exact.find(note => note.path === candidate) ?? 'ambiguous';
     const insensitive = index.folded.get(withoutExtension(candidate).toLocaleLowerCase()) ?? [];
     if (insensitive.length === 1) return insensitive[0];
-    if (insensitive.length > 1) return undefined;
+    if (insensitive.length > 1) return 'ambiguous';
   }
   // Explicit folders must not accidentally resolve to a similarly named file elsewhere.
   if (path.includes('/')) return undefined;
   const matches = index.basenames.get(withoutExtension(path).toLocaleLowerCase()) ?? [];
-  return matches.length === 1 ? matches[0] : undefined;
+  return matches.length === 1 ? matches[0] : matches.length > 1 ? 'ambiguous' : undefined;
+}
+
+/** Resolve a preview/extracted href, decoding its URI representation once. */
+export function resolveLink(target: string, fromPath: string, notes: Note[]): Note | undefined {
+  if (target.startsWith('prism-note:')) {
+    let path = decodePath(target.slice(11));
+    if (isExternal(path)) return undefined;
+    // A wiki target is a literal filename, not another URI. In particular, %25
+    // remains %25 and ? is never silently removed as a query string. Prefer a
+    // real filename containing # before interpreting a suffix as a heading.
+    while (true) {
+      const match = resolveNotePath(path, fromPath, notes);
+      if (match !== undefined) return match === 'ambiguous' ? undefined : match;
+      const fragment = path.lastIndexOf('#');
+      if (fragment < 0) return undefined;
+      path = path.slice(0, fragment);
+    }
+  }
+  if (isExternal(target)) return undefined;
+  // Split URI syntax before decoding: an encoded %23 belongs to the filename.
+  const match = resolveNotePath(decodePath(target.split(/[?#]/, 1)[0]), fromPath, notes);
+  return match === 'ambiguous' ? undefined : match;
 }
 
 export function getTitle(note: Note): string {

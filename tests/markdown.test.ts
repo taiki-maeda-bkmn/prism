@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
-import { extractLinks, getBacklinks, getTitle, renderMarkdown, resolveLink } from '../src/renderer/markdown';
+import { extractLinks, getBacklinks, getNoteLinks, getTitle, renderMarkdown, resolveLink } from '../src/renderer/markdown';
 import type { Note } from '../src/shared/types';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -22,12 +22,66 @@ test('extracts wiki links, aliases, Markdown references, lists and tables', () =
 
 [ref]: ./Reading.md
 `;
-  assert.deepEqual(extractLinks(content), ['Garden', 'Ideas/Slow mornings', 'Ideas/Research%20notes.md#reading', './Reading.md', 'Inside a list', 'In a table']);
+  assert.deepEqual(extractLinks(content), ['prism-note:Garden', 'prism-note:Ideas%2FSlow%20mornings', 'Ideas/Research%20notes.md#reading', './Reading.md', 'prism-note:Inside%20a%20list', 'prism-note:In%20a%20table']);
 });
 
 test('code, images, embeds and external URLs do not create graph links', () => {
   const content = '\\[[Escaped]] `[[Inline code]]`\n\n```md\n[[Fenced code]]\n[fenced](Fenced.md)\n```\n\n    [[Indented code]]\n\n![image](Photo.md) ![[Embedded.md]] ![Image with [[caption]]](photo.png)\n[external](https://example.com/a.md) [[https://example.com/a.md]] [mail](mailto:a@example.com) [web](//example.com/a.md) [section](#heading)\n[[Real]]';
-  assert.deepEqual(extractLinks(content), ['Real']);
+  assert.deepEqual(extractLinks(content), ['prism-note:Real']);
+});
+
+test('wiki preview, graph links and backlinks preserve literal percent escapes and Unicode filenames', () => {
+  const targets = ['Percent%', 'Percent%25', 'Space%20name', 'Space name', 'Literal%2Fslash', 'Literal/slash', '資料/進捗%25'];
+  for (const target of targets) {
+    const source = note('Source.md', `[[${target}|Readable label]]`);
+    const notes = [source, ...targets.map(path => note(`${path}.md`))];
+    const href = JSDOM.fragment(renderMarkdown(source.content)).querySelector('a')?.getAttribute('href');
+    assert.ok(href);
+    assert.equal(resolveLink(href, source.path, notes)?.path, `${target}.md`, `preview: ${target}`);
+    assert.deepEqual(extractLinks(source.content), [href]);
+    assert.deepEqual(getNoteLinks(source).map(link => resolveLink(link, source.path, notes)?.path), [`${target}.md`], `graph: ${target}`);
+    for (const candidate of targets) {
+      assert.deepEqual(getBacklinks(`${candidate}.md`, notes).map(item => item.path), candidate === target ? ['Source.md'] : [], `backlinks: ${target} → ${candidate}`);
+    }
+  }
+});
+
+test('Markdown URI paths decode once while encoded separators remain filename characters', () => {
+  const cases = [
+    ['Percent%25.md', 'Percent%.md'],
+    ['Percent%2525.md', 'Percent%25.md'],
+    ['Space%20name.md', 'Space name.md'],
+    ['Space%2520name.md', 'Space%20name.md'],
+    ['Literal%252Fslash.md', 'Literal%2Fslash.md'],
+    ['Literal/slash.md', 'Literal/slash.md'],
+    ['Topic%23part.md#section', 'Topic#part.md'],
+    ['Topic.md?mode=read#section', 'Topic.md'],
+    ['%E8%B3%87%E6%96%99/%E9%80%B2%E6%8D%97%2525.md', '資料/進捗%25.md'],
+  ];
+  for (const [href, expected] of cases) {
+    const source = note('Source.md', `[Link](${href})`);
+    const notes = [source, ...cases.map(([, path]) => note(path))];
+    const previewHref = JSDOM.fragment(renderMarkdown(source.content)).querySelector('a')?.getAttribute('href');
+    assert.ok(previewHref);
+    assert.equal(resolveLink(previewHref, source.path, notes)?.path, expected, `preview: ${href}`);
+    assert.deepEqual(getNoteLinks(source).map(link => resolveLink(link, source.path, notes)?.path), [expected], `graph: ${href}`);
+    assert.deepEqual(getBacklinks(expected, notes).map(item => item.path), ['Source.md']);
+  }
+});
+
+test('wiki links prefer literal hash filenames and retain heading fallback without treating question marks as queries', () => {
+  const notes = [note('Source.md'), note('Topic.md'), note('Topic#part.md')];
+  const resolveWiki = (target: string) => resolveLink(extractLinks(`[[${target}]]`)[0], 'Source.md', notes)?.path;
+  assert.equal(resolveWiki('Topic#part'), 'Topic#part.md');
+  assert.equal(resolveWiki('Topic#part#heading'), 'Topic#part.md');
+  assert.equal(resolveWiki('Topic#other-heading'), 'Topic.md');
+  assert.equal(resolveWiki('#heading'), 'Source.md');
+  assert.equal(resolveWiki('Topic?query'), undefined);
+  const href = JSDOM.fragment(renderMarkdown('[[Topic#part]]')).querySelector('a')?.getAttribute('href');
+  assert.ok(href);
+  assert.equal(resolveLink(href, 'Source.md', notes)?.path, 'Topic#part.md');
+  const ambiguous = [note('Source.md'), note('Topic.md'), note('One/Topic#part.md'), note('Two/Topic#part.md')];
+  assert.equal(resolveLink(href, 'Source.md', ambiguous), undefined);
 });
 
 test('resolves relative, root, percent-encoded and extensionless note links', () => {
