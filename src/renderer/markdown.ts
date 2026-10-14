@@ -1,0 +1,214 @@
+import createDOMPurify from 'dompurify';
+import { Marked, Renderer, type Token, type Tokens } from 'marked';
+import type { Note } from '../shared/types';
+
+interface WikiToken extends Tokens.Generic {
+  type: 'wikilink';
+  target: string;
+  label: string;
+  embedded: boolean;
+}
+
+const escapeHTML = (text: string): string => text.replace(/[&<>"']/g, character => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+})[character]!);
+
+const markdown = new Marked({
+  gfm: true,
+  breaks: false,
+  extensions: [{
+    name: 'wikilink',
+    level: 'inline',
+    start: source => source.search(/!?\[\[/),
+    tokenizer(source): WikiToken | undefined {
+      const match = /^(!?)\[\[([^\]\n]+)\]\]/.exec(source);
+      if (!match) return;
+      const separator = match[2].indexOf('|');
+      const target = (separator < 0 ? match[2] : match[2].slice(0, separator)).trim();
+      if (!target) return;
+      return {
+        type: 'wikilink', raw: match[0], target,
+        label: separator < 0 ? target : match[2].slice(separator + 1).trim(),
+        embedded: match[1] === '!',
+      };
+    },
+    renderer(token) {
+      const wiki = token as WikiToken;
+      if (wiki.embedded) return escapeHTML(wiki.raw);
+      return `<a class="wiki-link" href="prism-note:${encodeURIComponent(wiki.target)}">${escapeHTML(wiki.label)}</a>`;
+    },
+  }],
+});
+
+let purifier: ReturnType<typeof createDOMPurify> | undefined;
+
+function getPurifier(): ReturnType<typeof createDOMPurify> {
+  if (purifier) return purifier;
+  purifier = createDOMPurify(window);
+  purifier.addHook('uponSanitizeElement', (node, data) => {
+    if (data.tagName !== 'input') return;
+    const input = node as HTMLInputElement;
+    if (input.getAttribute('type')?.toLowerCase() !== 'checkbox') {
+      input.remove();
+      return;
+    }
+    // Task state is useful Markdown content; arbitrary form controls aren't.
+    const checked = input.hasAttribute('checked');
+    for (const attribute of [...input.attributes]) input.removeAttribute(attribute.name);
+    input.setAttribute('type', 'checkbox');
+    input.setAttribute('disabled', '');
+    input.setAttribute('aria-label', checked ? 'Completed task' : 'Incomplete task');
+    if (checked) input.setAttribute('checked', '');
+  });
+  return purifier;
+}
+
+/** Markdown is user content: sanitize after rendering, including raw HTML. */
+export function renderMarkdown(content: string): string {
+  const headingIds = new Set<string>();
+  const renderer = new Renderer();
+  renderer.heading = function ({ tokens, depth, text }) {
+    const base = plainHeading(text).toLocaleLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, '').trim().replace(/\s+/g, '-') || 'heading';
+    let id = base;
+    let suffix = 1;
+    while (headingIds.has(id)) id = `${base}-${suffix++}`;
+    headingIds.add(id);
+    return `<h${depth} id="${escapeHTML(id)}">${this.parser.parseInline(tokens)}</h${depth}>\n`;
+  };
+  return getPurifier().sanitize(markdown.parse(content, { async: false, renderer }), {
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|prism-note):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+    FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form', 'button'],
+    FORBID_ATTR: ['style'],
+  });
+}
+
+function decodePath(path: string): string {
+  try { return decodeURIComponent(path); } catch { return path; }
+}
+
+function isExternal(target: string): boolean {
+  return /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(target);
+}
+
+/** Read actual Markdown tokens so examples inside code and images aren't edges. */
+export function extractLinks(content: string): string[] {
+  const links = new Set<string>();
+  function visit(tokens: Token[]) {
+    for (const token of tokens) {
+      if (['image', 'code', 'codespan', 'html'].includes(token.type)) continue;
+      if (token.type === 'wikilink') {
+        const wiki = token as WikiToken;
+        if (!wiki.embedded && !isExternal(wiki.target)) links.add(wiki.target);
+      } else if (token.type === 'link') {
+        const target = (token as Tokens.Link).href;
+        if (!isExternal(target) && /\.(?:md|markdown)$/i.test(decodePath(target.split(/[?#]/, 1)[0]))) links.add(target);
+        continue;
+      }
+      if ('tokens' in token && Array.isArray(token.tokens)) visit(token.tokens);
+      if (token.type === 'list') for (const item of (token as Tokens.List).items) visit(item.tokens);
+      if (token.type === 'table') {
+        const table = token as Tokens.Table;
+        for (const cell of [...table.header, ...table.rows.flat()]) visit(cell.tokens);
+      }
+    }
+  }
+  visit(markdown.lexer(content));
+  return [...links];
+}
+
+function normalize(path: string): string | undefined {
+  const parts: string[] = [];
+  for (const part of path.replace(/\\/g, '/').split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      if (!parts.length) return undefined;
+      parts.pop();
+    } else parts.push(part);
+  }
+  return parts.join('/');
+}
+
+const withoutExtension = (path: string): string => path.replace(/\.(?:md|markdown)$/i, '');
+const filename = (path: string): string => path.split('/').at(-1) ?? path;
+
+interface LinkIndex {
+  exact: Map<string, Note[]>;
+  folded: Map<string, Note[]>;
+  basenames: Map<string, Note[]>;
+}
+const indexes = new WeakMap<Note[], LinkIndex>();
+const noteLinks = new WeakMap<Note, { content: string; links: string[] }>();
+const noteTitles = new WeakMap<Note, { content: string; title: string }>();
+
+function linkIndex(notes: Note[]): LinkIndex {
+  const cached = indexes.get(notes);
+  if (cached) return cached;
+  const index: LinkIndex = { exact: new Map(), folded: new Map(), basenames: new Map() };
+  const add = (map: Map<string, Note[]>, key: string, note: Note) => {
+    const existing = map.get(key);
+    if (existing) existing.push(note); else map.set(key, [note]);
+  };
+  for (const note of notes) {
+    const stem = withoutExtension(note.path);
+    add(index.exact, stem, note);
+    add(index.folded, stem.toLocaleLowerCase(), note);
+    add(index.basenames, filename(stem).toLocaleLowerCase(), note);
+  }
+  indexes.set(notes, index);
+  return index;
+}
+
+/** Reuse tokenization for unchanged notes while the active note is edited. */
+export function getNoteLinks(note: Note): readonly string[] {
+  const cached = noteLinks.get(note);
+  if (cached?.content === note.content) return cached.links;
+  const links = extractLinks(note.content);
+  noteLinks.set(note, { content: note.content, links });
+  return links;
+}
+
+/** Prefer the current folder, then vault paths, then an unambiguous basename. */
+export function resolveLink(target: string, fromPath: string, notes: Note[]): Note | undefined {
+  const raw = target.startsWith('prism-note:') ? decodePath(target.slice(11)) : target;
+  if (isExternal(raw)) return undefined;
+  const path = decodePath(raw.split(/[?#]/, 1)[0]).replace(/\\/g, '/');
+  if (!path) return notes.find(note => note.path === fromPath);
+  const index = linkIndex(notes);
+  const directory = fromPath.includes('/') ? fromPath.slice(0, fromPath.lastIndexOf('/') + 1) : '';
+  const candidates = path.startsWith('/')
+    ? [normalize(path)]
+    : [normalize(directory + path), normalize(path)];
+  for (const candidate of candidates) {
+    if (candidate === undefined) continue;
+    const exact = index.exact.get(withoutExtension(candidate)) ?? [];
+    if (exact.length === 1) return exact[0];
+    if (exact.length > 1) return exact.find(note => note.path === candidate);
+    const insensitive = index.folded.get(withoutExtension(candidate).toLocaleLowerCase()) ?? [];
+    if (insensitive.length === 1) return insensitive[0];
+    if (insensitive.length > 1) return undefined;
+  }
+  // Explicit folders must not accidentally resolve to a similarly named file elsewhere.
+  if (path.includes('/')) return undefined;
+  const matches = index.basenames.get(withoutExtension(path).toLocaleLowerCase()) ?? [];
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+export function getTitle(note: Note): string {
+  const cached = noteTitles.get(note);
+  if (cached?.content === note.content) return cached.title;
+  const heading = markdown.lexer(note.content).find(token => token.type === 'heading' && token.depth === 1) as Tokens.Heading | undefined;
+  const title = (heading ? plainHeading(heading.text) : '') || withoutExtension(filename(note.path));
+  noteTitles.set(note, { content: note.content, title });
+  return title;
+}
+
+function plainHeading(text: string): string {
+  return text
+    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_match, target: string, label?: string) => label ?? target)
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/<[^>]*>/g, '').replace(/[*_`~]/g, '').trim();
+}
+
+export function getBacklinks(path: string, notes: Note[]): Note[] {
+  return notes.filter(note => note.path !== path && getNoteLinks(note).some(target => resolveLink(target, note.path, notes)?.path === path));
+}

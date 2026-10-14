@@ -12,3 +12,12 @@ Desktop.ini
 .env
 .env.*
 !.env.example
+
+# Dependencies and generated output
+node_modules/
+dist/
+dist-test/
+release/
+test-results/
+playwright-report/
+*.log
