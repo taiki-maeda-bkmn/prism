@@ -34,8 +34,11 @@ function timestamp(value: unknown): value is string {
   try { return new Date(value).toISOString() === value; } catch { return false; }
 }
 function page(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 && value <= 1_000_000; }
+function validTagShape(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= 12 && value.every(tag => text(tag, 40));
+}
 function validTags(value: unknown): value is string[] {
-  return Array.isArray(value) && value.length <= 12 && value.every(tag => text(tag, 40))
+  return validTagShape(value)
     && new Set(value.map(tag => tag.toLowerCase())).size === value.length;
 }
 function validDocument(value: unknown): value is PDFDocument {
@@ -55,8 +58,24 @@ function parseCatalog(bytes: Uint8Array): PDFDocument[] {
   let value: unknown;
   try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { throw corrupt(); }
   if (!object(value) || Object.keys(value).length !== 2 || value.version !== 1 || !Array.isArray(value.documents)
-    || value.documents.length > MAX_DOCUMENTS || !value.documents.every(validDocument)) throw corrupt();
-  const documents = value.documents as PDFDocument[];
+    || value.documents.length > MAX_DOCUMENTS) throw corrupt();
+  const documents: PDFDocument[] = [];
+  for (const candidate of value.documents) {
+    if (!object(candidate) || !validTagShape(candidate.tags)) throw corrupt();
+    // Earlier catalogs used the OS locale for uniqueness. Normalize collisions
+    // in memory, preserving the first spelling; the next normal write persists
+    // this form. Check original bounds first and retain original bytes on disk.
+    const seen = new Set<string>();
+    const tags = candidate.tags.filter(tag => {
+      const folded = tag.toLowerCase();
+      if (seen.has(folded)) return false;
+      seen.add(folded);
+      return true;
+    });
+    const document = { ...candidate, tags };
+    if (!validDocument(document)) throw corrupt();
+    documents.push(document);
+  }
   if (new Set(documents.map(document => document.id)).size !== documents.length
     || new Set(documents.map(document => document.sha256)).size !== documents.length) throw corrupt();
   return documents;

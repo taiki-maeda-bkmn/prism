@@ -108,6 +108,54 @@ test('tag uniqueness and catalog validity remain stable across English and Turki
   assert.deepEqual((await english.load()).documents[0].tags, ['I', 'ı']);
 });
 
+test('loads legacy Turkish tag collisions without rewriting until the next metadata change', async t => {
+  const originalLowerCase = String.prototype.toLocaleLowerCase;
+  let defaultLocale = 'en-US';
+  t.mock.method(String.prototype, 'toLocaleLowerCase', function (this: string, locales?: string | string[]) {
+    return originalLowerCase.call(this, locales ?? defaultLocale);
+  });
+  const { root, source, store } = await fixture(t);
+  const document = (await store.import([source])).library.documents[0];
+  const catalog = path.join(root, 'catalog.json');
+  const legacy = JSON.stringify({ version: 1, documents: [{ ...document, tags: ['I', 'i'] }] });
+  for (const locale of ['en-US', 'tr']) {
+    defaultLocale = locale;
+    assert.equal('I'.toLocaleLowerCase(), locale === 'tr' ? 'ı' : 'i');
+    await fs.writeFile(catalog, legacy);
+    const reopened = await LibraryStore.open(root);
+    assert.deepEqual((await reopened.load()).documents[0].tags, ['I']);
+    assert.equal(await fs.readFile(catalog, 'utf8'), legacy, 'Opening a legacy catalog must leave its original bytes untouched.');
+    const updated = await reopened.update(document.id, { favorite: true });
+    assert.deepEqual(updated, { ...document, tags: ['I'], favorite: true, updatedAt: updated.updatedAt });
+    assert.deepEqual(JSON.parse(await fs.readFile(catalog, 'utf8')).documents[0].tags, ['I']);
+    defaultLocale = locale === 'tr' ? 'en-US' : 'tr';
+    assert.deepEqual((await (await LibraryStore.open(root)).load()).documents, [updated]);
+  }
+});
+
+test('rejects malformed legacy tags and document fields before normalization can hide them', async t => {
+  const { root, source, store } = await fixture(t);
+  const document = (await store.import([source])).library.documents[0];
+  const catalog = path.join(root, 'catalog.json');
+  const malformed = [
+    { tags: Array.from({ length: 13 }, () => 'I') },
+    { tags: ['I', 'i', 'x'.repeat(41)] },
+    { tags: ['I', 'i', ''] },
+    { tags: ['I', 'i', ' untrimmed '] },
+    { tags: ['I', 'i', 1] },
+    { tags: 'I' },
+    { tags: ['I', 'i'], title: '' },
+    { tags: ['I', 'i'], sha256: 'invalid' },
+    { tags: ['I', 'i'], unexpectedField: true },
+  ];
+  for (const fields of malformed) {
+    const bytes = JSON.stringify({ version: 1, documents: [{ ...document, ...fields }] });
+    await fs.writeFile(catalog, bytes);
+    await assert.rejects(LibraryStore.open(root), /damaged or unsupported/);
+    assert.equal(await fs.readFile(catalog, 'utf8'), bytes);
+  }
+});
+
 test('rejects unknown IDs and path traversal for all document operations', async t => {
   const { store } = await fixture(t);
   for (const id of ['../outside.pdf', '/tmp/secret', '00000000-0000-4000-8000-000000000000', null]) {
