@@ -13,6 +13,8 @@ Build the brief in `AGENTS.md` as a local desktop application. Notes remain ordi
 
 ## Scope and follow-up
 
+An open P2 review finding concerns concurrent replacement of nested directories between validation and filesystem access. A portable fix requires directory-handle operations across the filesystem layer. Per the brief's instruction to break down large next actions, [filesystem races](docs/filesystem-races.md) records the implementation stages and acceptance tests. This finding remains unresolved; passing current CI does not cover this race.
+
 This release prioritizes editing, reading, and navigating local notes. Sync services, plugins, rich-text editing, attachment management, automatic link updates on rename, and signed installers are later requirements. The repository will include commands for building and running the desktop app.
 
 Transparent windows depend on the host compositor. The implementation uses a transparent native window and translucent background colors, without blurring the windows behind it. Electron documents limitations around native resizing and maximization, so the app will offer controlled window sizing and document platform verification.

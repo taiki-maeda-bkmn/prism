@@ -65,6 +65,6 @@ npm run test:e2e    # Playwright against the actual Electron app
 
 Linux CI uses `xvfb-run --auto-servernum npm run test:e2e`. The test suite uses temporary notebooks and user profiles, and captures a desktop screenshot in `test-results/`. Electron's sandbox is disabled only for automated test launches; normal `npm start` keeps it enabled.
 
-The isolated renderer talks to a narrow preload bridge. The main process validates sender frames, confines filesystem operations to the chosen notebook, serializes writes, detects external changes, and preserves displaced versions during save publication.
+The isolated renderer talks to a narrow preload bridge. The main process validates sender frames and notebook paths, serializes writes, detects external changes, and preserves displaced versions during save publication. Concurrent replacement of a nested folder can still redirect a path-based filesystem operation; this known P2 remains open, with its implementation and tests broken down in [filesystem races](docs/filesystem-races.md).
 
 See [IMPLEMENTATION.md](IMPLEMENTATION.md) for scope and progress, [save recovery](docs/save-recovery.md) for the publication and recovery design, and [AGENTS.md](AGENTS.md) for the project brief and branch/review workflow. Pull requests remain open for review and are not merged automatically.
