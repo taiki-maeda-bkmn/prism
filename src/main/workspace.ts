@@ -301,6 +301,7 @@ interface StarterNotebookIO {
   mkdir(directory: string, options?: { recursive: boolean }): Promise<unknown>;
   mkdtemp(prefix: string): Promise<string>;
   lstat(file: string): Promise<Stats>;
+  realpath(file: string): Promise<string>;
   writeFile(file: string, content: string, options: { encoding: 'utf8'; flag: 'wx'; flush: true }): Promise<void>;
   rename(source: string, destination: string): Promise<void>;
   symlink(target: string, link: string, type: 'dir'): Promise<void>;
@@ -340,8 +341,18 @@ export async function ensureStarterNotebook(userData: string, io: StarterNoteboo
       else await io.symlink(path.relative(userData, staging), directory, 'dir');
     }
     catch (error) {
+      const code = codeOf(error) || '';
+      const aliasUnsupported = process.platform !== 'win32'
+        && ['EPERM', 'EACCES', 'EOPNOTSUPP', 'ENOTSUP', 'ENOSYS'].includes(code);
       // Another creator may claim the destination after the preceding check.
-      if (['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES'].includes(codeOf(error) || '') && await destinationExists()) return directory;
+      if ((aliasUnsupported || ['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES'].includes(code)) && await destinationExists()) return directory;
+      if (aliasUnsupported) {
+        // Startup persists this complete folder before exposing it to the editor.
+        // A crash before persistence leaves only an unused, complete notebook.
+        const fallback = await io.realpath(staging);
+        published = true;
+        return fallback;
+      }
       throw error;
     }
     published = true;

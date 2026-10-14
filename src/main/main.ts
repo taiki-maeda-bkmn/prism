@@ -40,7 +40,7 @@ async function persistFolder(directory: string): Promise<void> {
   const target = path.join(userData, 'notebook.json');
   const temporary = path.join(userData, 'notebook.json.tmp');
   try {
-    await fs.writeFile(temporary, JSON.stringify({ path: directory }), { encoding: 'utf8', mode: 0o600 });
+    await fs.writeFile(temporary, JSON.stringify({ path: directory }), { encoding: 'utf8', mode: 0o600, flush: true });
     await fs.rename(temporary, target);
   } finally { await fs.unlink(temporary).catch(() => undefined); }
 }
@@ -67,6 +67,9 @@ async function initializeWorkspace(): Promise<Workspace> {
   const starter = await ensureStarterNotebook(app.getPath('userData'));
   const candidate = await WorkspaceStore.open(starter);
   const loaded = await candidate.load();
+  // Filesystems without symbolic links use the complete private notebook directly.
+  // Remember it before exposing editable notes, so reopening cannot choose a new one.
+  if (starter !== path.join(app.getPath('userData'), 'Prism notebook')) await persistFolder(candidate.root);
   workspace = candidate;
   return { ...loaded, warnings: [...warnings, ...loaded.warnings] };
 }

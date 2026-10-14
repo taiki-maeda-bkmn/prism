@@ -819,7 +819,54 @@ test('unexpected publication errors preserve the original error and clean only s
   assert.deepEqual(await fs.readdir(root), []);
 });
 
-test('Windows publication permission errors count as a race only when a destination exists', async (t) => {
+test('unsupported POSIX starter aliases retain and return the complete canonical notebook', { skip: process.platform === 'win32' }, async (t) => {
+  for (const code of ['EPERM', 'EACCES', 'EOPNOTSUPP', 'ENOTSUP', 'ENOSYS']) {
+    const { root } = await fixture(t);
+    await fs.writeFile(path.join(root, 'Unrelated.md'), 'Existing user data');
+    const notebook = await ensureStarterNotebook(root, {
+      ...fs,
+      symlink: async () => { throw Object.assign(new Error('Aliases unsupported'), { code }); },
+      rm: async () => { assert.fail('The returned fallback notebook must be retained.'); },
+    });
+    assert.equal(notebook, await fs.realpath(notebook));
+    assert.equal(path.basename(notebook), 'Prism notebook');
+    assert.notEqual(notebook, path.join(root, 'Prism notebook'));
+    assert.match(path.basename(path.dirname(notebook)), /^\.prism-notebook-/);
+    const loaded = await (await WorkspaceStore.open(notebook)).load();
+    assert.equal(loaded.name, 'Prism notebook');
+    assert.equal(loaded.notes.length, 4);
+    assert.ok(loaded.notes.every((note) => note.content.includes('[[')));
+    await assert.rejects(fs.lstat(path.join(root, 'Prism notebook')), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(path.join(root, 'Unrelated.md'), 'utf8'), 'Existing user data');
+    assert.deepEqual((await fs.readdir(root)).sort(), [path.basename(path.dirname(notebook)), 'Unrelated.md'].sort());
+  }
+});
+
+test('unsupported alias errors preserve a destination created during publication instead of choosing fallback', { skip: process.platform === 'win32' }, async (t) => {
+  for (const populated of [false, true]) {
+    const { root } = await fixture(t);
+    const notebook = path.join(root, 'Prism notebook');
+    let existing: Awaited<ReturnType<typeof fs.stat>> | undefined;
+    const returned = await ensureStarterNotebook(root, {
+      ...fs,
+      symlink: async (_target, destination) => {
+        await fs.mkdir(destination);
+        if (populated) await fs.writeFile(path.join(destination, 'Keep.md'), 'Existing notebook');
+        existing = await fs.stat(destination);
+        throw Object.assign(new Error('Aliases unsupported'), { code: 'ENOTSUP' });
+      },
+    });
+    assert.equal(returned, notebook);
+    const after = await fs.stat(notebook);
+    assert.equal(after.ino, existing!.ino);
+    assert.equal(after.dev, existing!.dev);
+    assert.deepEqual(await fs.readdir(notebook), populated ? ['Keep.md'] : []);
+    if (populated) assert.equal(await fs.readFile(path.join(notebook, 'Keep.md'), 'utf8'), 'Existing notebook');
+    assert.deepEqual(await fs.readdir(root), ['Prism notebook']);
+  }
+});
+
+test('Windows publication permission errors count as a race only when a destination exists', { skip: process.platform !== 'win32' }, async (t) => {
   for (const code of ['EPERM', 'EACCES']) {
     for (const destinationExists of [false, true]) {
       const { root } = await fixture(t);

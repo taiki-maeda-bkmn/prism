@@ -292,6 +292,71 @@ test('retries loading the starter notebook after a filesystem error is repaired'
   }
 });
 
+test('remembers the starter without symlinks before allowing edits and reopens saved notes', async () => {
+  test.skip(process.platform === 'win32', 'Windows starter publication does not use symlinks.');
+  const fallbackDirectory = await mkdtemp(path.join(os.tmpdir(), 'prism-starter-fallback-'));
+  const fallbackUserData = path.join(fallbackDirectory, 'user-data');
+  const blockedNotebook = path.join(fallbackUserData, 'Prism notebook');
+  const blockedSettings = path.join(fallbackUserData, 'notebook.json.tmp');
+  const fallbackEnvironment = Object.fromEntries(Object.entries(process.env)
+    .filter((entry): entry is [string, string] => entry[1] !== undefined && entry[0] !== 'PRISM_WORKSPACE'));
+  fallbackEnvironment.PRISM_USER_DATA = fallbackUserData;
+  let fallbackApp: ElectronApplication | undefined;
+  const closeFallback = async () => {
+    if (!fallbackApp) return;
+    const child = fallbackApp.process();
+    const closed = fallbackApp.waitForEvent('close', { timeout: 5_000 }).catch(() => undefined);
+    await fallbackApp.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
+    await closed;
+    if (child.exitCode === null) child.kill();
+    fallbackApp = undefined;
+  };
+  try {
+    await mkdir(fallbackUserData, { recursive: true });
+    await writeFile(blockedNotebook, 'Block startup until the filesystem fault is installed.');
+    fallbackApp = await electron.launch({ args: ['--no-sandbox', '.'], cwd: process.cwd(), env: fallbackEnvironment });
+    let fallbackPage = await fallbackApp.firstWindow();
+    await expect(fallbackPage.locator('.message-banner.error')).toBeVisible();
+    // Inject only the unsupported filesystem operation in this disposable process.
+    await fallbackApp.evaluate(() => {
+      const fs = process.getBuiltinModule('node:fs/promises') as typeof import('node:fs/promises');
+      fs.symlink = async () => { throw Object.assign(new Error('Symlinks unsupported'), { code: 'EOPNOTSUPP' }); };
+    });
+    await rm(blockedNotebook);
+    await mkdir(blockedSettings);
+    await fallbackPage.getByRole('button', { name: 'Try again', exact: true }).click();
+    await expect(fallbackPage.locator('.message-banner.error')).toContainText('notebook.json.tmp');
+    await expect(fallbackPage.getByLabel('Markdown source')).toHaveCount(0);
+
+    await rm(blockedSettings, { recursive: true });
+    await fallbackPage.getByRole('button', { name: 'Try again', exact: true }).click();
+    await expect(fallbackPage.locator('.note-heading h1')).toHaveText('Welcome to Prism');
+    await expect(fallbackPage.locator('.note-tree .note-item')).toHaveCount(4);
+    const remembered = JSON.parse(await readFile(path.join(fallbackUserData, 'notebook.json'), 'utf8')) as { path: string };
+    expect(remembered.path).not.toBe(blockedNotebook);
+    await expect(fallbackPage.locator('.sidebar-bottom button').first()).toHaveAttribute('title', remembered.path);
+    const source = fallbackPage.getByLabel('Markdown source');
+    await source.click();
+    await source.press('ControlOrMeta+A');
+    await fallbackPage.keyboard.insertText('# Remembered fallback\n\nMy saved thought.\n');
+    await fallbackPage.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(fallbackPage.locator('.statusbar')).toContainText('All changes saved');
+    expect(await readFile(path.join(remembered.path, 'Welcome to Prism.md'), 'utf8')).toContain('My saved thought.');
+
+    await closeFallback();
+    fallbackApp = await electron.launch({ args: ['--no-sandbox', '.'], cwd: process.cwd(), env: fallbackEnvironment });
+    fallbackPage = await fallbackApp.firstWindow();
+    await expect(fallbackPage.locator('.note-heading h1')).toHaveText('Remembered fallback');
+    await expect(fallbackPage.getByLabel('Markdown source')).toContainText('My saved thought.');
+    await expect(fallbackPage.locator('.note-tree .note-item')).toHaveCount(4);
+    await expect(fallbackPage.locator('.message-banner.error')).toHaveCount(0);
+    await expect(fallbackPage.locator('.sidebar-bottom button').first()).toHaveAttribute('title', remembered.path);
+  } finally {
+    await closeFallback();
+    await rm(fallbackDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
 test('opens percent-containing filenames consistently in previews, graphs, and backlinks', async ({}, testInfo) => {
   const linkDirectory = await mkdtemp(path.join(os.tmpdir(), 'prism-percent-links-'));
   const linkNotebook = path.join(linkDirectory, 'notebook');
