@@ -6,6 +6,14 @@ Prism PDF is a separate local desktop PDF library and reader in this repository.
 
 [See the PDF reader](docs/reader.png). Screenshots show the actual Electron app with a test document.
 
+## Open from your desktop
+
+On Linux or Windows through WSL, run `npm run install:pdf` once from the repository root after installing dependencies. This builds the app and adds **Prism PDF** to your applications menu. On WSL it also creates **Prism PDF** shortcuts on your Windows desktop and in the Windows Start menu, including redirected OneDrive desktops.
+
+Double-click the desktop shortcut or search for **Prism PDF** in Start. The shortcut opens the built app directly without a terminal or rebuilding it. Opening it again brings the existing window forward. You can pin the Start menu shortcut for easier access.
+
+The launcher uses this checkout and its installed Electron runtime, so keep the repository in place. After moving the repository, rerun `npm run install:pdf`; after updating the code, rebuild with `npm run build:pdf`. Installation preserves your PDF library. To remove the launchers, delete the Windows shortcuts and the `io.github.beautysamurai.PrismPDF.desktop` file under `${XDG_DATA_HOME:-~/.local/share}/applications`.
+
 ## Run locally
 
 Use Node.js 22.22.2 or newer. From the repository root:

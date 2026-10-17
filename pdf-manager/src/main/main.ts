@@ -110,6 +110,7 @@ async function createWindow(): Promise<void> {
   const workArea = screen.getPrimaryDisplay().workAreaSize;
   window = new BrowserWindow({
     title: 'Prism PDF', width: Math.min(1380, workArea.width), height: Math.min(900, workArea.height),
+    icon: path.join(__dirname, 'icon.png'),
     transparent: true, backgroundColor: '#00000000', frame: false, show: false,
     // Native resizing/maximizing is unreliable for Electron's transparent windows.
     resizable: false, maximizable: false, fullscreenable: false,
