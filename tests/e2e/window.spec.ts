@@ -1,3 +1,4 @@
+import { electronLaunchArguments } from '../../scripts/electron-launch.mjs';
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -35,7 +36,7 @@ test.beforeAll(async () => {
   await mkdir(notebook);
   await writeFile(path.join(notebook, 'Window.md'), '# Window\n\nKeep the desktop within reach.\n');
   desktop = await electron.launch({
-    args: ['--no-sandbox', '.'], cwd: process.cwd(),
+    args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(),
     env: { ...process.env, PRISM_USER_DATA: path.join(temporary, 'profile'), PRISM_WORKSPACE: notebook },
   });
   page = await desktop.firstWindow();

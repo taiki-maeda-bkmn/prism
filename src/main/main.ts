@@ -197,8 +197,10 @@ async function createWindow(): Promise<void> {
     if (dirty && !allowClose) { event.preventDefault(); requestClose('close'); }
   });
   window.on('closed', () => { window = null; });
-  window.once('ready-to-show', () => window?.show());
   await window.loadFile(rendererPath);
+  // Wayland can defer the first paint of an unmapped transparent surface, so
+  // waiting for ready-to-show can leave the application permanently hidden.
+  window?.show();
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();

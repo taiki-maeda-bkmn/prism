@@ -1,3 +1,4 @@
+import { electronLaunchArguments } from '../../scripts/electron-launch.mjs';
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -15,7 +16,7 @@ let page: Page;
 
 async function launch() {
   desktop = await electron.launch({
-    args: ['--no-sandbox', '.'],
+    args: electronLaunchArguments(['--no-sandbox', '.']),
     cwd: process.cwd(),
     env: { ...process.env, PRISM_USER_DATA: userData, PRISM_WORKSPACE: notebook },
   });
