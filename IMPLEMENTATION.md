@@ -16,11 +16,11 @@ Build the brief in `AGENTS.md` as a local desktop application. Notes remain ordi
 The new requirements in `AGENTS.md` are being implemented one at a time:
 
 - [x] Color customization: accent, page background, and text controls, saved locally, with reset and support for the existing transparent window.
-- [ ] Theme customization: paper-like, sci-fi, and other coordinated styles.
+- [x] Theme customization: Prism, Paper, and Sci-fi styles with coordinated palettes, typography, and controls; custom colors are remembered per theme.
 - [ ] Snippets with Tab completion.
 - [ ] Switchable direct editing in the rendered Markdown view.
 
-The current increment covers colors only. Theme layout and typography, snippet behavior, and direct preview editing remain separate requirements.
+The current increment adds themes to the existing color controls. Snippet behavior and direct preview editing remain separate requirements.
 
 An open P2 review finding concerns concurrent replacement of nested directories between validation and filesystem access. A portable fix requires directory-handle operations across the filesystem layer. Per the brief's instruction to break down large next actions, [filesystem races](docs/filesystem-races.md) records the implementation stages and acceptance tests. This finding remains unresolved; passing current CI does not cover this race.
 
@@ -36,8 +36,8 @@ Before reporting the work complete, check CI and the Codex review against the cu
 
 ## Verification
 
-- 97 appearance, Markdown, filesystem, metadata, external-link, and resource-access tests are defined (92 pass locally; five cases require Windows or macOS), including legacy color-preference migration, malformed-value recovery, hex validation, UTF-8 BOM preservation, extensionless links, heading fragments, literal percent filenames, note creation without hard links, rejection of replaced notebook folders, starter publication that preserves competing folders, recovery from interrupted saves and competing writes, and preservation of native permissions and extended attributes.
-- Ten native Electron scenarios cover editor modes, preview, LF/CRLF preservation without phantom edits, disk saves, partial-publication recovery and manual repair, draft retention, undo isolation after discard and notebook changes, close cancellation, refresh/discard, invalid and duplicate names, graph navigation, backlinks, persisted appearance, startup retry, starter creation without symlinks and persistence across restarts, percent-containing filenames, scrolling to linked headings, external web/email links, and custom colors with restart, reset, invalid saved values, retained undo history, and native transparency.
+- 100 appearance, Markdown, filesystem, metadata, external-link, and resource-access tests are defined (95 pass locally; five cases require Windows or macOS), including legacy color/theme-preference migration, saved palettes across theme switches, malformed-value recovery, hex validation, UTF-8 BOM preservation, extensionless links, heading fragments, literal percent filenames, note creation without hard links, rejection of replaced notebook folders, starter publication that preserves competing folders, recovery from interrupted saves and competing writes, and preservation of native permissions and extended attributes.
+- Eleven native Electron scenarios cover editor modes, preview, LF/CRLF preservation without phantom edits, disk saves, partial-publication recovery and manual repair, draft retention, undo isolation after discard and notebook changes, close cancellation, refresh/discard, invalid and duplicate names, graph navigation, backlinks, persisted appearance, startup retry, starter creation without symlinks and persistence across restarts, percent-containing filenames, scrolling to linked headings, external web/email links, custom colors with restart, reset, invalid saved values, retained undo history, native transparency, and theme selection with typography, saved palettes, and keyboard navigation.
 - Native window capture confirms alpha 255 when opaque and approximately 89 at 35% background opacity.
 - A normal launch with the sandbox enabled succeeds in the local Linux/WSLg environment. Windows/macOS compositor behavior still needs physical desktop testing.
 - Linux, Windows, and macOS build/unit checks and a Linux desktop journey run in GitHub Actions. Current results and review activity are on [PR #2](https://github.com/beautysamurai/prism/pull/2).

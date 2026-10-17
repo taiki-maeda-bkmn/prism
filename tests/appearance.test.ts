@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { appearanceStyle, defaultColors, normalizeColor, parsePreferences } from '../src/renderer/appearance';
+import { appearanceStyle, defaultColors, normalizeColor, parsePreferences, selectTheme, themes } from '../src/renderer/appearance';
 
 test('existing preferences acquire colors without losing editor mode or transparency', () => {
   const preferences = parsePreferences(JSON.stringify({ mode: 'preview', transparent: true, opacity: 35 }));
-  assert.deepEqual(preferences, { mode: 'preview', transparent: true, opacity: 35, colors: defaultColors });
+  assert.deepEqual(preferences, { mode: 'preview', transparent: true, opacity: 35, colors: defaultColors, theme: 'prism', themeColors: {} });
 });
 
 test('damaged saved preferences recover independently while retaining valid values', () => {
@@ -18,8 +18,65 @@ test('damaged saved preferences recover independently while retaining valid valu
   assert.deepEqual(preferences, {
     mode: 'source', transparent: true, opacity: 100,
     colors: { accent: '#aabbcc', background: defaultColors.background, text: '#eeeeff' },
+    theme: 'prism', themeColors: {},
   });
   assert.deepEqual(parsePreferences('{"colors":null}').colors, defaultColors);
+});
+
+test('legacy custom colors stay with Prism when introducing themes', () => {
+  const colors = { accent: '#aabbcc', background: '#112233', text: '#ddeeff' };
+  const legacy = parsePreferences(JSON.stringify({ mode: 'source', transparent: true, opacity: 46, colors }));
+  assert.equal(legacy.theme, 'prism');
+  assert.deepEqual(legacy.colors, colors);
+  const paper = selectTheme(legacy, 'paper');
+  assert.deepEqual(paper.colors, themes.paper.colors);
+  assert.deepEqual(selectTheme(paper, 'prism').colors, colors);
+  assert.equal(paper.mode, 'source');
+  assert.equal(paper.transparent, true);
+  assert.equal(paper.opacity, 46);
+});
+
+test('invalid themes and saved palette fields recover independently', () => {
+  for (const theme of ['unknown', 'toString', '__proto__', null, 0, {}]) {
+    const invalidTheme = parsePreferences(JSON.stringify({ theme, colors: { accent: '#abc' } }));
+    assert.equal(invalidTheme.theme, 'prism');
+    assert.equal(invalidTheme.colors.accent, '#aabbcc');
+  }
+  const preferences = parsePreferences(JSON.stringify({
+    theme: 'scifi',
+    colors: { accent: '#ABC', background: 'url(file:///bad)', text: null },
+    themeColors: {
+      paper: { accent: '#123', background: '#12345', text: '#FfEeDd' },
+      prism: { accent: 'red', background: '#010203' },
+      unknown: { accent: '#ffffff', background: '#000000', text: '#ffffff' },
+    },
+  }));
+  assert.equal(preferences.theme, 'scifi');
+  assert.deepEqual(preferences.colors, { ...themes.scifi.colors, accent: '#aabbcc' });
+  assert.deepEqual(preferences.themeColors, {
+    paper: { accent: '#112233', background: themes.paper.colors.background, text: '#ffeedd' },
+    prism: { ...themes.prism.colors, background: '#010203' },
+  });
+  for (const themeColors of [null, [], 'invalid']) {
+    assert.deepEqual(parsePreferences(JSON.stringify({ theme: 'paper', themeColors })).themeColors, {});
+  }
+});
+
+test('theme palettes survive switches and storage without changing other preferences', () => {
+  const prismColors = { accent: '#7733aa', background: '#fffedd', text: '#332211' };
+  const paperColors = { accent: '#bb6633', background: '#ffefdb', text: '#554433' };
+  const prism = parsePreferences(JSON.stringify({ colors: prismColors, mode: 'preview', transparent: true, opacity: 35 }));
+  assert.equal(selectTheme(prism, 'prism'), prism);
+  const paper = { ...selectTheme(prism, 'paper'), colors: paperColors };
+  const scifi = selectTheme(paper, 'scifi');
+  assert.deepEqual(scifi.colors, themes.scifi.colors);
+  const restored = parsePreferences(JSON.stringify(scifi));
+  assert.deepEqual(restored, scifi);
+  assert.deepEqual(selectTheme(restored, 'paper').colors, paperColors);
+  assert.deepEqual(selectTheme(restored, 'prism').colors, prismColors);
+  assert.equal(restored.mode, 'preview');
+  assert.equal(restored.transparent, true);
+  assert.equal(restored.opacity, 35);
 });
 
 test('color fields accept hex colors but reject incomplete values and CSS expressions', () => {

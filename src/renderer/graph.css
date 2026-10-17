@@ -34,4 +34,13 @@
 .graph-compact .graph-node-dot { stroke-width: 1.5; }
 .graph-compact .graph-empty { min-height: 160px; font-size: 12px; }
 .graph-compact .graph-empty span { display: none; }
+.app-shell[data-theme="paper"] .graph-controls { border-radius: 3px; box-shadow: none; }
+.app-shell[data-theme="paper"] .graph-controls button { border-radius: 1px; }
+.app-shell[data-theme="paper"] .graph-node-label { font-family: Georgia, "Times New Roman", serif; }
+.app-shell[data-theme="paper"] .graph-grid { opacity: .09; }
+.app-shell[data-theme="scifi"] :is(.graph-caption, .graph-hint, .graph-node-label, .graph-controls) { font-family: var(--theme-mono); }
+.app-shell[data-theme="scifi"] .graph-controls { border-radius: 2px; border-color: color-mix(in srgb, var(--accent) 40%, transparent); box-shadow: none; }
+.app-shell[data-theme="scifi"] .graph-controls button { border-radius: 1px; }
+.app-shell[data-theme="scifi"] .graph-grid { color: var(--accent); opacity: .17; }
+.app-shell[data-theme="scifi"] .graph-caption-dot { border-radius: 1px; }
 @media (prefers-reduced-motion: reduce) { .graph-edge, .graph-node-dot, .graph-node-halo { transition: none; } }

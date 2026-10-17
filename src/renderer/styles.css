@@ -232,9 +232,34 @@ input { min-width: 0; }
 .modal-actions { display: flex; gap: 9px; justify-content: flex-end; margin-top: 25px; }
 .modal-actions .discard-button { margin-right: auto; font-size: 10px; padding: 10px 8px; color: var(--warning); border: none; }
 .inline-error { background: var(--danger-tint); color: var(--danger); padding: 10px 12px; border-radius: 5px; font-size: 12px; line-height: 1.7; }
-.appearance-preview { background: rgba(var(--panel-rgb), var(--surface-alpha)); height: 90px; border: 1px solid var(--border); border-radius: 9px; display: flex; align-items: center; justify-content: center; gap: 17px; margin-bottom: 25px; }
-.appearance-preview > span { font-family: Georgia, serif; font-style: italic; color: var(--muted); font-size: 16px; }
-.appearance-preview .prism-mark { width: 28px; height: 33px; }
+.appearance-modal { width: min(490px, calc(100vw - 40px)); padding: 24px; }
+.appearance-modal .modal-heading { margin-bottom: 10px; }
+.appearance-modal .modal-description { margin: 0 0 18px; line-height: 1.6; }
+.theme-settings { margin: 0; padding: 0; min-width: 0; border: 0; }
+.theme-settings legend { margin-bottom: 11px; padding: 0; font-size: 13px; font-weight: 550; }
+.theme-settings .field-help { margin: 10px 0 0; }
+.theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.theme-option { position: relative; display: flex; flex-direction: column; gap: 7px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; min-width: 0; }
+.theme-option:hover { background: var(--tint); border-color: var(--border-strong); }
+.theme-option:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--tint); }
+.theme-option:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 3px; }
+.theme-option input { position: absolute; right: 13px; top: 13px; z-index: 1; width: 14px; height: 14px; margin: 0; accent-color: var(--sample-accent); cursor: pointer; }
+.theme-option input:focus-visible { outline: none; }
+.theme-sample { display: flex; flex-shrink: 0; height: 65px; width: 100%; border: 1px solid color-mix(in srgb, var(--sample-text) 20%, transparent); border-radius: 4px; overflow: hidden; background: var(--sample-background); color: var(--sample-text); }
+.theme-sample-sidebar { width: 21%; flex-shrink: 0; background: color-mix(in srgb, var(--sample-accent) 45%, #000); border-right: 1px solid color-mix(in srgb, var(--sample-text) 15%, transparent); }
+.theme-sample-content { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; flex: 1; padding: 8px; }
+.theme-sample-content strong { display: block; margin-bottom: 2px; font-family: Georgia, serif; font-weight: 400; font-size: 19px; line-height: 1; }
+.theme-sample-content span { display: block; width: 82%; height: 2px; background: color-mix(in srgb, var(--sample-text) 35%, transparent); }
+.theme-sample-content span:last-child { width: 55%; }
+.theme-option-name { color: var(--text); font-size: 12px; font-weight: 600; line-height: 1.2; }
+.theme-option-description { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.theme-option[data-theme-choice="paper"] .theme-sample { border-radius: 1px; }
+.theme-option[data-theme-choice="paper"] .theme-sample-sidebar { background: color-mix(in srgb, var(--sample-background) 90%, var(--sample-accent)); }
+.theme-option[data-theme-choice="paper"] .theme-sample-content strong { font-style: italic; }
+.theme-option[data-theme-choice="paper"] .theme-sample-content span { height: 1px; margin-bottom: 1px; }
+.theme-option[data-theme-choice="scifi"] .theme-sample { border-radius: 0; border-color: color-mix(in srgb, var(--sample-accent) 50%, transparent); }
+.theme-option[data-theme-choice="scifi"] .theme-sample-sidebar { background: color-mix(in srgb, var(--sample-background) 88%, var(--sample-accent)); border-right-color: var(--sample-accent); }
+.theme-option[data-theme-choice="scifi"] .theme-sample-content strong { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; font-size: 17px; color: var(--sample-accent); }
 .setting-row { display: flex; justify-content: space-between; align-items: center; }
 .setting-row strong { font-size: 13px; font-weight: 550; }
 .setting-row p { font-size: 11px; color: var(--muted); margin: 6px 0; }
@@ -242,7 +267,7 @@ input { min-width: 0; }
 .toggle > span { display: block; height: 15px; width: 15px; background: var(--background); box-shadow: 0 1px 3px var(--shadow); border-radius: 50%; transition: transform .15s; }
 .toggle.on { background: var(--accent); }
 .toggle.on > span { background: var(--accent-contrast); transform: translateX(15px); }
-.color-settings { margin: 24px 0; padding: 0; min-width: 0; border: 0; border-top: 1px solid var(--border); }
+.color-settings { margin: 20px 0; padding: 0; min-width: 0; border: 0; border-top: 1px solid var(--border); }
 .color-settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 14px; margin-bottom: 14px; }
 .color-settings-heading p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .color-settings legend { padding: 0; font-size: 13px; font-weight: 550; }
@@ -266,11 +291,55 @@ input { min-width: 0; }
 .shortcut-list { border-top: 1px solid var(--border); padding-top: 17px; display: flex; flex-direction: column; gap: 10px; }
 .shortcut-list > span { display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; }
 .shortcut-list kbd { color: var(--muted); font-size: 9px; }
+.appearance-modal .color-settings { margin: 16px 0 18px; }
+.appearance-modal .color-settings-heading { padding-top: 10px; margin-bottom: 8px; }
+.appearance-modal .color-setting { margin: 8px 0; }
+.appearance-modal .opacity-setting { margin: 16px 0 8px; }
+.appearance-modal .opacity-setting > div { margin-bottom: 8px; }
+.appearance-modal > .field-help { margin: 10px 0 14px; }
+.appearance-modal .shortcut-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; padding-top: 14px; }
+.appearance-modal .shortcut-list > span { gap: 6px; }
+.appearance-modal .shortcut-list kbd { white-space: nowrap; }
+.appearance-modal .modal-actions { margin-top: 18px; }
 .unsaved-list { list-style: none; padding: 0; max-height: 160px; overflow: auto; }
 .unsaved-list li { display: flex; align-items: center; gap: 8px; color: var(--muted); padding: 7px 0; font-size: 12px; }
 .fatal-error { padding: 50px; height: 100%; background: var(--background); color: var(--text); }
 .fatal-error h1 { font-family: Georgia, serif; font-weight: 400; }
 .fatal-error p { max-width: 500px; line-height: 1.8; }
+/* Theme treatments share the palette tokens above, so custom colors and true
+   window transparency continue to apply to every surface. */
+.app-shell[data-theme="paper"] { border-radius: 4px; }
+.app-shell[data-theme="paper"] :is(.workspace-icon, .search-field, .graph-nav, .note-item, .new-note-button, .save-button, .mode-switch, .backlink, .primary-button, .subtle-button, .text-input) { border-radius: 3px; }
+.app-shell[data-theme="paper"] .note-heading { padding-top: 35px; padding-bottom: 32px; }
+.app-shell[data-theme="paper"] .note-heading h1 { font-size: 32px; letter-spacing: -.6px; }
+.app-shell[data-theme="paper"] .eyebrow { letter-spacing: 2.2px; }
+.app-shell[data-theme="paper"] .mode-switch { background: transparent; }
+.app-shell[data-theme="paper"] .mode-switch button { border-radius: 1px; }
+.app-shell[data-theme="paper"] .mode-switch button.active { box-shadow: inset 0 -2px var(--accent); background: var(--tint); }
+.app-shell[data-theme="paper"] .markdown-body { font-family: Georgia, "Times New Roman", serif; font-size: 15px; line-height: 1.95; }
+.app-shell[data-theme="paper"] .mode-preview .markdown-body { max-width: 840px; font-size: 17px; }
+.app-shell[data-theme="paper"] .markdown-body blockquote { padding-left: 20px; border-left-width: 1px; background: transparent; }
+.app-shell[data-theme="paper"] .markdown-body :is(pre, code, img) { border-radius: 2px; }
+.app-shell[data-theme="paper"] .markdown-body hr { height: 4px; background: transparent; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.app-shell[data-theme="paper"] .modal { border-radius: 5px; }
+.app-shell[data-theme="paper"] .theme-option { border-radius: 3px; }
+.app-shell[data-theme="scifi"] { --theme-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace; border-radius: 2px; }
+.app-shell[data-theme="scifi"] :is(.workspace-icon, .search-field, .graph-nav, .note-item, .new-note-button, .save-button, .mode-switch, .mode-switch button, .backlink, .primary-button, .subtle-button, .text-input, .icon-button, .theme-option, .color-inputs input) { border-radius: 2px; }
+.app-shell[data-theme="scifi"] :is(.titlebar-brand strong, .note-heading h1, .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .graph-page-heading h1, .empty-workspace h1, .modal-heading h2) { font-family: var(--theme-mono); letter-spacing: -.7px; }
+.app-shell[data-theme="scifi"] .titlebar-brand strong { font-size: 19px; letter-spacing: -.5px; }
+.app-shell[data-theme="scifi"] .note-heading h1 { font-size: 27px; }
+.app-shell[data-theme="scifi"] .markdown-body h1 { font-size: 24px; }
+.app-shell[data-theme="scifi"] .markdown-body h2 { font-size: 20px; }
+.app-shell[data-theme="scifi"] .markdown-body h3 { font-size: 16px; }
+.app-shell[data-theme="scifi"] .mode-preview .markdown-body h1 { font-size: 29px; }
+.app-shell[data-theme="scifi"] :is(.eyebrow, .pane-label, .sidebar-section-label, .workspace-switch small, .inspector-title, .statusbar, .mode-switch button, .theme-option-name) { font-family: var(--theme-mono); }
+.app-shell[data-theme="scifi"] .document-toolbar { border-bottom-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+.app-shell[data-theme="scifi"] .note-item.active { box-shadow: inset 2px 0 var(--sidebar-accent), inset 0 1px var(--sidebar-border), inset 0 -1px var(--sidebar-border); }
+.app-shell[data-theme="scifi"] .mode-switch button.active { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); background: var(--tint); }
+.app-shell[data-theme="scifi"] .markdown-body :is(pre, code, img) { border-radius: 2px; }
+.app-shell[data-theme="scifi"] .markdown-body blockquote { border-left-width: 1px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-style: normal; }
+.app-shell[data-theme="scifi"] .inspector-tip p { font-family: var(--theme-mono); font-size: 10px; font-style: normal; }
+.app-shell[data-theme="scifi"] .modal { border-radius: 3px; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 1190px) { .sidebar { width: 210px; flex-basis: 210px; padding-left: 12px; padding-right: 12px; } .inspector { width: 198px; flex-basis: 198px; padding: 0 15px; } .note-heading { padding: 27px 24px; align-items: flex-start; flex-direction: column; gap: 19px; } .mode-switch { align-self: flex-start; } .note-heading h1 { font-size: 28px; } .markdown-body { padding-left: 22px; padding-right: 22px; } .search-field kbd { display: none; } }

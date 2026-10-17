@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { defaultColors, normalizeColor, type Colors } from './appearance';
+import { normalizeColor, type Colors } from './appearance';
 
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (color: string) => void }) {
   const id = useId();
@@ -27,7 +27,7 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
   </div>;
 }
 
-export function ColorSettings({ colors, onChange }: { colors: Colors; onChange: (colors: Colors) => void }) {
+export function ColorSettings({ colors, defaultColors, onChange }: { colors: Colors; defaultColors: Colors; onChange: (colors: Colors) => void }) {
   const [reset, setReset] = useState(0);
   return <fieldset className="color-settings">
     <legend>Colors</legend>
