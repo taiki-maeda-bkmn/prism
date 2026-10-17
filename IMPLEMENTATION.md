@@ -29,7 +29,7 @@ This release prioritizes editing, reading, and navigating local notes. Sync serv
 
 Transparent windows depend on the host compositor. The implementation uses a transparent native window and translucent background colors, without blurring the windows behind it. The title bar uses native maximize/restore so the window manager reserves the taskbar area and restores the previous bounds. Linux/macOS allow native resizing; Windows retains fixed normal bounds. Compositor behavior still needs physical platform verification.
 
-The WSLg launcher selects native Wayland before Electron initializes when the local Wayland socket is available. This avoids Xwayland's displaced content in maximized borderless windows. Explicit backend choices and remote or isolated X displays are preserved. Showing the loaded page explicitly also avoids an initially hidden transparent Wayland window. A dedicated opt-in test checks actual Windows host pixels and monitor work-area bounds through maximize, restore, and repeated maximization; Electron bounds alone did not reveal the original offset.
+The WSLg launcher selects native Wayland before Electron initializes when the local Wayland socket is available. This avoids Xwayland's displaced content in maximized borderless windows. Explicit backend choices and remote or isolated X displays are preserved. Showing the loaded page explicitly also avoids an initially hidden transparent Wayland window. A WSLg Wayland resize schedules a full repaint so repeated maximization cannot retain the previous smaller surface. A dedicated opt-in test checks actual Windows host pixels and monitor work-area bounds through maximize, restore, and repeated maximization; Electron bounds alone did not reveal the original offset.
 
 ## Workflow
 
