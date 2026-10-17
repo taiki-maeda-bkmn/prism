@@ -1,13 +1,14 @@
 .graph-view { position: relative; width: 100%; height: 100%; min-height: 380px; overflow: hidden; color: var(--text); background: transparent; }
-.graph-canvas { display: block; width: 100%; height: 100%; min-height: 380px; touch-action: none; cursor: grab; }
+.graph-canvas { display: block; width: 100%; height: 100%; min-height: 0; touch-action: none; cursor: grab; }
 .graph-canvas:active { cursor: grabbing; }
 .graph-grid { color: var(--text); opacity: .13; pointer-events: none; }
-.graph-caption { position: absolute; top: 25px; left: 30px; z-index: 1; display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 11px; letter-spacing: .02em; pointer-events: none; }
+.graph-caption { position: absolute; top: 25px; left: 30px; z-index: 1; display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: calc(11px * var(--text-scale)); letter-spacing: .02em; pointer-events: none; }
 .graph-caption-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-soft); }
 .graph-caption-separator { padding: 0 8px; color: var(--muted); }
 .graph-edge { stroke: var(--muted); stroke-width: 1; opacity: .38; transition: stroke .15s, opacity .15s; pointer-events: none; }
 .graph-edge-highlight { stroke: var(--accent); stroke-width: 1.5; opacity: .8; }
-.graph-node { cursor: pointer; outline: none; }
+/* Treat the dot and its inward-aligned caption as one click target. */
+.graph-node { cursor: pointer; outline: none; pointer-events: bounding-box; }
 .graph-node-hit { fill: transparent; }
 .graph-node-halo { fill: var(--accent); opacity: 0; transition: opacity .15s; }
 .graph-node-dot { fill: var(--muted); stroke: var(--background); stroke-width: 2; transition: fill .15s; }
@@ -17,22 +18,22 @@
 .graph-node:hover .graph-node-halo, .graph-node:focus .graph-node-halo { opacity: .25; }
 .graph-node:hover .graph-node-dot, .graph-node:focus .graph-node-dot { fill: var(--accent); }
 .graph-node:focus-visible .graph-node-halo { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 3 3; }
-.graph-node-label { font-family: inherit; font-size: 12px; fill: var(--muted); paint-order: stroke; stroke: var(--graph-label-background, var(--background)); stroke-width: 4px; stroke-linejoin: round; }
+.graph-node-label { font-family: inherit; font-size: calc(18px * var(--text-scale)); fill: var(--muted); paint-order: stroke; stroke: var(--graph-label-background, var(--background)); stroke-width: 4px; stroke-linejoin: round; }
 .graph-node-active .graph-node-label { fill: var(--text); font-weight: 600; }
-.graph-hint { position: absolute; bottom: 27px; left: 30px; color: var(--muted); font-size: 11px; pointer-events: none; }
+.graph-hint { position: absolute; bottom: 27px; left: 30px; color: var(--muted); font-size: calc(11px * var(--text-scale)); pointer-events: none; }
 .graph-controls { position: absolute; right: 25px; bottom: 20px; display: flex; align-items: center; gap: 2px; padding: 4px; border: 1px solid var(--border); border-radius: 9px; background: rgba(var(--background-rgb), var(--surface-alpha)); box-shadow: 0 2px 7px var(--shadow); }
-.graph-controls button { display: grid; place-items: center; height: 29px; min-width: 30px; padding: 0 7px; border: 0; border-radius: 5px; background: transparent; color: var(--link); font-family: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
+.graph-controls button { display: grid; place-items: center; height: 29px; min-width: 30px; padding: 0 7px; border: 0; border-radius: 5px; background: transparent; color: var(--link); font-family: inherit; font-size: calc(18px * var(--text-scale)); line-height: 1; cursor: pointer; }
 .graph-controls button:hover { background: var(--hover); }
 .graph-controls button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .graph-controls button:disabled { opacity: .35; cursor: default; }
-.graph-controls .graph-reset { min-width: 47px; font-size: 10px; font-variant-numeric: tabular-nums; }
-.graph-empty { height: 100%; min-height: 250px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; font-size: 17px; color: var(--text); }
-.graph-empty span { font-size: 12px; color: var(--muted); }
+.graph-controls .graph-reset { min-width: 47px; font-size: calc(10px * var(--text-scale)); font-variant-numeric: tabular-nums; }
+.graph-empty { height: 100%; min-height: 250px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; font-size: calc(17px * var(--text-scale)); color: var(--text); }
+.graph-empty span { font-size: calc(12px * var(--text-scale)); color: var(--muted); }
 .graph-compact { min-height: 0; height: 190px; }
 .graph-compact .graph-canvas { min-height: 0; cursor: default; }
-.graph-compact .graph-node-label { font-size: 9px; stroke-width: 3px; }
+.graph-compact .graph-node-label { font-size: calc(16px * var(--text-scale)); stroke-width: 3px; }
 .graph-compact .graph-node-dot { stroke-width: 1.5; }
-.graph-compact .graph-empty { min-height: 160px; font-size: 12px; }
+.graph-compact .graph-empty { min-height: 160px; font-size: calc(12px * var(--text-scale)); }
 .graph-compact .graph-empty span { display: none; }
 .app-shell[data-theme="paper"] .graph-controls { border-radius: 3px; box-shadow: none; }
 .app-shell[data-theme="paper"] .graph-controls button { border-radius: 1px; }

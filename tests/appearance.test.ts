@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { appearanceStyle, defaultColors, normalizeColor, parsePreferences, selectTheme, themes } from '../src/renderer/appearance';
+import { appearanceStyle, defaultColors, normalizeColor, parsePreferences, selectTheme, textSize, themes } from '../src/renderer/appearance';
 
 test('existing preferences acquire colors without losing editor mode or transparency', () => {
   const preferences = parsePreferences(JSON.stringify({ mode: 'preview', transparent: true, opacity: 35 }));
-  assert.deepEqual(preferences, { mode: 'preview', transparent: true, opacity: 35, colors: defaultColors, theme: 'prism', themeColors: {} });
+  assert.deepEqual(preferences, { mode: 'preview', transparent: true, opacity: 35, textScale: 120, colors: defaultColors, theme: 'prism', themeColors: {} });
 });
 
 test('damaged saved preferences recover independently while retaining valid values', () => {
@@ -16,11 +16,29 @@ test('damaged saved preferences recover independently while retaining valid valu
     colors: { accent: '#AbC', background: 'url(file:///bad)', text: '#EeEefF' },
   }));
   assert.deepEqual(preferences, {
-    mode: 'source', transparent: true, opacity: 100,
+    mode: 'source', transparent: true, opacity: 100, textScale: 120,
     colors: { accent: '#aabbcc', background: defaultColors.background, text: '#eeeeff' },
     theme: 'prism', themeColors: {},
   });
   assert.deepEqual(parsePreferences('{"colors":null}').colors, defaultColors);
+});
+
+test('text size migrates legacy preferences and safely recovers invalid saved sizes', () => {
+  assert.deepEqual(textSize, { min: 100, max: 150, step: 5, default: 120 });
+  for (const textScale of [undefined, null, '140', true, [], {}, Infinity, -Infinity, NaN]) {
+    assert.equal(parsePreferences(JSON.stringify({ textScale })).textScale, 120);
+  }
+  assert.equal(parsePreferences('{"textScale":1e309}').textScale, 120);
+  for (const [textScale, expected] of [[75, 100], [100, 100], [122, 120], [123, 125], [147.8, 150], [150, 150], [500, 150]]) {
+    const saved = parsePreferences(JSON.stringify({ textScale, theme: 'paper', mode: 'source', opacity: 35, transparent: true }));
+    assert.equal(saved.textScale, expected);
+    assert.equal(selectTheme(saved, 'scifi').textScale, expected);
+    assert.equal(parsePreferences(JSON.stringify(saved)).textScale, expected);
+    const style = appearanceStyle(saved) as Record<string, unknown>;
+    assert.equal(style['--text-scale'], expected / 100);
+    assert.equal(style['--surface-alpha'], 0.35);
+    assert.equal(saved.mode, 'source');
+  }
 });
 
 test('legacy custom colors stay with Prism when introducing themes', () => {

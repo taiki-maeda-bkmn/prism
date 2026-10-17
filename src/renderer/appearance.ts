@@ -4,7 +4,7 @@ export type Mode = 'source' | 'split' | 'preview';
 export type ThemeId = 'prism' | 'paper' | 'scifi';
 export interface Colors { accent: string; background: string; text: string; }
 export interface Preferences {
-  mode: Mode; transparent: boolean; opacity: number;
+  mode: Mode; transparent: boolean; opacity: number; textScale: number;
   theme: ThemeId; colors: Colors; themeColors: Partial<Record<ThemeId, Colors>>;
 }
 
@@ -15,7 +15,8 @@ export const themes: Record<ThemeId, { name: string; description: string; colors
   scifi: { name: 'Sci-fi', description: 'Cool light and clean lines', colors: { accent: '#57d9cf', background: '#0f1825', text: '#d9e7f5' } },
 };
 export const themeIds: ThemeId[] = ['prism', 'paper', 'scifi'];
-const defaults: Preferences = { mode: 'split', transparent: false, opacity: 82, theme: 'prism', colors: defaultColors, themeColors: {} };
+export const textSize = { min: 100, max: 150, step: 5, default: 120 } as const;
+const defaults: Preferences = { mode: 'split', transparent: false, opacity: 82, textScale: textSize.default, theme: 'prism', colors: defaultColors, themeColors: {} };
 
 export function normalizeColor(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -51,6 +52,8 @@ export function parsePreferences(serialized: string | null): Preferences {
     mode: value.mode === 'source' || value.mode === 'split' || value.mode === 'preview' ? value.mode : defaults.mode,
     transparent: value.transparent === true,
     opacity: typeof value.opacity === 'number' && Number.isFinite(value.opacity) ? Math.min(100, Math.max(25, value.opacity)) : defaults.opacity,
+    textScale: typeof value.textScale === 'number' && Number.isFinite(value.textScale)
+      ? Math.min(textSize.max, Math.max(textSize.min, Math.round(value.textScale / textSize.step) * textSize.step)) : textSize.default,
     theme, themeColors,
     colors: readColors(value.colors, themeColors[theme] ?? themes[theme].colors),
   };
@@ -95,6 +98,7 @@ export function appearanceStyle(preferences: Preferences): CSSProperties {
   return {
     colorScheme: contrastText(backgroundRGB) === '#ffffff' ? 'dark' : 'light',
     '--surface-alpha': preferences.transparent ? preferences.opacity / 100 : 1,
+    '--text-scale': preferences.textScale / 100,
     '--accent': accent, '--accent-contrast': contrastText(accentRGB),
     '--text': text, '--background': background,
     '--background-rgb': backgroundRGB.join(', '),
