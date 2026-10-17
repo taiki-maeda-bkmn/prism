@@ -23,6 +23,18 @@ On Linux and macOS, the starter folder is a symbolic link to a complete notebook
 
 This is a desktop application; opening the HTML file in a browser does not provide notebook access.
 
+### Open from your desktop
+
+On Linux or Windows with WSLg, install the launcher once after installing dependencies:
+
+```sh
+npm run install:markdown
+```
+
+On Windows, double-click **Prism** on your desktop or search for **Prism** in the Start menu. On Linux, choose **Prism** from your applications menu. The green prism icon opens the Markdown editor; **Prism PDF** opens the separate PDF manager. Launching needs no terminal and does not rebuild the app.
+
+Keep this repository in place: the shortcuts use its installed Electron and built app. Run `npm run install:markdown` again after moving the repository or updating the app. Your notebook and preferences remain in their existing locations. To remove the launchers, delete the Windows shortcuts and the Linux `io.github.beautysamurai.Prism.desktop` file from `${XDG_DATA_HOME:-~/.local/share}/applications`.
+
 ## Write, read, connect
 
 - **Source, Split, and Read:** switch between syntax-highlighted Markdown, live side-by-side preview, and a reading view.
@@ -56,7 +68,7 @@ Prism creates a native transparent window and uses alpha backgrounds. Actual com
 
 The first release supports UTF-8 `.md` and `.markdown` files (new files use `.md`). An existing UTF-8 byte-order mark is preserved on save and excluded from the editor text. Existing newline styles are preserved; editing a file with mixed line endings normalizes it to its first newline style. Each note can be up to 2 MB; a notebook can load up to 2,000 notes and 64 MB of text. Hidden folders, `node_modules`, symbolic links, and unsupported filenames are skipped, with scan warnings shown in the app. Preview HTML is sanitized; scripts, forms, external image loading, and arbitrary local file access are blocked. Task-list checkboxes are displayed read-only; edit their Markdown source to change them.
 
-Attachments, embedded notes, file renaming/deletion, synchronization, plugins, and signed installers are outside this first release. Run from source with the commands above. Windows and macOS compositor behavior needs testing on those desktops; automated Linux desktop tests verify the app's native window and editing flows.
+Attachments, embedded notes, file renaming/deletion, synchronization, plugins, and signed installers are outside this first release. The desktop launchers use the source checkout; they are not standalone installers. Windows and macOS compositor behavior needs testing on those desktops; automated Linux desktop tests verify the app's native window and editing flows.
 
 ## Development and checks
 

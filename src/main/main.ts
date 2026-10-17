@@ -168,6 +168,7 @@ async function createWindow(): Promise<void> {
   const workArea = screen.getPrimaryDisplay().workAreaSize;
   window = new BrowserWindow({
     title: 'Prism', width: Math.min(1320, workArea.width), height: Math.min(860, workArea.height),
+    icon: path.join(__dirname, 'icon.png'),
     frame: false, transparent: true, backgroundColor: '#00000000',
     // Electron does not support reliable native resizing/maximizing of transparent windows.
     resizable: false, maximizable: false, fullscreenable: false, show: false,

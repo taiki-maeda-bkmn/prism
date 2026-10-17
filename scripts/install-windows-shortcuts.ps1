@@ -13,17 +13,22 @@ try {
     throw 'The shortcut configuration must be base64-encoded UTF-8 JSON.'
 }
 
-foreach ($name in @('distro', 'launcherPath', 'iconPath')) {
+foreach ($name in @('app', 'distro', 'launcherPath', 'iconPath')) {
     $value = $config.$name
     if ($value -isnot [string] -or [string]::IsNullOrWhiteSpace($value) -or $value -match '[\x00-\x1f\x7f]') {
         throw "The shortcut configuration requires a valid $name string."
     }
 }
+switch -CaseSensitive ($config.app) {
+    'markdown' { $applicationName = 'Prism'; $iconName = 'prism.ico' }
+    'pdf' { $applicationName = 'Prism PDF'; $iconName = 'prism-pdf.ico' }
+    default { throw 'Choose the markdown or pdf launcher.' }
+}
 if (-not $config.launcherPath.StartsWith('/')) {
     throw 'launcherPath must be an absolute Linux path.'
 }
 if (-not (Test-Path -LiteralPath $config.iconPath -PathType Leaf)) {
-    throw "The Prism PDF icon was not found at '$($config.iconPath)'."
+    throw "The $applicationName icon was not found at '$($config.iconPath)'."
 }
 
 function Quote-WindowsArgument([string] $Value) {
@@ -82,14 +87,14 @@ $localAppData = [Environment]::GetFolderPath('LocalApplicationData')
 if (-not $desktopDirectory -or -not $programsDirectory -or -not $localAppData) {
     throw 'Windows did not provide the current user Desktop, Start Menu, or local application-data folder.'
 }
-$desktop = Join-Path $desktopDirectory 'Prism PDF.lnk'
-$startMenu = Join-Path $programsDirectory 'Prism PDF.lnk'
-$iconDirectory = Join-Path $localAppData 'Prism PDF'
-$icon = Join-Path $iconDirectory 'prism-pdf.ico'
+$desktop = Join-Path $desktopDirectory ($applicationName + '.lnk')
+$startMenu = Join-Path $programsDirectory ($applicationName + '.lnk')
+$iconDirectory = Join-Path $localAppData $applicationName
+$icon = Join-Path $iconDirectory $iconName
 # WSLg supports --shell-type none, not wsl.exe's --exec. No-shell mode gives the
 # Linux path Windows argv quoting without expanding shell symbols in the path.
 $arguments = $distributionId.ToString('B') + ' --shell-type none -- /bin/sh ' + (Quote-WindowsArgument $config.launcherPath)
-$managedDescription = 'Prism PDF launcher (managed by Prism)'
+$managedDescription = "$applicationName launcher (managed by Prism)"
 $shell = New-Object -ComObject WScript.Shell
 
 try {
@@ -102,7 +107,7 @@ try {
             $existing = $shell.CreateShortcut($shortcutPath)
             try {
                 if ([IO.Path]::GetFileName($existing.TargetPath) -ine 'wslg.exe' -or $existing.Description -cne $managedDescription) {
-                    throw "Refusing to replace '$shortcutPath' because it is not a managed Prism PDF shortcut."
+                    throw "Refusing to replace '$shortcutPath' because it is not a managed $applicationName shortcut."
                 }
             } finally {
                 [void] [Runtime.InteropServices.Marshal]::FinalReleaseComObject($existing)

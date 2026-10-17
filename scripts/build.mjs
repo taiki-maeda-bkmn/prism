@@ -40,4 +40,5 @@ await Promise.all([
 ]);
 
 await copyFile('src/renderer/index.html', 'dist/renderer/index.html');
+await copyFile('assets/prism.png', 'dist/icon.png');
 console.log('Prism built in dist/.');
