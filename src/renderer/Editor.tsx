@@ -5,6 +5,7 @@ import { basicSetup } from 'codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
+import { markdownSnippets } from './snippets';
 
 // Color tokens update in place. Font size uses a compartment below so the editor
 // refreshes its measurements while preserving selection and undo history.
@@ -50,6 +51,7 @@ export function Editor({ path, content, textScale, onChange, onCursor }: Props) 
         // real lines. Serialize using the note's convention instead of forcing
         // a facet that would only recognize one exact input separator.
         extensions: [
+          markdownSnippets,
           basicSetup,
           markdown(),
           syntaxHighlighting(markdownHighlight),
@@ -93,6 +95,8 @@ export function Editor({ path, content, textScale, onChange, onCursor }: Props) 
             '.cm-foldPlaceholder': { background: 'var(--tint)', color: 'var(--muted)', border: 'none' },
             '.cm-tooltip': { background: 'var(--background)', color: 'var(--text)', border: '1px solid var(--border-strong)' },
             '.cm-tooltip-autocomplete > ul > li[aria-selected]': { background: 'var(--accent)', color: 'var(--accent-contrast)' },
+            '.cm-snippetField': { background: 'var(--selection)' },
+            '.cm-snippetFieldPosition': { borderLeftColor: 'var(--accent)' },
           }),
         ],
       }),
