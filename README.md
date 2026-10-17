@@ -42,6 +42,7 @@ Keep this repository in place: the shortcuts use its installed Electron and buil
 - **Connected notes:** use `[[Note name]]`, `[[Note name|label]]`, `[label](folder/note.md)`, or extensionless `[label](folder/note)`. The graph and backlinks update as you write. Links such as `[[Note#Heading]]` and `[label](note.md#heading)` also scroll to the destination heading.
 - **A clear workspace:** navigate the outline, hide sidebars with Focus mode, or explore the graph with pan and zoom.
 - **True transparency:** enable **Appearance → Transparent window** and adjust background opacity. Text remains opaque; no blur is applied to the windows behind Prism.
+- **Your colors:** open **Appearance** to change the accent, page background, and text colors with a picker or hex code. Colors update immediately across the source editor, preview, and graph and are remembered when Prism reopens. **Reset colors** restores the default palette while keeping your editor mode and transparency settings.
 
 Saving is explicit. Unsaved drafts survive switching between notes within the current session. Closing Prism, refreshing the notebook, or opening another folder asks you to save or discard those drafts. Drafts are kept in memory until saved, so save before terminating the process or shutting down the computer.
 

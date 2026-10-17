@@ -1,24 +1,17 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowLeft, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Code2, Columns2, FilePlus2, FileText, Folder, FolderOpen, GitFork, Layers3, Link2, LoaderCircle, Maximize2, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Save, Search, Settings2, Sparkles, X } from 'lucide-react';
 import type { Note, Workspace } from '../shared/types';
 import { Editor } from './Editor';
 import { Graph } from './Graph';
 import { getBacklinks, getTitle, renderMarkdown, resolveNoteLink } from './markdown';
+import { appearanceStyle, parsePreferences, type Mode, type Preferences } from './appearance';
+import { ColorSettings } from './ColorSettings';
 
-type Mode = 'source' | 'split' | 'preview';
 type Intent = 'open' | 'refresh' | 'close';
-interface Preferences { mode: Mode; transparent: boolean; opacity: number; }
-const defaults: Preferences = { mode: 'split', transparent: false, opacity: 82 };
 
 function readPreferences(): Preferences {
-  try {
-    const value = JSON.parse(localStorage.getItem('prism.preferences') || '{}');
-    return {
-      mode: ['source', 'split', 'preview'].includes(value.mode) ? value.mode : defaults.mode,
-      transparent: value.transparent === true,
-      opacity: typeof value.opacity === 'number' && Number.isFinite(value.opacity) ? Math.min(100, Math.max(25, value.opacity)) : defaults.opacity,
-    };
-  } catch { return defaults; }
+  try { return parsePreferences(localStorage.getItem('prism.preferences')); }
+  catch { return parsePreferences(null); }
 }
 
 function Modal({ title, children, onClose, className = '' }: { title: string; children: ReactNode; onClose: () => void; className?: string }) {
@@ -271,8 +264,7 @@ export function App() {
     else setNotice('That linked note is not in this notebook yet. Create it with New note.');
   };
 
-  const alpha = preferences.transparent ? preferences.opacity / 100 : 1;
-  const appStyle = { '--surface-alpha': alpha } as CSSProperties;
+  const appStyle = appearanceStyle(preferences);
 
   return <div className={`app-shell ${focus ? 'focus-mode' : ''}`} style={appStyle} data-transparent={preferences.transparent}>
     <header className="titlebar">
@@ -323,7 +315,16 @@ export function App() {
 
     {creating && <Modal title="A new place for an idea" onClose={() => !busy && setCreating(false)}><form onSubmit={event => { event.preventDefault(); void create(); }}><label className="field-label" htmlFor="new-note-name">Note name</label><input id="new-note-name" className="text-input" autoFocus value={newName} onChange={event => setNewName(event.target.value)} placeholder="An idea worth keeping" disabled={busy} maxLength={220} /><p className="field-help">Use a path like <code>Ideas/My note</code> to organize it in a folder. The .md extension is added for you.</p>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="subtle-button" disabled={busy} onClick={() => setCreating(false)}>Cancel</button><button className="primary-button" type="submit" disabled={busy || !newName.trim()}><Plus size={16} />{busy ? 'Creating…' : 'Create note'}</button></div></form></Modal>}
 
-    {settings && <Modal title="Make a little space" onClose={() => setSettings(false)} className="appearance-modal"><p className="modal-description">Settle into a workspace that feels like yours.</p><div className="appearance-preview" style={{ background: `rgba(228, 234, 222, ${alpha})` }}><PrismMark /><span>Clarity, in your own way.</span></div><div className="setting-row"><div><strong>Transparent window</strong><p>See your other windows through Prism.</p></div><button className={`toggle ${preferences.transparent ? 'on' : ''}`} role="switch" aria-checked={preferences.transparent} aria-label="Transparent window" onClick={() => setPreferences(previous => ({ ...previous, transparent: !previous.transparent }))}><span /></button></div><div className={`opacity-setting ${!preferences.transparent ? 'disabled' : ''}`}><div><label htmlFor="opacity">Background opacity</label><output>{preferences.opacity}%</output></div><input id="opacity" type="range" min="25" max="100" step="1" value={preferences.opacity} disabled={!preferences.transparent} onChange={event => setPreferences(previous => ({ ...previous, opacity: Number(event.target.value) }))} /><div className="range-labels"><span>More transparent</span><span>More solid</span></div></div><p className="field-help">Text stays crisp. Transparency depends on your desktop’s window compositor.</p><div className="shortcut-list"><span>Save note <kbd>Ctrl / ⌘ S</kbd></span><span>Find a note <kbd>Ctrl / ⌘ P</kbd></span><span>Change editor mode <kbd>Ctrl / ⌘ 1–3</kbd></span><span>Open graph <kbd>Ctrl / ⌘ Shift G</kbd></span></div><div className="modal-actions"><button className="primary-button" onClick={() => setSettings(false)}><Check size={16} />Done</button></div></Modal>}
+    {settings && <Modal title="Make a little space" onClose={() => setSettings(false)} className="appearance-modal">
+      <p className="modal-description">Settle into a workspace that feels like yours.</p>
+      <div className="appearance-preview"><PrismMark /><span>Clarity, in your own way.</span></div>
+      <ColorSettings colors={preferences.colors} onChange={colors => setPreferences(previous => ({ ...previous, colors }))} />
+      <div className="setting-row"><div><strong>Transparent window</strong><p>See your other windows through Prism.</p></div><button className={`toggle ${preferences.transparent ? 'on' : ''}`} role="switch" aria-checked={preferences.transparent} aria-label="Transparent window" onClick={() => setPreferences(previous => ({ ...previous, transparent: !previous.transparent }))}><span /></button></div>
+      <div className={`opacity-setting ${!preferences.transparent ? 'disabled' : ''}`}><div><label htmlFor="opacity">Background opacity</label><output>{preferences.opacity}%</output></div><input id="opacity" type="range" min="25" max="100" step="1" value={preferences.opacity} disabled={!preferences.transparent} onChange={event => setPreferences(previous => ({ ...previous, opacity: Number(event.target.value) }))} /><div className="range-labels"><span>More transparent</span><span>More solid</span></div></div>
+      <p className="field-help">Text stays crisp. Transparency depends on your desktop’s window compositor.</p>
+      <div className="shortcut-list"><span>Save note <kbd>Ctrl / ⌘ S</kbd></span><span>Find a note <kbd>Ctrl / ⌘ P</kbd></span><span>Change editor mode <kbd>Ctrl / ⌘ 1–3</kbd></span><span>Open graph <kbd>Ctrl / ⌘ Shift G</kbd></span></div>
+      <div className="modal-actions"><button className="primary-button" onClick={() => setSettings(false)}><Check size={16} />Done</button></div>
+    </Modal>}
 
     {pending && <Modal title="Keep your latest thoughts?" onClose={() => !busy && setPending(null)}><p className="modal-description">You have changes in {dirtyCount} {dirtyCount === 1 ? 'note' : 'notes'}. Save them before {pending === 'close' ? 'closing Prism' : pending === 'open' ? 'opening another notebook' : 'reloading from disk'}.</p><ul className="unsaved-list">{Object.keys(drafts).map(path => <li key={path}><FileText size={14} />{path}</li>)}</ul>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button className="subtle-button discard-button" disabled={busy} onClick={() => { const intent = pending; setPending(null); void runIntent(intent); }}>Discard changes</button><button className="subtle-button" disabled={busy} onClick={() => setPending(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={async () => { const intent = pending; if (await save(true)) { setPending(null); await runIntent(intent); } }}>{busy ? 'Saving…' : 'Save & continue'}</button></div></Modal>}
   </div>;
