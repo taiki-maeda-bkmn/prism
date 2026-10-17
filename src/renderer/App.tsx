@@ -4,8 +4,9 @@ import type { Note, Workspace } from '../shared/types';
 import { Editor } from './Editor';
 import { Graph } from './Graph';
 import { getBacklinks, getTitle, renderMarkdown, resolveNoteLink } from './markdown';
-import { appearanceStyle, parsePreferences, type Mode, type Preferences } from './appearance';
+import { appearanceStyle, parsePreferences, selectTheme, themes, type Mode, type Preferences } from './appearance';
 import { ColorSettings } from './ColorSettings';
+import { ThemeSettings } from './ThemeSettings';
 
 type Intent = 'open' | 'refresh' | 'close';
 
@@ -266,7 +267,7 @@ export function App() {
 
   const appStyle = appearanceStyle(preferences);
 
-  return <div className={`app-shell ${focus ? 'focus-mode' : ''}`} style={appStyle} data-transparent={preferences.transparent}>
+  return <div className={`app-shell ${focus ? 'focus-mode' : ''}`} style={appStyle} data-transparent={preferences.transparent} data-theme={preferences.theme}>
     <header className="titlebar">
       <div className="titlebar-brand"><PrismMark small /><strong>prism</strong><span className="titlebar-divider" /><span>A little space for big ideas.</span></div>
       <div className="window-controls"><button aria-label="Minimize window" onClick={() => window.prism?.windowControl('minimize')}><Minus size={15} /></button><button aria-label="Expand or restore window" onClick={() => window.prism?.windowControl('expand')}><Maximize2 size={13} /></button><button className="close-window" aria-label="Close window" onClick={() => requestIntent('close')}><X size={17} /></button></div>
@@ -317,8 +318,8 @@ export function App() {
 
     {settings && <Modal title="Make a little space" onClose={() => setSettings(false)} className="appearance-modal">
       <p className="modal-description">Settle into a workspace that feels like yours.</p>
-      <div className="appearance-preview"><PrismMark /><span>Clarity, in your own way.</span></div>
-      <ColorSettings colors={preferences.colors} onChange={colors => setPreferences(previous => ({ ...previous, colors }))} />
+      <ThemeSettings theme={preferences.theme} palettes={{ ...preferences.themeColors, [preferences.theme]: preferences.colors }} onChange={theme => setPreferences(previous => selectTheme(previous, theme))} />
+      <ColorSettings key={preferences.theme} colors={preferences.colors} defaultColors={themes[preferences.theme].colors} onChange={colors => setPreferences(previous => ({ ...previous, colors }))} />
       <div className="setting-row"><div><strong>Transparent window</strong><p>See your other windows through Prism.</p></div><button className={`toggle ${preferences.transparent ? 'on' : ''}`} role="switch" aria-checked={preferences.transparent} aria-label="Transparent window" onClick={() => setPreferences(previous => ({ ...previous, transparent: !previous.transparent }))}><span /></button></div>
       <div className={`opacity-setting ${!preferences.transparent ? 'disabled' : ''}`}><div><label htmlFor="opacity">Background opacity</label><output>{preferences.opacity}%</output></div><input id="opacity" type="range" min="25" max="100" step="1" value={preferences.opacity} disabled={!preferences.transparent} onChange={event => setPreferences(previous => ({ ...previous, opacity: Number(event.target.value) }))} /><div className="range-labels"><span>More transparent</span><span>More solid</span></div></div>
       <p className="field-help">Text stays crisp. Transparency depends on your desktop’s window compositor.</p>
