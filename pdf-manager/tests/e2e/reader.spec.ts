@@ -300,6 +300,12 @@ test('uses real window transparency and restores its original bounds', async () 
       return capture.toBitmap({ scaleFactor: 1 })[3];
     }, { x: Math.round(area.x + 4), y: Math.round(area.y + 4), width: 1, height: 1 });
   }
+  // DOM visibility can precede the window manager's initial placement. Capture
+  // restore geometry only once the native window is mapped and focused.
+  await expect.poll(() => desktop!.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    return window.isVisible() && window.isFocused();
+  })).toBe(true);
   const originalBounds = await desktop!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
   const expandedBounds = await desktop!.evaluate(({ BrowserWindow, screen }) => screen.getDisplayMatching(BrowserWindow.getAllWindows()[0].getBounds()).workArea);
   await page.getByRole('button', { name: 'Maximize or restore window', exact: true }).click();

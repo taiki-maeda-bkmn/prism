@@ -128,12 +128,25 @@ async function createWindow(): Promise<void> {
   await window.loadFile(rendererPath);
 }
 
+async function showOrCreateWindow(): Promise<void> {
+  if (!window) { await createWindow(); return; }
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+
+function handleStartupError(error: unknown): void {
+  dialog.showErrorBox('Prism PDF could not start', error instanceof Error ? error.message : 'An unexpected error occurred.');
+  app.exit(1);
+}
+
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', () => { if (window?.isMinimized()) window.restore(); window?.focus(); });
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.whenReady().then(async () => {
-    Menu.setApplicationMenu(null);
+    Menu.setApplicationMenu(process.platform === 'darwin'
+      ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'fileMenu' }, { role: 'editMenu' }])
+      : null);
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
     session.defaultSession.on('will-download', event => event.preventDefault());
@@ -143,9 +156,8 @@ else {
     });
     registerIPC();
     await createWindow();
-    app.on('activate', () => { if (!window) void createWindow(); });
-  }).catch((error: unknown) => {
-    dialog.showErrorBox('Prism PDF could not start', error instanceof Error ? error.message : 'An unexpected error occurred.');
-    app.exit(1);
-  });
+    const showWindow = () => { void showOrCreateWindow().catch(handleStartupError); };
+    app.on('second-instance', showWindow);
+    app.on('activate', showWindow);
+  }).catch(handleStartupError);
 }
