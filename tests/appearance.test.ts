@@ -7,6 +7,20 @@ test('existing preferences acquire colors without losing editor mode or transpar
   assert.deepEqual(preferences, { mode: 'preview', transparent: true, opacity: 35, textScale: 120, colors: defaultColors, theme: 'prism', themeColors: {} });
 });
 
+test('Live mode persists while existing modes and invalid-mode recovery stay compatible', () => {
+  for (const mode of ['source', 'split', 'preview', 'live']) {
+    const preferences = parsePreferences(JSON.stringify({ mode, theme: 'paper', textScale: 135, transparent: true, opacity: 42 }));
+    assert.equal(preferences.mode, mode);
+    assert.equal(parsePreferences(JSON.stringify(preferences)).mode, mode);
+    assert.equal(selectTheme(preferences, 'scifi').mode, mode);
+    assert.equal(preferences.textScale, 135);
+    assert.equal(preferences.opacity, 42);
+  }
+  for (const mode of [undefined, null, '', 'viewer', 'Live', true, 4, {}]) {
+    assert.equal(parsePreferences(JSON.stringify({ mode })).mode, 'split');
+  }
+});
+
 test('damaged saved preferences recover independently while retaining valid values', () => {
   for (const serialized of ['null', '[]', 'true', '"text"', '{broken', null]) {
     assert.deepEqual(parsePreferences(serialized), parsePreferences(null));

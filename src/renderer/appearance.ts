@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 
-export type Mode = 'source' | 'split' | 'preview';
+export type Mode = 'source' | 'split' | 'live' | 'preview';
 export type ThemeId = 'prism' | 'paper' | 'scifi';
 export interface Colors { accent: string; background: string; text: string; }
 export interface Preferences {
@@ -49,7 +49,7 @@ export function parsePreferences(serialized: string | null): Preferences {
     if (Object.hasOwn(savedColors, id)) themeColors[id] = readColors(savedColors[id], themes[id].colors);
   }
   return {
-    mode: value.mode === 'source' || value.mode === 'split' || value.mode === 'preview' ? value.mode : defaults.mode,
+    mode: value.mode === 'source' || value.mode === 'split' || value.mode === 'live' || value.mode === 'preview' ? value.mode : defaults.mode,
     transparent: value.transparent === true,
     opacity: typeof value.opacity === 'number' && Number.isFinite(value.opacity) ? Math.min(100, Math.max(25, value.opacity)) : defaults.opacity,
     textScale: typeof value.textScale === 'number' && Number.isFinite(value.textScale)
