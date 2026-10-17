@@ -3,7 +3,21 @@ import { EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import { markdown } from '@codemirror/lang-markdown';
-import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
+
+// CSS variables update in place, keeping the current selection and undo history
+// intact when the user changes colors while writing.
+const markdownHighlight = HighlightStyle.define([
+  { tag: tags.heading, color: 'var(--link)', fontWeight: 'bold' },
+  { tag: tags.emphasis, fontStyle: 'italic' },
+  { tag: tags.strong, fontWeight: 'bold' },
+  { tag: tags.strikethrough, textDecoration: 'line-through' },
+  { tag: [tags.link, tags.url], color: 'var(--link)', textDecoration: 'underline' },
+  { tag: [tags.quote, tags.comment, tags.meta], color: 'var(--muted)' },
+  { tag: [tags.monospace, tags.keyword, tags.string, tags.atom, tags.bool, tags.number, tags.tagName], color: 'var(--accent-soft)' },
+  { tag: tags.invalid, color: 'var(--danger)' },
+]);
 
 interface Props {
   path: string;
@@ -36,7 +50,7 @@ export function Editor({ path, content, onChange, onCursor }: Props) {
         extensions: [
           basicSetup,
           markdown(),
-          syntaxHighlighting(defaultHighlightStyle),
+          syntaxHighlighting(markdownHighlight),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ 'aria-label': 'Markdown source', spellcheck: 'true' }),
           keymap.of([{ key: 'Mod-s', run: () => true }]),
@@ -51,19 +65,31 @@ export function Editor({ path, content, onChange, onCursor }: Props) {
             }
           }),
           EditorView.theme({
-            '&': { height: '100%', fontSize: '14px', color: '#344640', background: 'transparent' },
+            '&': { height: '100%', fontSize: '14px', color: 'var(--text)', background: 'transparent' },
             '.cm-scroller': { fontFamily: '"Cascadia Code", "SFMono-Regular", Consolas, monospace', lineHeight: '1.85', overflow: 'auto' },
-            '.cm-content': { padding: '27px 0 80px', caretColor: '#2d7562' },
+            '.cm-content': { padding: '27px 0 80px', caretColor: 'var(--text)' },
             '.cm-line': { padding: '0 24px 0 10px' },
-            '.cm-gutters': { background: 'transparent', color: '#a4aaa2', border: 'none', padding: '0 4px 0 12px' },
-            '.cm-activeLineGutter': { background: 'transparent', color: '#426b5c' },
-            '.cm-activeLine': { background: '#54856a09' },
+            '.cm-gutters': { background: 'transparent', color: 'var(--muted)', border: 'none', padding: '0 4px 0 12px' },
+            '.cm-activeLineGutter': { background: 'transparent', color: 'var(--link)' },
+            '.cm-activeLine': { background: 'var(--tint)' },
             '&.cm-focused': { outline: 'none' },
-            '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { background: '#96b69f55' },
-            '.cm-cursor': { borderLeftColor: '#2d7562' },
-            '.cm-panels': { background: '#f2f3ee', color: '#344640' },
-            '.cm-searchMatch': { background: '#dfc87c66' },
-            '.cm-foldPlaceholder': { background: '#e7ece4', border: 'none' },
+            '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { background: 'var(--selection)' },
+            '.cm-selectionMatch': { background: 'var(--hover)' },
+            '.cm-cursor': { borderLeftColor: 'var(--text)' },
+            '.cm-panels': { background: 'var(--background)', color: 'var(--text)' },
+            '.cm-panels-top': { borderBottom: '1px solid var(--border)' },
+            '.cm-panels-bottom': { borderTop: '1px solid var(--border)' },
+            '.cm-textfield': { background: 'var(--background)', color: 'var(--text)', border: '1px solid var(--border-strong)' },
+            '.cm-button': { background: 'var(--tint)', color: 'var(--text)', border: '1px solid var(--border-strong)' },
+            '.cm-button:active': { background: 'var(--hover)' },
+            '.cm-search input[type=checkbox]': { accentColor: 'var(--accent)' },
+            '.cm-searchMatch': { background: 'var(--warning-tint)', outline: '1px solid var(--warning)' },
+            '.cm-searchMatch-selected': { background: 'var(--selection)', outline: '1px solid var(--accent)' },
+            '&.cm-focused .cm-matchingBracket': { background: 'var(--selection)' },
+            '&.cm-focused .cm-nonmatchingBracket': { background: 'var(--danger-tint)' },
+            '.cm-foldPlaceholder': { background: 'var(--tint)', color: 'var(--muted)', border: 'none' },
+            '.cm-tooltip': { background: 'var(--background)', color: 'var(--text)', border: '1px solid var(--border-strong)' },
+            '.cm-tooltip-autocomplete > ul > li[aria-selected]': { background: 'var(--accent)', color: 'var(--accent-contrast)' },
           }),
         ],
       }),
