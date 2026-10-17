@@ -1,9 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell } from 'electron';
-import type { IpcMainEvent, IpcMainInvokeEvent, Rectangle } from 'electron';
+import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Workspace } from '../shared/types';
+import type { WindowState, Workspace } from '../shared/types';
 import { ensureStarterNotebook, WorkspaceStore } from './workspace';
 import { isRendererResource, validateExternalURL } from './security';
 
@@ -17,7 +17,6 @@ let dirty = false;
 let allowClose = false;
 let pendingClose = false;
 let closingIntent: 'close' | 'quit' = 'close';
-let restoreBounds: Rectangle | null = null;
 let workspace: WorkspaceStore | undefined;
 let operations: Promise<unknown> = Promise.resolve();
 
@@ -86,6 +85,10 @@ function requestClose(intent: 'close' | 'quit'): void {
   window?.webContents.send('prism:close-requested');
 }
 
+function windowState(): WindowState {
+  return { maximized: window?.isMaximized() ?? false };
+}
+
 async function restrictRendererResources(): Promise<void> {
   const rendererRoot = await fs.realpath(path.dirname(rendererPath));
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
@@ -136,15 +139,19 @@ function registerIPC(): void {
   ipcMain.on('prism:dirty', (event, value: unknown) => {
     try { validateSender(event); if (typeof value === 'boolean') dirty = value; } catch { /* Ignore untrusted fire-and-forget messages. */ }
   });
+  ipcMain.handle('prism:window-state', (event) => {
+    validateSender(event);
+    return windowState();
+  });
   ipcMain.on('prism:window', (event, action: unknown) => {
     try {
       validateSender(event);
       if (!window) return;
       if (action === 'minimize') window.minimize();
       else if (action === 'close') window.close();
-      else if (action === 'expand') {
-        if (restoreBounds) { window.setBounds(restoreBounds); restoreBounds = null; }
-        else { restoreBounds = window.getBounds(); window.setBounds(screen.getDisplayMatching(restoreBounds).workArea); }
+      else if (action === 'maximize') {
+        if (window.isMaximized()) window.unmaximize();
+        else window.maximize();
       }
     } catch { /* Ignore invalid controls. */ }
   });
@@ -164,14 +171,14 @@ async function createWindow(): Promise<void> {
   dirty = false;
   allowClose = false;
   pendingClose = false;
-  restoreBounds = null;
   const workArea = screen.getPrimaryDisplay().workAreaSize;
   window = new BrowserWindow({
     title: 'Prism', width: Math.min(1320, workArea.width), height: Math.min(860, workArea.height),
     icon: path.join(__dirname, 'icon.png'),
     frame: false, transparent: true, backgroundColor: '#00000000',
-    // Electron does not support reliable native resizing/maximizing of transparent windows.
-    resizable: false, maximizable: false, fullscreenable: false, show: false,
+    // Keep transparent windows non-resizable, but let the window manager own
+    // maximization. Its usable bounds can differ from screen.workArea (WSLg).
+    resizable: false, maximizable: true, fullscreenable: false, show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true,
       nodeIntegration: false, sandbox: true, webSecurity: true, webviewTag: false,
@@ -181,6 +188,10 @@ async function createWindow(): Promise<void> {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event) => event.preventDefault());
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
+  const publishWindowState = () => window?.webContents.send('prism:window-state', windowState());
+  window.on('maximize', publishWindowState);
+  window.on('unmaximize', publishWindowState);
+  window.on('restore', publishWindowState);
   window.on('close', (event) => {
     if (dirty && !allowClose) { event.preventDefault(); requestClose('close'); }
   });

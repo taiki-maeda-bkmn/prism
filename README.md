@@ -84,7 +84,7 @@ Saves preserve supported file metadata, including extended attributes and access
 
 ## Desktop behavior and limits
 
-Prism creates a native transparent window and uses alpha backgrounds. Actual composition depends on the operating system and desktop compositor. Electron documents limitations for native resizing and maximization of transparent windows, so Prism provides an **Expand / restore** button instead of native resize handles. The initial size fits the current screen. Opening DevTools can disable native transparency. See [Electron's transparent-window documentation](https://www.electronjs.org/docs/latest/tutorial/custom-window-styles#transparent-windows).
+Prism creates a native transparent window and uses alpha backgrounds. Actual composition depends on the operating system and desktop compositor. Use **Maximize window** in the title bar to maximize within the desktop work area, keeping the taskbar and window controls available. The same button becomes **Restore window** and returns to the previous size and position. This uses the operating system’s maximized state, not fullscreen. Native resize handles remain disabled for the transparent window. The initial size fits the current screen. Opening DevTools can disable native transparency. See [Electron's transparent-window documentation](https://www.electronjs.org/docs/latest/tutorial/custom-window-styles#transparent-windows).
 
 The first release supports UTF-8 `.md` and `.markdown` files (new files use `.md`). An existing UTF-8 byte-order mark is preserved on save and excluded from the editor text. Existing newline styles are preserved; editing a file with mixed line endings normalizes it to its first newline style. Each note can be up to 2 MB; a notebook can load up to 2,000 notes and 64 MB of text. Hidden folders, `node_modules`, symbolic links, and unsupported filenames are skipped, with scan warnings shown in the app. Preview HTML is sanitized; scripts, forms, external image loading, and arbitrary local file access are blocked. Task-list checkboxes are displayed read-only; edit their Markdown source to change them.
 
@@ -97,7 +97,7 @@ npm run check       # TypeScript, Markdown/filesystem tests, production build
 npm run test:e2e    # Playwright against the actual Electron app
 ```
 
-Linux CI uses `xvfb-run --auto-servernum npm run test:e2e`. The test suite uses temporary notebooks and user profiles, and captures a desktop screenshot in `test-results/`. Electron's sandbox is disabled only for automated test launches; normal `npm start` keeps it enabled.
+Linux CI runs `scripts/test-desktop-with-wm.sh` inside Xvfb with Openbox, so native maximize and restore are tested with a real window manager. The test suite uses temporary notebooks and user profiles, and captures a desktop screenshot in `test-results/`. Electron's sandbox is disabled only for automated test launches; normal `npm start` keeps it enabled.
 
 The isolated renderer talks to a narrow preload bridge. The main process validates sender frames and notebook paths, serializes writes, detects external changes, and preserves displaced versions during save publication. Concurrent replacement of a nested folder can still redirect a path-based filesystem operation; this known P2 remains open, with its implementation and tests broken down in [filesystem races](docs/filesystem-races.md).
 
