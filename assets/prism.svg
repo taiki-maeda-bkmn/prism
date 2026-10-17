@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Prism Markdown</title>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="#728f59"/>
+  <g transform="translate(44 32) scale(5.25)" stroke="#fffdf8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m16 2 14 25-14 7L2 27 16 2Z" fill="#fffdf8" fill-opacity=".14"/>
+    <path d="M16 2v32M2 27l14-7 14 7" fill="none"/>
+  </g>
+</svg>

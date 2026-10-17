@@ -11,6 +11,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "npm run build && electron .",
+    "install:markdown": "npm run build && node scripts/install-markdown-launcher.mjs",
     "dev": "npm start",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/test.mjs",
