@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Prism PDF</title>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="#e8784e"/>
+  <g fill="none" stroke="#fffdf8" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M60 74v112"/>
+    <path d="M99 100v86"/>
+    <path d="M138 88v98"/>
+    <path d="m173 88 31 98"/>
+  </g>
+</svg>

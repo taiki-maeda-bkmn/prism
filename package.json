@@ -18,6 +18,7 @@
     "test:e2e": "npm run build && playwright test",
     "build:pdf": "node scripts/build-pdf.mjs",
     "start:pdf": "npm run build:pdf && electron pdf-manager",
+    "install:pdf": "npm run build:pdf && node scripts/install-pdf-launcher.mjs",
     "typecheck:pdf": "tsc --noEmit -p pdf-manager/tsconfig.json",
     "test:pdf": "node scripts/test-pdf.mjs",
     "check:pdf": "npm run typecheck:pdf && npm run test:pdf && npm run build:pdf",

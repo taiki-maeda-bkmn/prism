@@ -38,6 +38,7 @@ await Promise.all([
 ]);
 
 await Promise.all([
+  copyFile(path.join(app, 'assets/prism-pdf.png'), path.join(output, 'icon.png')),
   copyFile(path.join(app, 'src/renderer/index.html'), path.join(renderer, 'index.html')),
   copyFile(path.join(pdfjs, 'build/pdf.worker.mjs'), path.join(renderer, 'pdf.worker.mjs')),
   ...['cmaps', 'standard_fonts', 'wasm'].map((name) => cp(
