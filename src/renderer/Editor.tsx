@@ -1,13 +1,13 @@
 import { useEffect, useRef } from 'react';
-import { EditorState } from '@codemirror/state';
+import { Compartment, EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 
-// CSS variables update in place, keeping the current selection and undo history
-// intact when the user changes colors while writing.
+// Color tokens update in place. Font size uses a compartment below so the editor
+// refreshes its measurements while preserving selection and undo history.
 const markdownHighlight = HighlightStyle.define([
   { tag: tags.heading, color: 'var(--link)', fontWeight: 'bold' },
   { tag: tags.emphasis, fontStyle: 'italic' },
@@ -22,6 +22,7 @@ const markdownHighlight = HighlightStyle.define([
 interface Props {
   path: string;
   content: string;
+  textScale: number;
   onChange: (value: string) => void;
   onCursor: (line: number, column: number) => void;
 }
@@ -30,9 +31,10 @@ function detectLineEnding(content: string, fallback = '\n'): string {
   return /\r\n|\r|\n/.exec(content)?.[0] ?? fallback;
 }
 
-export function Editor({ path, content, onChange, onCursor }: Props) {
+export function Editor({ path, content, textScale, onChange, onCursor }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  const textSize = useRef(new Compartment());
   const lineEnding = useRef('\n');
   const synchronizing = useRef(false);
   const handlers = useRef({ onChange, onCursor });
@@ -51,6 +53,7 @@ export function Editor({ path, content, onChange, onCursor }: Props) {
           basicSetup,
           markdown(),
           syntaxHighlighting(markdownHighlight),
+          textSize.current.of(EditorView.theme({ '&': { fontSize: `${14 * textScale / 100}px` } })),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ 'aria-label': 'Markdown source', spellcheck: 'true' }),
           keymap.of([{ key: 'Mod-s', run: () => true }]),
@@ -65,7 +68,7 @@ export function Editor({ path, content, onChange, onCursor }: Props) {
             }
           }),
           EditorView.theme({
-            '&': { height: '100%', fontSize: '14px', color: 'var(--text)', background: 'transparent' },
+            '&': { height: '100%', color: 'var(--text)', background: 'transparent' },
             '.cm-scroller': { fontFamily: '"Cascadia Code", "SFMono-Regular", Consolas, monospace', lineHeight: '1.85', overflow: 'auto' },
             '.cm-content': { padding: '27px 0 80px', caretColor: 'var(--text)' },
             '.cm-line': { padding: '0 24px 0 10px' },
@@ -115,6 +118,14 @@ export function Editor({ path, content, onChange, onCursor }: Props) {
       }
     }
   }, [content]);
+
+  useEffect(() => {
+    // Reconfigure only the font theme: this invalidates CodeMirror's measured
+    // line/cursor geometry even on short notes, keeping its state and history.
+    view.current?.dispatch({ effects: textSize.current.reconfigure(
+      EditorView.theme({ '&': { fontSize: `${14 * textScale / 100}px` } }),
+    ) });
+  }, [textScale]);
 
   return <div ref={host} className="editor-host" />;
 }

@@ -4,7 +4,7 @@ import type { Note, Workspace } from '../shared/types';
 import { Editor } from './Editor';
 import { Graph } from './Graph';
 import { getBacklinks, getTitle, renderMarkdown, resolveNoteLink } from './markdown';
-import { appearanceStyle, parsePreferences, selectTheme, themes, type Mode, type Preferences } from './appearance';
+import { appearanceStyle, parsePreferences, selectTheme, themes, textSize, type Mode, type Preferences } from './appearance';
 import { ColorSettings } from './ColorSettings';
 import { ThemeSettings } from './ThemeSettings';
 
@@ -297,7 +297,7 @@ export function App() {
         {view === 'graph' ? <section className="graph-page"><div className="graph-page-heading"><div><p className="eyebrow">SEE THE CONNECTIONS</p><h1>Your ideas, together.</h1><p>Every note is a starting point. Follow a connection to see where it leads.</p></div><button className="subtle-button" onClick={() => setView('note')}><ArrowLeft size={15} />Back to note</button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} /><div className="graph-help"><span><i />Note</span><span><i className="active" />Current note</span><span>Drag to explore · Scroll to zoom · Select a note to open</span></div></section> : active ? <>
           <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source'], ['split', Columns2, 'Split'], ['preview', BookOpen, 'Read']] as const).map(([mode, Icon, label], index) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl+${index + 1})`} onClick={() => setPreferences(previous => ({ ...previous, mode }))}><Icon size={15} /><span>{label}</span></button>)}</div></div>
           <div className={`editor-layout mode-${preferences.mode}`}>
-            {preferences.mode !== 'preview' && <section className="source-pane" aria-label="Source editor"><div className="pane-label"><span><Code2 size={13} />MARKDOWN</span><span>.md</span></div><Editor key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>}
+            {preferences.mode !== 'preview' && <section className="source-pane" aria-label="Source editor"><div className="pane-label"><span><Code2 size={13} />MARKDOWN</span><span>.md</span></div><Editor key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} textScale={preferences.textScale} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>}
             {preferences.mode !== 'source' && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
           </div>
         </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><FilePlus2 size={17} />Create your first note</button></div>}
@@ -318,6 +318,12 @@ export function App() {
 
     {settings && <Modal title="Make a little space" onClose={() => setSettings(false)} className="appearance-modal">
       <p className="modal-description">Settle into a workspace that feels like yours.</p>
+      <fieldset className="text-size-setting">
+        <legend>Text size</legend>
+        <div className="text-size-heading"><output htmlFor="text-size">{preferences.textScale}%</output><button type="button" className="subtle-button" onClick={() => setPreferences(previous => ({ ...previous, textScale: textSize.default }))}>Reset text size</button></div>
+        <input id="text-size" type="range" aria-label="Text size" aria-valuetext={`${preferences.textScale}%`} aria-describedby="text-size-help" min={textSize.min} max={textSize.max} step={textSize.step} value={preferences.textScale} onChange={event => setPreferences(previous => ({ ...previous, textScale: Number(event.target.value) }))} />
+        <p id="text-size-help" className="field-help">Applies to notes, navigation, and settings.</p>
+      </fieldset>
       <ThemeSettings theme={preferences.theme} palettes={{ ...preferences.themeColors, [preferences.theme]: preferences.colors }} onChange={theme => setPreferences(previous => selectTheme(previous, theme))} />
       <ColorSettings key={preferences.theme} colors={preferences.colors} defaultColors={themes[preferences.theme].colors} onChange={colors => setPreferences(previous => ({ ...previous, colors }))} />
       <div className="setting-row"><div><strong>Transparent window</strong><p>See your other windows through Prism.</p></div><button className={`toggle ${preferences.transparent ? 'on' : ''}`} role="switch" aria-checked={preferences.transparent} aria-label="Transparent window" onClick={() => setPreferences(previous => ({ ...previous, transparent: !previous.transparent }))}><span /></button></div>

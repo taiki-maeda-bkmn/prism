@@ -158,7 +158,10 @@ export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = 
           const point = positions.get(note.path)!;
           const active = note.path === activePath;
           const title = getTitle(note);
-          const maxLabel = compact ? 17 : 30;
+          const maxLabel = compact ? 12 : 28;
+          // Keep the larger labels inside the canvas at its default zoom. Edge
+          // nodes point their labels inward; the accessible name stays complete.
+          const labelAnchor = point.x < -width * 0.18 ? 'start' : point.x > width * 0.18 ? 'end' : 'middle';
           return <g key={note.path}
             data-graph-node="true"
             className={`graph-node${active ? ' graph-node-active' : ''}${neighbors.has(note.path) ? ' graph-node-connected' : ''}`}
@@ -173,7 +176,7 @@ export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = 
             <circle className="graph-node-hit" r={compact ? 13 : 22} />
             <circle className="graph-node-halo" r={compact ? 12 : 21} />
             <circle className="graph-node-dot" r={compact ? (active ? 5.5 : 3.5) : (active ? 10 : 6)} />
-            {(!compact || active || neighbors.has(note.path)) && <text className="graph-node-label" y={compact ? 19 : 30} textAnchor="middle">{title.length > maxLabel ? `${title.slice(0, maxLabel - 1)}…` : title}</text>}
+            {(!compact || active || neighbors.has(note.path)) && <text className="graph-node-label" y={compact ? 24 : 34} textAnchor={labelAnchor}>{title.length > maxLabel ? `${title.slice(0, maxLabel - 1)}…` : title}</text>}
           </g>;
         })}
       </g>
