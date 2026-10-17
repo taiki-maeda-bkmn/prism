@@ -38,6 +38,7 @@ Keep this repository in place: the shortcuts use its installed Electron and buil
 ## Write, read, connect
 
 - **Source, Split, and Read:** switch between syntax-highlighted Markdown, live side-by-side preview, and a reading view.
+- **Tab snippets:** type `/` on an empty line in Source or Split mode to see templates, choose with the arrow keys, and press **Tab**. Full shortcuts such as `/task` also expand with Tab. Use Tab and Shift+Tab to move through fields, or Esc to leave a snippet. Open **Snippets** above the source editor for the guide.
 - **Ordinary files:** search notes by name or content, create notes in nested folders, and save directly to Markdown files. Nothing is sent to a server.
 - **Connected notes:** use `[[Note name]]`, `[[Note name|label]]`, `[label](folder/note.md)`, or extensionless `[label](folder/note)`. The graph and backlinks update as you write. Links such as `[[Note#Heading]]` and `[label](note.md#heading)` also scroll to the destination heading.
 - **A clear workspace:** navigate the outline, hide sidebars with Focus mode, or explore the graph with pan and zoom.
@@ -47,6 +48,20 @@ Keep this repository in place: the shortcuts use its installed Electron and buil
 - **Your colors:** change the accent, page background, and text colors with a picker or hex code. Colors update immediately across the source editor, preview, and graph. Each theme remembers its custom palette, including when you switch away and return. **Reset colors** restores the selected theme’s default palette while keeping the other themes’ colors and your editor mode and transparency settings.
 
 Saving is explicit. Unsaved drafts survive switching between notes within the current session. Closing Prism, refreshing the notebook, or opening another folder asks you to save or discard those drafts. Drafts are kept in memory until saved, so save before terminating the process or shutting down the computer.
+
+Built-in snippets insert ordinary Markdown:
+
+| Shortcut | Inserts |
+| --- | --- |
+| `/h1`, `/h2` | A heading and space to continue writing |
+| `/task` | An unchecked task |
+| `/quote` | A block quote |
+| `/code` | A fenced code block with language and code fields |
+| `/table` | A two-column table with editable headers and values |
+| `/link` | A link with label and URL fields |
+| `/wiki` | A `[[Note name]]` connection |
+
+Block shortcuts require an otherwise empty line; `/link` and `/wiki` also work after whitespace in prose. Snippets stay inactive inside code, HTML tags or blocks, and existing links. Escape dismisses a suggestion without expanding it; Tab outside an active snippet or matching shortcut keeps normal keyboard focus navigation. Custom templates are a later extension.
 
 Prism checks for external changes before saving and keeps your draft if it detects a conflict. Each save captures the previous file before publishing the draft, and refuses to replace a new destination created during publication. Copy your draft before refreshing to load the external version. Use **Refresh notebook** to see files added or changed outside Prism.
 

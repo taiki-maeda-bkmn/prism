@@ -133,6 +133,15 @@ input { min-width: 0; }
 .pane-label { min-height: 36px; flex-shrink: 0; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 5px 10px; padding: 8px 24px; font-size: calc(10px * var(--text-scale)); color: var(--muted); letter-spacing: 1px; border-bottom: 1px solid var(--border); }
 .pane-label > span { display: flex; align-items: center; gap: 6px; }
 .pane-label > span:last-child { font-size: calc(10px * var(--text-scale)); letter-spacing: .1px; }
+.snippet-help-button { display: inline-flex; align-items: center; gap: 7px; padding: 2px 5px; border-radius: 4px; color: var(--link); font-size: inherit; letter-spacing: 0; }
+.snippet-help-button:hover { background: var(--hover); }
+.snippet-help-button kbd { font: inherit; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; }
+.cm-editor .cm-tooltip.prism-snippet-completions { padding: 4px; border-radius: 6px; box-shadow: 0 4px 16px var(--shadow); }
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete.prism-snippet-completions > ul { font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif; font-size: calc(13px * var(--text-scale)); max-height: min(300px, 50vh); }
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete.prism-snippet-completions > ul > li { padding: 6px 8px; border-radius: 3px; line-height: 1.4; }
+.cm-editor .prism-snippet-completions .cm-completionLabel { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; }
+.cm-editor .prism-snippet-completions .cm-completionDetail { font-style: normal; margin-left: 12px; }
+.app-shell[data-theme="scifi"] .prism-snippet-completions { border-radius: 2px; }
 .live-indicator > span { height: 4px; width: 4px; background: var(--accent); border-radius: 50%; }
 .editor-host { flex: 1; min-height: 0; overflow: hidden; }
 .markdown-body { overflow: auto; flex: 1; padding: 25px 31px 80px; font-size: calc(13px * var(--text-scale)); color: var(--text); line-height: 1.9; overflow-wrap: anywhere; }
@@ -235,6 +244,13 @@ input { min-width: 0; }
 .modal-actions .discard-button { margin-right: auto; font-size: calc(10px * var(--text-scale)); padding: 10px 8px; color: var(--warning); border: none; }
 .inline-error { background: var(--danger-tint); color: var(--danger); padding: 10px 12px; border-radius: 5px; font-size: calc(12px * var(--text-scale)); line-height: 1.7; }
 .appearance-modal { width: min(560px, calc(100vw - 40px)); padding: 24px; }
+.snippet-help-modal { width: min(620px, calc(100vw - 40px)); }
+.snippet-help-modal code, .snippet-help-modal kbd { color: var(--link); font-size: .95em; }
+.snippet-catalog { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 22px 0; }
+.snippet-catalog > div { min-width: 0; border: 1px solid var(--border); border-radius: 5px; padding: 12px; }
+.snippet-catalog dt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px 12px; font-size: calc(12px * var(--text-scale)); }
+.snippet-catalog dt strong { font-weight: 550; }
+.snippet-catalog dd { margin: 8px 0 0; color: var(--muted); line-height: 1.6; font-size: calc(11px * var(--text-scale)); }
 .appearance-modal .modal-heading { margin-bottom: 10px; }
 .appearance-modal .modal-description { margin: 0 0 18px; line-height: 1.6; }
 .text-size-setting { margin: 0 0 20px; padding: 0 0 18px; min-width: 0; border: 0; border-bottom: 1px solid var(--border); }
