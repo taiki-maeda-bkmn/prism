@@ -27,7 +27,7 @@ An open P2 review finding concerns concurrent replacement of nested directories 
 
 This release prioritizes editing, reading, and navigating local notes. Sync services, plugins, rich-text editing, attachment management, automatic link updates on rename, and signed installers are later requirements. The repository will include commands for building and running the desktop app.
 
-Transparent windows depend on the host compositor. The implementation uses a transparent native window and translucent background colors, without blurring the windows behind it. The title bar uses native maximize/restore so the window manager reserves the taskbar area and restores the previous bounds. Resize handles remain disabled; compositor behavior still needs physical platform verification.
+Transparent windows depend on the host compositor. The implementation uses a transparent native window and translucent background colors, without blurring the windows behind it. The title bar uses native maximize/restore so the window manager reserves the taskbar area and restores the previous bounds. Linux/macOS allow native resizing; Windows retains fixed normal bounds. Compositor behavior still needs physical platform verification.
 
 ## Workflow
 

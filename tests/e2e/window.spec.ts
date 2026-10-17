@@ -14,6 +14,7 @@ async function state() {
       bounds: window.getBounds(),
       maximized: window.isMaximized(),
       fullscreen: window.isFullScreen(),
+      resizable: window.isResizable(),
       workArea: screen.getDisplayMatching(window.getBounds()).workArea,
     };
   });
@@ -56,6 +57,7 @@ test('maximizes without fullscreen and restores native bounds with transparent c
   const original = await state();
   expect(original.maximized).toBe(false);
   expect(original.fullscreen).toBe(false);
+  expect(original.resizable).toBe(process.platform !== 'win32');
   await page.getByRole('button', { name: 'Window appearance', exact: true }).click();
   await page.getByRole('switch', { name: 'Transparent window', exact: true }).click();
   await page.getByLabel('Background opacity').fill('35');
@@ -64,6 +66,12 @@ test('maximizes without fullscreen and restores native bounds with transparent c
   await page.getByRole('button', { name: 'Maximize window', exact: true }).click();
   await expect.poll(async () => (await state()).maximized).toBe(true);
   await expect(page.getByRole('button', { name: 'Restore window', exact: true })).toBeVisible();
+  if (original.bounds.width < original.workArea.width || original.bounds.height < original.workArea.height) {
+    await expect.poll(async () => {
+      const { bounds } = await state();
+      return bounds.width > original.bounds.width || bounds.height > original.bounds.height;
+    }).toBe(true);
+  }
   const maximized = await state();
   expect(maximized.fullscreen).toBe(false);
   expect(maximized.bounds.width).toBeGreaterThanOrEqual(original.bounds.width);
@@ -88,6 +96,38 @@ test('maximizes without fullscreen and restores native bounds with transparent c
   await expect(page.getByRole('button', { name: 'Maximize window', exact: true })).toBeVisible();
   await expect.poll(backgroundAlpha).toBeLessThanOrEqual(95);
 
+  // A normal native resize must preserve alpha and CodeMirror's glyph geometry.
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  const editor = page.getByRole('textbox', { name: 'Markdown source', exact: true });
+  const bodyLine = editor.locator('.cm-line').filter({ hasText: 'Keep the desktop within reach.' });
+  const fontSize = await bodyLine.evaluate(line => getComputedStyle(line).fontSize);
+  const resizedBounds = { ...original.bounds, width: Math.round(original.bounds.width * 0.85), height: Math.round(original.bounds.height * 0.85) };
+  await desktop.evaluate(({ BrowserWindow }, bounds) => BrowserWindow.getAllWindows()[0].setBounds(bounds), resizedBounds);
+  await expect.poll(async () => (await state()).bounds).toEqual(resizedBounds);
+  await expect.poll(backgroundAlpha).toBeGreaterThanOrEqual(85);
+  await expect.poll(backgroundAlpha).toBeLessThanOrEqual(95);
+  expect(await bodyLine.evaluate(line => getComputedStyle(line).fontSize)).toBe(fontSize);
+  await bodyLine.scrollIntoViewIfNeeded();
+  const point = await bodyLine.evaluate(line => {
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    let offset = 'Keep the '.length;
+    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+      if (offset > text.textContent!.length) { offset -= text.textContent!.length; continue; }
+      const range = document.createRange();
+      range.setStart(text, offset);
+      range.collapse(true);
+      const bounds = range.getBoundingClientRect();
+      return { x: bounds.x, y: bounds.y + bounds.height / 2 };
+    }
+    throw new Error('The text boundary is missing.');
+  });
+  await page.mouse.click(point.x, point.y);
+  await page.keyboard.insertText('|');
+  await expect(editor).toContainText('Keep the |desktop within reach.');
+  await editor.press('ControlOrMeta+z');
+  await expect(editor).toContainText('Keep the desktop within reach.');
+  await expect(page.locator('.unsaved-badge')).toHaveCount(0);
+
   // State updates also follow native changes and survive a renderer reload.
   await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].maximize());
   await expect(page.getByRole('button', { name: 'Restore window', exact: true })).toBeVisible();
@@ -95,5 +135,5 @@ test('maximizes without fullscreen and restores native bounds with transparent c
   await expect(page.getByRole('button', { name: 'Restore window', exact: true })).toBeVisible();
   await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].unmaximize());
   await expect(page.getByRole('button', { name: 'Maximize window', exact: true })).toBeVisible();
-  await expect.poll(async () => (await state()).bounds).toEqual(original.bounds);
+  await expect.poll(async () => (await state()).bounds).toEqual(resizedBounds);
 });

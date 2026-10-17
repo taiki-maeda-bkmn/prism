@@ -176,9 +176,10 @@ async function createWindow(): Promise<void> {
     title: 'Prism', width: Math.min(1320, workArea.width), height: Math.min(860, workArea.height),
     icon: path.join(__dirname, 'icon.png'),
     frame: false, transparent: true, backgroundColor: '#00000000',
-    // Keep transparent windows non-resizable, but let the window manager own
-    // maximization. Its usable bounds can differ from screen.workArea (WSLg).
-    resizable: false, maximizable: true, fullscreenable: false, show: false,
+    // Linux window managers and macOS need resizable windows for native zoom.
+    // Windows supports transparent maximize through Electron's API while
+    // keeping resize handles disabled to protect its transparent surface.
+    resizable: process.platform !== 'win32', maximizable: true, fullscreenable: false, show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true,
       nodeIntegration: false, sandbox: true, webSecurity: true, webviewTag: false,

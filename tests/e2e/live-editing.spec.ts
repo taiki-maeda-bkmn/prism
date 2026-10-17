@@ -15,6 +15,12 @@ let page: Page;
 const liveEditor = () => page.getByLabel('Live Markdown editor', { exact: true });
 const sourceEditor = () => page.getByLabel('Markdown source', { exact: true });
 const cursor = () => page.locator('.statusbar span').filter({ hasText: /^Ln \d+, Col \d+$/ });
+// Save publication briefly moves the old note aside before publishing its replacement.
+async function readPublishedNote(name: string) {
+  try { return await readFile(path.join(notebook, name), 'utf8'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+}
+
 const mode = (name: string) => page.getByRole('group', { name: 'Editor mode', exact: true }).getByRole('button', { name, exact: true });
 
 async function launch() {
@@ -97,7 +103,7 @@ test('formats while typing, edits rendered text, and retains cursor and undo acr
   await expect(heading).toHaveText('# A new title');
   const saved = '# A new title\n\nBody **bold** and *soft*.\n\nA plain paragraph.';
   await liveEditor().press('ControlOrMeta+s');
-  await expect.poll(() => readFile(path.join(notebook, 'Welcome to Prism.md'), 'utf8')).toBe(saved);
+  await expect.poll(() => readPublishedNote('Welcome to Prism.md')).toBe(saved);
   await expect(page.locator('.statusbar')).toContainText('All changes saved');
   const position = await cursor().innerText();
 
@@ -224,7 +230,7 @@ test('expands snippets in Live mode, saves Windows text exactly, and remembers t
   await expect(liveEditor().locator('.cm-live-heading-1').last()).toHaveText('Written live');
   await liveEditor().press('ControlOrMeta+s');
   const saved = windows + '# Written live\r\n';
-  await expect.poll(() => readFile(path.join(notebook, 'Windows note.md'), 'utf8')).toBe(saved);
+  await expect.poll(() => readPublishedNote('Windows note.md')).toBe(saved);
   await expect(page.locator('.statusbar')).toContainText('All changes saved');
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('prism.preferences')!).mode)).toBe('live');
 
@@ -252,6 +258,6 @@ test('outline navigation scrolls a long Live document to its editable heading', 
   await liveEditor().press('End');
   await page.keyboard.insertText(' updated');
   await liveEditor().press('ControlOrMeta+s');
-  await expect.poll(() => readFile(path.join(notebook, 'Long note.md'), 'utf8')).toBe(longNote.replace('## Far destination', '## Far destination updated'));
+  await expect.poll(() => readPublishedNote('Long note.md')).toBe(longNote.replace('## Far destination', '## Far destination updated'));
   await expect(page.locator('.message-banner.error')).toHaveCount(0);
 });
