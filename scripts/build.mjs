@@ -35,10 +35,11 @@ await Promise.all([
     sourcemap: true,
     minify: true,
     define: { 'process.env.NODE_ENV': '"production"' },
-    loader: { '.woff2': 'file', '.svg': 'file', '.png': 'file' },
+    loader: { '.woff2': 'file', '.woff': 'file', '.ttf': 'file', '.svg': 'file', '.png': 'file' },
   }),
 ]);
 
 await copyFile('src/renderer/index.html', 'dist/renderer/index.html');
 await copyFile('assets/prism.png', 'dist/icon.png');
+await copyFile('node_modules/katex/LICENSE', 'dist/katex-LICENSE.txt');
 console.log('Prism built in dist/.');

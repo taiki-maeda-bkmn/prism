@@ -196,6 +196,13 @@ input { min-width: 0; }
 .markdown-body th { background: var(--tint); font-weight: 600; }
 .markdown-body img { max-width: 100%; border-radius: 6px; }
 .markdown-body input[type="checkbox"] { accent-color: var(--accent); margin-right: 5px; }
+.prism-math-inline, .prism-math-display, .cm-live-math { color: inherit; letter-spacing: normal; text-indent: 0; overflow-wrap: normal; }
+.prism-math-display, .cm-live-math-display { display: block; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: .4em .15em; margin: .8em 0; }
+.prism-math-display .katex-display, .cm-live-math-display .katex-display { margin: 0; }
+.cm-live-math { cursor: text; border-radius: 4px; }
+.cm-live-math-display { margin: .5em 10px; }
+.cm-live-math:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.prism-math-error, .cm-live-math-error { color: var(--danger); font-family: "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mode-preview .markdown-body { width: 100%; max-width: 880px; padding: 35px 65px 80px; margin: 0 auto; font-size: calc(15px * var(--text-scale)); }
 .mode-preview .markdown-body h1 { font-size: calc(33px * var(--text-scale)); }
 .mode-source .source-pane { width: 100%; }

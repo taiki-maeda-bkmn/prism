@@ -264,3 +264,74 @@ test('raw HTML cannot create interactive forms or non-checkbox inputs', () => {
   assert.equal(checkbox.disabled, true);
   assert.equal(checkbox.checked, true);
 });
+
+test('Markdown renders inline and display math without changing ordinary Markdown', () => {
+  const content = '# Energy $E=mc^2$\n\nInline $\\frac{a}{b}$ and **bold**.\n\n$$\n\\begin{aligned}x&=y+1\\\\z&=2\n\\end{aligned}\n$$\n\n- [x] A task';
+  const rendered = renderMarkdownDocument(content);
+  const fragment = JSDOM.fragment(rendered.html);
+  assert.equal(fragment.querySelectorAll('.katex').length, 3);
+  assert.equal(fragment.querySelectorAll('.prism-math-display').length, 1);
+  assert.equal(fragment.querySelector('strong')?.textContent, 'bold');
+  assert.ok(fragment.querySelector('input[type="checkbox"][checked][disabled]'));
+  assert.deepEqual(rendered.headings, [{ title: 'Energy E=mc^2', level: 1, index: 0 }]);
+  assert.equal(getTitle(note('Energy.md', content)), 'Energy E=mc^2');
+  assert.equal(fragment.querySelector('h1')?.id, 'energy-emc2');
+  assert.equal(rendered.html, renderMarkdown(content), 'fresh tokens do not leak into rendered HTML');
+});
+
+test('TeX wiki links and Markdown-looking contents create no graph connections', () => {
+  const content = String.raw`$\text{[[Not a note]]} + x_1$ and [[Actual note]]
+
+$$\text{[Not a link](Fake.md)}$$
+
+[Actual link](Real.md)`;
+  assert.deepEqual(extractLinks(content), ['prism-note:Actual%20note', 'Real.md']);
+  const fragment = JSDOM.fragment(renderMarkdown(content));
+  assert.equal(fragment.querySelectorAll('a').length, 2);
+  assert.equal(fragment.querySelectorAll('.katex').length, 2);
+});
+
+test('math keeps raw HTML sanitization strict while preserving only generated KaTeX geometry', () => {
+  const content = '<span class="katex" data-prism-math="forged" style="position:fixed" onclick="alert(1)">forged</span>\n\n$\\frac{1}{2}$\n\n<img src="x" onerror="alert(1)"><style>body{display:none}</style>';
+  const fragment = JSDOM.fragment(renderMarkdown(content));
+  assert.equal(fragment.querySelector('[data-prism-math="forged"]')?.hasAttribute('style'), false);
+  assert.equal(fragment.querySelector('script, style, [onclick], [onerror]'), null);
+  assert.ok(fragment.querySelector('.prism-math-inline .katex [style]'));
+  assert.equal(fragment.querySelectorAll('.prism-math-inline').length, 1);
+});
+
+test('invalid math diagnostics and source are escaped without replacing later valid formulas', () => {
+  const content = '$\\frac{<img src=x onerror=alert(1)>}{ $\n\n$\\unknownPrism{<script>alert(1)</script>}$\n\nValid $x^2$';
+  const fragment = JSDOM.fragment(renderMarkdown(content));
+  assert.equal(fragment.querySelector('script, [onerror]'), null);
+  assert.equal(fragment.querySelectorAll('.katex').length, 1);
+  const malformed = JSDOM.fragment(renderMarkdown('$\\frac{1}{$ and $x^2$'));
+  assert.equal(malformed.querySelectorAll('.prism-math-error').length, 1);
+  assert.equal(malformed.querySelector('.prism-math-error')?.textContent, '$\\frac{1}{$');
+  assert.equal(malformed.querySelectorAll('.katex').length, 1);
+});
+
+test('math parsing preserves code examples, raw HTML, link destinations and prices', () => {
+  const content = '`$code$`\n\n```tex\n$$fenced$$\n```\n\n<span>$html$</span>\n\n[price](Cost$5$.md)\n\nCost $5 and $10; formula $x^2$.';
+  const fragment = JSDOM.fragment(renderMarkdown(content));
+  assert.equal(fragment.querySelectorAll('.katex').length, 1);
+  assert.equal(fragment.querySelector('a')?.getAttribute('href'), 'Cost$5$.md');
+  assert.ok(fragment.textContent?.includes('Cost $5 and $10; formula'));
+  assert.deepEqual([...fragment.querySelectorAll('code')].map(node => node.textContent), ['$code$', '$$fenced$$\n']);
+});
+
+
+test('note titles preserve TeX subscripts while stripping surrounding Markdown formatting', () => {
+  const source = '# **Series** $x_1 + x_2$';
+  assert.equal(getTitle(note('Series.md', source)), 'Series x_1 + x_2');
+  assert.equal(renderMarkdownDocument(source).headings[0].title, 'Series x_1 + x_2');
+});
+
+
+test('quoted display formulas render without Markdown container markers', () => {
+  const source = '> $$\n> \\frac{x^2}{2}\n> $$\n\n- > $$\n  > y^2\n  > $$';
+  const fragment = JSDOM.fragment(renderMarkdown(source));
+  assert.equal(fragment.querySelectorAll('blockquote .katex').length, 2);
+  assert.deepEqual([...fragment.querySelectorAll('.katex annotation')].map(node => node.textContent?.trim()), ['\\frac{x^2}{2}', 'y^2']);
+  assert.equal(fragment.querySelector('.prism-math-error'), null);
+});

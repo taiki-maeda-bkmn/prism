@@ -1,6 +1,7 @@
 import createDOMPurify from 'dompurify';
 import { Marked, Renderer, type Token, type Tokens } from 'marked';
 import type { Note } from '../shared/types';
+import { renderMath, scanMarkdownMath, type MathRange } from './math';
 
 interface WikiToken extends Tokens.Generic {
   type: 'wikilink';
@@ -64,33 +65,101 @@ function getPurifier(): ReturnType<typeof createDOMPurify> {
   return purifier;
 }
 
+interface PreparedMath {
+  source: string;
+  formulas: Map<string, MathRange>;
+  headingText: (text: string) => string;
+}
+
+/** Hide formulas from Markdown before it can interpret TeX as links or emphasis. */
+function prepareMath(content: string): PreparedMath {
+  const formulas = new Map<string, MathRange>();
+  const ranges = scanMarkdownMath(content);
+  if (!ranges.length) return { source: content, formulas, headingText: plainHeading };
+  // A note cannot forge a placeholder for trusted HTML: every parse has a fresh
+  // identity, and only ranges returned by the math scanner enter this map.
+  const nonce = crypto.randomUUID();
+  let source = '';
+  let position = 0;
+  for (const range of ranges) {
+    const key = `${nonce}-${formulas.size}`;
+    formulas.set(key, range);
+    source += content.slice(position, range.from) + `<span data-prism-math="${key}"></span>`;
+    position = range.to;
+  }
+  source += content.slice(position);
+  const placeholders = /<span data-prism-math="([a-f0-9-]+)"><\/span>/g;
+  return {
+    source,
+    formulas,
+    headingText: text => {
+      // Strip Markdown formatting around math, never TeX subscripts or commands.
+      const masked = text.replace(placeholders, (whole, key: string) => formulas.has(key) ? `PRISMMATH${key}END` : whole);
+      return plainHeading(masked).replace(/PRISMMATH([a-f0-9-]+)END/g, (whole, key: string) => formulas.get(key)?.tex.trim() ?? whole);
+    },
+  };
+}
+
+function mathPlainText(fragment: DocumentFragment, formulas: Map<string, MathRange>): string {
+  for (const placeholder of fragment.querySelectorAll('[data-prism-math]')) {
+    const math = formulas.get(placeholder.getAttribute('data-prism-math') || '');
+    if (math) placeholder.textContent = math.tex.trim();
+  }
+  return fragment.textContent || '';
+}
+
+function restoreMath(fragment: DocumentFragment, formulas: Map<string, MathRange>): void {
+  for (const placeholder of fragment.querySelectorAll('[data-prism-math]')) {
+    const math = formulas.get(placeholder.getAttribute('data-prism-math') || '');
+    if (!math) continue;
+    const rendered = renderMath(math.tex, math.display);
+    placeholder.removeAttribute('data-prism-math');
+    placeholder.className = math.display ? 'prism-math-display' : 'prism-math-inline';
+    if (rendered.ok) {
+      // This HTML is generated solely by KaTeX with untrusted commands disabled.
+      // Restoring after sanitization preserves its geometry without allowing
+      // style attributes on any user-authored Markdown or raw HTML.
+      placeholder.innerHTML = rendered.html;
+    } else {
+      placeholder.classList.add('prism-math-error');
+      placeholder.setAttribute('title', rendered.error);
+      placeholder.textContent = math.raw;
+    }
+  }
+}
+
 export interface MarkdownHeading { title: string; level: number; index: number }
 
 /** Keep editable heading metadata separate from user-supplied HTML attributes. */
 export function renderMarkdownDocument(content: string): { html: string; headings: MarkdownHeading[] } {
+  const prepared = prepareMath(content);
   const headingIds = new Set<string>();
   const headings: MarkdownHeading[] = [];
   const renderer = new Renderer();
   renderer.heading = function ({ tokens, depth, text }) {
-    const base = plainHeading(text).toLocaleLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, '').trim().replace(/\s+/g, '-') || 'heading';
+    const base = prepared.headingText(text).toLocaleLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, '').trim().replace(/\s+/g, '-') || 'heading';
     let id = base;
     let suffix = 1;
     while (headingIds.has(id)) id = `${base}-${suffix++}`;
     headingIds.add(id);
     const inline = this.parser.parseInline(tokens);
     if (depth <= 3) headings.push({
-      title: getPurifier().sanitize(inline, { RETURN_DOM_FRAGMENT: true }).textContent || '',
+      title: mathPlainText(getPurifier().sanitize(inline, { RETURN_DOM_FRAGMENT: true }), prepared.formulas),
       level: depth,
       index: headings.length,
     });
     return `<h${depth} id="${escapeHTML(id)}">${inline}</h${depth}>\n`;
   };
-  const html = getPurifier().sanitize(markdown.parse(content, { async: false, renderer }), {
+  const fragment = getPurifier().sanitize(markdown.parse(prepared.source, { async: false, renderer }), {
+    RETURN_DOM_FRAGMENT: true,
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|prism-note):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
     FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form', 'button'],
     FORBID_ATTR: ['style'],
   });
-  return { html, headings };
+  restoreMath(fragment, prepared.formulas);
+  const container = window.document.createElement('div');
+  container.append(fragment);
+  return { html: container.innerHTML, headings };
 }
 
 /** Markdown is user content: sanitize after rendering, including raw HTML. */
@@ -135,7 +204,7 @@ export function extractLinks(content: string): string[] {
       }
     }
   }
-  visit(markdown.lexer(content));
+  visit(markdown.lexer(prepareMath(content).source));
   return [...links];
 }
 
@@ -255,8 +324,9 @@ export function resolveLink(target: string, fromPath: string, notes: Note[]): No
 export function getTitle(note: Note): string {
   const cached = noteTitles.get(note);
   if (cached?.content === note.content) return cached.title;
-  const heading = markdown.lexer(note.content).find(token => token.type === 'heading' && token.depth === 1) as Tokens.Heading | undefined;
-  const title = (heading ? plainHeading(heading.text) : '') || withoutExtension(filename(note.path));
+  const prepared = prepareMath(note.content);
+  const heading = markdown.lexer(prepared.source).find(token => token.type === 'heading' && token.depth === 1) as Tokens.Heading | undefined;
+  const title = (heading ? prepared.headingText(heading.text) : '') || withoutExtension(filename(note.path));
   noteTitles.set(note, { content: note.content, title });
   return title;
 }
