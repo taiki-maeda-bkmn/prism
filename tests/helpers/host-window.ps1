@@ -5,7 +5,9 @@ param(
   [Parameter(Mandatory = $true)]
   [ValidateNotNullOrEmpty()]
   [ValidateLength(1, 128)]
-  [string]$Distribution
+  [string]$Distribution,
+  [ValidateSet('sample', 'observe', 'restore')]
+  [string]$Action = 'sample'
 )
 $ErrorActionPreference = 'Stop'
 Add-Type @'
@@ -25,6 +27,8 @@ public static class PrismHostWindow {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rectangle);
   [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr window);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr window, int command);
   [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
   [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
   [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(Point point);
@@ -52,7 +56,15 @@ $matches = [System.Collections.Generic.List[IntPtr]]::new()
 $result = [ordered]@{ found = ($matches.Count -eq 1); foreground = $false; covered = $false; aligned = $false }
 if ($matches.Count -eq 1) {
   $window = $matches[0]
-  [void][PrismHostWindow]::SetForegroundWindow($window)
+  if ($Action -eq 'restore') {
+    # SW_RESTORE is sent only to the one exact UUID-bearing test title above.
+    # The operation is asynchronous; callers can observe until it completes.
+    [void][PrismHostWindow]::ShowWindowAsync($window, 9)
+  }
+  $result.minimized = [PrismHostWindow]::IsIconic($window)
+  if ($Action -eq 'sample' -and -not $result.minimized) {
+    [void][PrismHostWindow]::SetForegroundWindow($window)
+  }
   $rectangle = [PrismHostWindow+Rect]::new()
   if ([PrismHostWindow]::GetWindowRect($window, [ref]$rectangle)) {
     $result.rect = $rectangle
@@ -64,7 +76,7 @@ if ($matches.Count -eq 1) {
     }
     $result.foreground = ([PrismHostWindow]::GetForegroundWindow() -eq $window)
     $points = @()
-    if ($rectangle.right - $rectangle.left -gt 10 -and $rectangle.bottom - $rectangle.top -gt 10) {
+    if ($Action -eq 'sample' -and -not $result.minimized -and $rectangle.right - $rectangle.left -gt 10 -and $rectangle.bottom - $rectangle.top -gt 10) {
       foreach ($coordinates in @(
         @(($rectangle.left + 4), ($rectangle.top + 4)),
         @(($rectangle.right - 5), ($rectangle.top + 4)),
@@ -75,9 +87,10 @@ if ($matches.Count -eq 1) {
         $point.x = $coordinates[0]; $point.y = $coordinates[1]
         $points += $point
       }
-      $result.covered = ($result.foreground -and @($points | Where-Object {
-        [PrismHostWindow]::GetAncestor([PrismHostWindow]::WindowFromPoint($_), 2) -ne $window
-      }).Count -eq 0)
+      $result.ownedCorners = @($points | ForEach-Object {
+        [PrismHostWindow]::GetAncestor([PrismHostWindow]::WindowFromPoint($_), 2) -eq $window
+      })
+      $result.covered = ($result.foreground -and @($result.ownedCorners | Where-Object { -not $_ }).Count -eq 0)
     }
     if ($result.covered) {
       $dc = [PrismHostWindow]::GetDC([IntPtr]::Zero)

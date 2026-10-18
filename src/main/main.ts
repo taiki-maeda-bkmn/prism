@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import type { WindowState, Workspace } from '../shared/types';
 import { ensureStarterNotebook, WorkspaceStore } from './workspace';
 import { isRendererResource, validateExternalURL } from './security';
+import { installWslgWindowRecovery } from './window-recovery';
 
 app.setName('Prism');
 if (!app.isPackaged && process.env.PRISM_USER_DATA) app.setPath('userData', path.resolve(process.env.PRISM_USER_DATA));
@@ -195,10 +196,7 @@ async function createWindow(): Promise<void> {
   window.on('restore', publishWindowState);
   if (process.platform === 'linux' && process.env.WSL_DISTRO_NAME
     && app.commandLine.getSwitchValue('ozone-platform') === 'wayland') {
-    // WSLg can retain the smaller surface after restore -> maximize even when
-    // native bounds and the renderer viewport have grown. Repaint every pixel
-    // so the host receives the full transparent surface at its new size.
-    window.on('resize', () => window?.webContents.invalidate());
+    installWslgWindowRecovery(window);
   }
   window.on('close', (event) => {
     if (dirty && !allowClose) { event.preventDefault(); requestClose('close'); }
