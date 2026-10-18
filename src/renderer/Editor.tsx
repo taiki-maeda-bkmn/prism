@@ -3,6 +3,7 @@ import { Compartment, EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { languages } from '@codemirror/language-data';
 import { HighlightStyle, syntaxHighlighting, syntaxTreeAvailable } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { markdownSnippets } from './snippets';
@@ -22,7 +23,9 @@ const markdownHighlight = HighlightStyle.define([
   { tag: tags.strikethrough, textDecoration: 'line-through' },
   { tag: [tags.link, tags.url], color: 'var(--link)', textDecoration: 'underline' },
   { tag: [tags.quote, tags.comment, tags.meta], color: 'var(--muted)' },
-  { tag: [tags.monospace, tags.keyword, tags.string, tags.atom, tags.bool, tags.number, tags.tagName], color: 'var(--accent-soft)' },
+  { tag: [tags.monospace, tags.string, tags.tagName], color: 'var(--accent-soft)' },
+  { tag: tags.keyword, color: 'var(--link)', fontWeight: '600' },
+  { tag: [tags.atom, tags.bool, tags.number], color: 'var(--warning)' },
   { tag: tags.invalid, color: 'var(--danger)' },
 ]);
 
@@ -64,7 +67,7 @@ export function Editor({ path, content, textScale, theme, live = false, headingT
         extensions: [
           markdownSnippets,
           basicSetup,
-          markdown({ base: markdownLanguage }),
+          markdown({ base: markdownLanguage, codeLanguages: languages }),
           syntaxHighlighting(markdownHighlight),
           textSize.current.of(EditorView.theme({ '&': { fontSize: `${14 * textScale / 100}px` } })),
           EditorView.lineWrapping,
