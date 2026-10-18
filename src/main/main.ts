@@ -193,12 +193,21 @@ async function createWindow(): Promise<void> {
   window.on('maximize', publishWindowState);
   window.on('unmaximize', publishWindowState);
   window.on('restore', publishWindowState);
+  if (process.platform === 'linux' && process.env.WSL_DISTRO_NAME
+    && app.commandLine.getSwitchValue('ozone-platform') === 'wayland') {
+    // WSLg can retain the smaller surface after restore -> maximize even when
+    // native bounds and the renderer viewport have grown. Repaint every pixel
+    // so the host receives the full transparent surface at its new size.
+    window.on('resize', () => window?.webContents.invalidate());
+  }
   window.on('close', (event) => {
     if (dirty && !allowClose) { event.preventDefault(); requestClose('close'); }
   });
   window.on('closed', () => { window = null; });
-  window.once('ready-to-show', () => window?.show());
   await window.loadFile(rendererPath);
+  // Wayland can defer the first paint of an unmapped transparent surface, so
+  // waiting for ready-to-show can leave the application permanently hidden.
+  window?.show();
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();

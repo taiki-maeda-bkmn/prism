@@ -1,3 +1,4 @@
+import { electronLaunchArguments } from '../../scripts/electron-launch.mjs';
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -16,7 +17,7 @@ let page: Page;
 
 async function launch() {
   desktop = await electron.launch({
-    args: ['--no-sandbox', '.'],
+    args: electronLaunchArguments(['--no-sandbox', '.']),
     cwd: process.cwd(),
     env: { ...process.env, PRISM_USER_DATA: userData, PRISM_WORKSPACE: notebook },
   });
@@ -291,7 +292,7 @@ test('isolates undo history when another notebook has identical relative paths a
     await writeFile(path.join(firstNotebook, 'Welcome to Prism.md'), '# Welcome to Prism\n\nOnly in the old notebook.\n');
     await writeFile(path.join(secondNotebook, 'Welcome to Prism.md'), sharedContent);
     historyApp = await electron.launch({
-      args: ['--no-sandbox', '.'], cwd: process.cwd(),
+      args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(),
       env: { ...process.env, PRISM_USER_DATA: historyUserData, PRISM_WORKSPACE: firstNotebook },
     });
     const historyPage = await historyApp.firstWindow();
@@ -340,7 +341,7 @@ test('retries loading the starter notebook after a filesystem error is repaired'
     const retryEnvironment = Object.fromEntries(Object.entries(process.env)
       .filter((entry): entry is [string, string] => entry[1] !== undefined && entry[0] !== 'PRISM_WORKSPACE'));
     retryEnvironment.PRISM_USER_DATA = retryUserData;
-    retryApp = await electron.launch({ args: ['--no-sandbox', '.'], cwd: process.cwd(), env: retryEnvironment });
+    retryApp = await electron.launch({ args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(), env: retryEnvironment });
     retryPage = await retryApp.firstWindow();
     await expect(retryPage.locator('.message-banner.error')).toBeVisible();
     await expect(retryPage.getByRole('button', { name: 'Try again', exact: true })).toBeVisible();
@@ -391,7 +392,7 @@ test('remembers the starter without symlinks before allowing edits and reopens s
   try {
     await mkdir(fallbackUserData, { recursive: true });
     await writeFile(blockedNotebook, 'Block startup until the filesystem fault is installed.');
-    fallbackApp = await electron.launch({ args: ['--no-sandbox', '.'], cwd: process.cwd(), env: fallbackEnvironment });
+    fallbackApp = await electron.launch({ args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(), env: fallbackEnvironment });
     let fallbackPage = await fallbackApp.firstWindow();
     await expect(fallbackPage.locator('.message-banner.error')).toBeVisible();
     // Inject only the unsupported filesystem operation in this disposable process.
@@ -421,7 +422,7 @@ test('remembers the starter without symlinks before allowing edits and reopens s
     expect(await readFile(path.join(remembered.path, 'Welcome to Prism.md'), 'utf8')).toContain('My saved thought.');
 
     await closeFallback();
-    fallbackApp = await electron.launch({ args: ['--no-sandbox', '.'], cwd: process.cwd(), env: fallbackEnvironment });
+    fallbackApp = await electron.launch({ args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(), env: fallbackEnvironment });
     fallbackPage = await fallbackApp.firstWindow();
     await expect(fallbackPage.locator('.note-heading h1')).toHaveText('Remembered fallback');
     await expect(fallbackPage.getByLabel('Markdown source')).toContainText('My saved thought.');
@@ -454,7 +455,7 @@ test('withholds an interrupted partial publication and reloads a verified recove
       writeFile(path.join(journal, 'manifest.json'), JSON.stringify({ version: 1, notePath: 'Broken.md', originalHash: hash(original), draftHash: hash(draft) })),
     ]);
     recoveryApp = await electron.launch({
-      args: ['--no-sandbox', '.'], cwd: process.cwd(),
+      args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(),
       env: { ...process.env, PRISM_USER_DATA: path.join(recoveryDirectory, 'profile'), PRISM_WORKSPACE: recoveryNotebook },
     });
     const recoveryPage = await recoveryApp.firstWindow();
@@ -504,7 +505,7 @@ test('opens percent-containing filenames consistently in previews, graphs, and b
     };
     await Promise.all(Object.entries(fixtures).map(([name, content]) => writeFile(path.join(linkNotebook, name), content)));
     linkApp = await electron.launch({
-      args: ['--no-sandbox', '.'], cwd: process.cwd(),
+      args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(),
       env: { ...process.env, PRISM_USER_DATA: linkUserData, PRISM_WORKSPACE: linkNotebook },
     });
     linkPage = await linkApp.firstWindow();
@@ -575,7 +576,7 @@ test('scrolls to linked headings after note navigation and preserves literal has
     };
     await Promise.all(Object.entries(fixtures).map(([name, content]) => writeFile(path.join(headingNotebook, name), content)));
     headingApp = await electron.launch({
-      args: ['--no-sandbox', '.'], cwd: process.cwd(),
+      args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(),
       env: { ...process.env, PRISM_USER_DATA: headingUserData, PRISM_WORKSPACE: headingNotebook },
     });
     headingPage = await headingApp.firstWindow();
@@ -650,7 +651,7 @@ test('opens protocol-relative, HTTPS, and email preview links externally', async
     await mkdir(externalUserData, { recursive: true });
     await writeFile(path.join(externalNotebook, 'Welcome to Prism.md'), '# Welcome to Prism\n\n[Protocol-relative site](//example.com/page)\n\n[HTTPS site](https://example.com/secure?from=prism#section)\n\n[Email author](mailto:author@example.com?subject=Hello%20Prism)\n');
     externalApp = await electron.launch({
-      args: ['--no-sandbox', '.'], cwd: process.cwd(),
+      args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(),
       env: { ...process.env, PRISM_USER_DATA: externalUserData, PRISM_WORKSPACE: externalNotebook },
     });
     // Keep the renderer, preload bridge, IPC handler, and URL validation real;

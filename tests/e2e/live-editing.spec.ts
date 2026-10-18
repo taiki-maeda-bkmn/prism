@@ -1,3 +1,4 @@
+import { electronLaunchArguments } from '../../scripts/electron-launch.mjs';
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -25,7 +26,7 @@ const mode = (name: string) => page.getByRole('group', { name: 'Editor mode', ex
 
 async function launch() {
   desktop = await electron.launch({
-    args: ['--no-sandbox', '.'], cwd: process.cwd(),
+    args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(),
     env: { ...process.env, PRISM_USER_DATA: userData, PRISM_WORKSPACE: notebook },
   });
   page = await desktop.firstWindow();
