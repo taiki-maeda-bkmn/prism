@@ -2,6 +2,7 @@ import { type ChangeSpec, type EditorState, type Range, Transaction } from '@cod
 import { isolateHistory } from '@codemirror/commands';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view';
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
+import { getLiveMathRanges, isWithinLiveMath } from './liveMath';
 
 interface VisibleRange { from: number; to: number }
 
@@ -95,6 +96,7 @@ export function buildLiveDecorations(state: EditorState, visibleRanges: readonly
   const seenLines = new Set<string>();
   const lineSafety = new Map<number, boolean>();
   const tree = syntaxTree(state);
+  const mathRanges = getLiveMathRanges(state);
 
   function lineIsActive(from: number, to: number): boolean {
     // Include both endpoint lines. This also handles reversed selections and
@@ -132,6 +134,9 @@ export function buildLiveDecorations(state: EditorState, visibleRanges: readonly
       from, to,
       enter(reference) {
         const node = reference.node;
+        // TeX contains Markdown-looking underscores, stars, and even headings.
+        // Neither rendered formulas nor their editable source use those marks.
+        if (isWithinLiveMath(mathRanges, node.from, node.to)) return false;
         if (node.name === 'FencedCode' || node.name === 'CodeBlock') {
           protectedBlocks.push({ from: node.from, to: node.to });
           const first = state.doc.lineAt(node.from);
@@ -300,11 +305,12 @@ export const liveMarkdown = ViewPlugin.fromClass(class {
 export function findLiveHeading(state: EditorState, index: number, parseBudget = 50): number | null {
   if (!Number.isInteger(index) || index < 0) return null;
   const tree = ensureSyntaxTree(state, state.doc.length, parseBudget) ?? syntaxTree(state);
+  const mathRanges = getLiveMathRanges(state);
   let current = 0;
   let position: number | null = null;
   tree.iterate({
     enter(node) {
-      if (position !== null || opaqueBlocks.has(node.name)) return false;
+      if (position !== null || opaqueBlocks.has(node.name) || isWithinLiveMath(mathRanges, node.from, node.to)) return false;
       if (/^(?:ATX|Setext)Heading[1-3]$/.test(node.name) && current++ === index) position = node.from;
     },
   });

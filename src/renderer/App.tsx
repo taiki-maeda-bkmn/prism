@@ -4,6 +4,7 @@ import type { Note, Workspace } from '../shared/types';
 import { Editor } from './Editor';
 import { Graph } from './Graph';
 import { getBacklinks, getTitle, renderMarkdownDocument, resolveNoteLink } from './markdown';
+import { mathTextContent } from './math';
 import { appearanceStyle, parsePreferences, selectTheme, themes, textSize, type Mode, type Preferences } from './appearance';
 import { ColorSettings } from './ColorSettings';
 import { ThemeSettings } from './ThemeSettings';
@@ -153,7 +154,7 @@ export function App() {
   const outline = useMemo(() => {
     if (preferences.mode === 'live') return rendered.headings;
     const document = new DOMParser().parseFromString(html, 'text/html');
-    return [...document.querySelectorAll('h1,h2,h3')].map((heading, index) => ({ title: heading.textContent || '', level: Number(heading.tagName.slice(1)), index }));
+    return [...document.querySelectorAll('h1,h2,h3')].map((heading, index) => ({ title: mathTextContent(heading), level: Number(heading.tagName.slice(1)), index }));
   }, [html, rendered.headings, preferences.mode]);
   const words = active?.content.trim().split(/\s+/u).filter(Boolean).length || 0;
   const dirtyCount = Object.keys(drafts).length;
@@ -180,7 +181,7 @@ export function App() {
     if (fragment) {
       const target = container.querySelector<HTMLElement>(`[id="${CSS.escape(fragment)}"]`)
         ?? [...container.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')]
-          .find(heading => heading.textContent?.trim().toLocaleLowerCase() === fragment.trim().toLocaleLowerCase());
+          .find(heading => mathTextContent(heading).trim().toLocaleLowerCase() === fragment.trim().toLocaleLowerCase());
       if (target) container.scrollTo({
         top: container.scrollTop + target.getBoundingClientRect().top - container.getBoundingClientRect().top - 24,
         behavior: 'smooth',
