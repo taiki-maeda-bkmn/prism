@@ -89,7 +89,7 @@ export function Editor({ path, content, textScale, theme, live = false, headingT
           }),
           EditorView.theme({
             '&': { height: '100%', color: 'var(--text)', background: 'transparent' },
-            '.cm-scroller': { fontFamily: '"Cascadia Code", "SFMono-Regular", Consolas, monospace', lineHeight: '1.85', overflow: 'auto' },
+            '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.85', overflow: 'auto' },
             '.cm-content': { padding: '27px 0 80px', caretColor: 'var(--text)' },
             '.cm-line': { padding: '0 24px 0 10px' },
             '.cm-gutters': { background: 'transparent', color: 'var(--muted)', border: 'none', padding: '0 4px 0 12px' },

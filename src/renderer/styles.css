@@ -1,7 +1,11 @@
 @import './graph.css';
 
-/* Defaults also cover the startup error screen, before preferences load. */
+/* The bundled face covers only CJK code points, so it can take priority
+   without changing Latin typography or the editor's monospace font. */
 :root {
+  --font-sans: "Noto Sans JP CJK", "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif: "Noto Sans JP CJK", Georgia, "Times New Roman", serif;
+  --font-mono: "Noto Sans JP CJK", "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   --text-scale: 1.2;
   --accent: #3e6242;
   --accent-contrast: #ffffff;
@@ -38,7 +42,7 @@
 }
 .sidebar, .titlebar { --focus: var(--sidebar-accent); }
 
-:root { font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+:root { font-family: var(--font-sans); color: var(--text); font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 button, input { font: inherit; }
@@ -58,7 +62,7 @@ input { min-width: 0; }
 .titlebar-brand { display: flex; align-items: center; gap: 10px; }
 .prism-mark { width: 39px; height: 44px; color: var(--accent-soft); flex-shrink: 0; }
 .prism-mark.small { width: 20px; height: 25px; }
-.titlebar-brand strong { font-family: Georgia, serif; font-size: calc(22px * var(--text-scale)); font-weight: 500; letter-spacing: -.8px; margin-top: -2px; }
+.titlebar-brand strong { font-family: var(--font-serif); font-size: calc(22px * var(--text-scale)); font-weight: 500; letter-spacing: -.8px; margin-top: -2px; }
 .titlebar-brand > span:last-child { color: var(--sidebar-muted); font-size: calc(11px * var(--text-scale)); letter-spacing: .2px; }
 .titlebar-divider { height: 12px; width: 1px; background: var(--sidebar-border); margin: 0 3px; }
 .window-controls { display: flex; height: 100%; -webkit-app-region: no-drag; }
@@ -119,7 +123,7 @@ input { min-width: 0; }
 .unsaved-badge { font-size: calc(10px * var(--text-scale)); background: var(--warning-tint); color: var(--warning); padding: 3px 6px; border-radius: 4px; }
 .note-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 15px; padding: 31px 32px 28px; flex-shrink: 0; }
 .eyebrow { font-size: calc(10px * var(--text-scale)); font-weight: 600; letter-spacing: 1.9px; color: var(--muted); margin: 0 0 13px; }
-.note-heading h1 { margin: 0 0 12px; color: var(--text); font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: calc(30px * var(--text-scale)); letter-spacing: -.8px; line-height: 1.2; overflow-wrap: anywhere; }
+.note-heading h1 { margin: 0 0 12px; color: var(--text); font-family: var(--font-serif); font-weight: 400; font-size: calc(30px * var(--text-scale)); letter-spacing: -.8px; line-height: 1.2; overflow-wrap: anywhere; }
 .note-heading-text { min-width: 0; }
 .note-meta { display: flex; flex-wrap: wrap; gap: 5px 9px; font-size: calc(10px * var(--text-scale)); color: var(--muted); }
 .mode-switch { display: flex; flex-wrap: wrap; max-width: 100%; align-self: flex-end; gap: 2px; background: var(--tint); border: 1px solid var(--border); border-radius: 7px; padding: 3px; flex-shrink: 0; }
@@ -138,9 +142,9 @@ input { min-width: 0; }
 .snippet-help-button:hover { background: var(--hover); }
 .snippet-help-button kbd { font: inherit; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; }
 .cm-editor .cm-tooltip.prism-snippet-completions { padding: 4px; border-radius: 6px; box-shadow: 0 4px 16px var(--shadow); }
-.cm-editor .cm-tooltip.cm-tooltip-autocomplete.prism-snippet-completions > ul { font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif; font-size: calc(13px * var(--text-scale)); max-height: min(300px, 50vh); }
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete.prism-snippet-completions > ul { font-family: var(--font-sans); font-size: calc(13px * var(--text-scale)); max-height: min(300px, 50vh); }
 .cm-editor .cm-tooltip.cm-tooltip-autocomplete.prism-snippet-completions > ul > li { padding: 6px 8px; border-radius: 3px; line-height: 1.4; }
-.cm-editor .prism-snippet-completions .cm-completionLabel { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; }
+.cm-editor .prism-snippet-completions .cm-completionLabel { font-family: var(--font-mono); }
 .cm-editor .prism-snippet-completions .cm-completionDetail { font-style: normal; margin-left: 12px; }
 .app-shell[data-theme="scifi"] .prism-snippet-completions { border-radius: 2px; }
 .live-indicator > span { height: 4px; width: 4px; background: var(--accent); border-radius: 50%; }
@@ -149,10 +153,10 @@ input { min-width: 0; }
    inside its measured lines; surfaces keep the window's existing alpha. */
 .mode-live .source-pane { width: 100%; background: transparent; }
 .mode-live .editor-host .cm-gutters { display: none; }
-.mode-live .editor-host .cm-scroller { font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif; font-size: calc(14px * var(--text-scale)); line-height: 1.85; }
+.mode-live .editor-host .cm-scroller { font-family: var(--font-sans); font-size: calc(14px * var(--text-scale)); line-height: 1.85; }
 .mode-live .editor-host .cm-content { flex: 1 1 auto; width: 100%; min-width: 0; max-width: 880px; margin: 0 auto; padding: 28px 32px 80px; }
 .mode-live .editor-host .cm-line { padding: 0; }
-.mode-live .editor-host :is(.cm-live-heading-1, .cm-live-heading-2, .cm-live-heading-3, .cm-live-heading-4, .cm-live-heading-5, .cm-live-heading-6) { font-family: Georgia, "Times New Roman", serif; font-weight: 600; line-height: 1.4; color: var(--text); padding-top: .22em; padding-bottom: .12em; }
+.mode-live .editor-host :is(.cm-live-heading-1, .cm-live-heading-2, .cm-live-heading-3, .cm-live-heading-4, .cm-live-heading-5, .cm-live-heading-6) { font-family: var(--font-serif); font-weight: 600; line-height: 1.4; color: var(--text); padding-top: .22em; padding-bottom: .12em; }
 .mode-live .editor-host .cm-live-heading-1 { font-size: 1.85em; letter-spacing: -.025em; }
 .mode-live .editor-host .cm-live-heading-2 { font-size: 1.55em; letter-spacing: -.02em; }
 .mode-live .editor-host .cm-live-heading-3 { font-size: 1.3em; }
@@ -162,9 +166,9 @@ input { min-width: 0; }
 .mode-live .cm-live-strong { font-weight: 700; }
 .mode-live .cm-live-emphasis { font-style: italic; }
 .mode-live .cm-live-strike { text-decoration: line-through; }
-.mode-live .cm-live-code { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; font-size: .94em; color: var(--link); background: var(--tint); border: 1px solid var(--border); border-radius: 3px; padding: 1px 3px; }
+.mode-live .cm-live-code { font-family: var(--font-mono); font-size: .94em; color: var(--link); background: var(--tint); border: 1px solid var(--border); border-radius: 3px; padding: 1px 3px; }
 .mode-live .editor-host .cm-live-quote { border-left: 2px solid var(--accent-soft); padding-left: 16px; background: var(--tint); color: var(--muted); }
-.mode-live .editor-host .cm-line.cm-live-codeblock { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; font-size: .94em; line-height: 1.75; padding: 0 14px; background: var(--tint); border-left: 1px solid var(--border); border-right: 1px solid var(--border); color: var(--text); }
+.mode-live .editor-host .cm-line.cm-live-codeblock { font-family: var(--font-mono); font-size: .94em; line-height: 1.75; padding: 0 14px; background: var(--tint); border-left: 1px solid var(--border); border-right: 1px solid var(--border); color: var(--text); }
 .mode-live .editor-host .cm-line.cm-live-codeblock-start { padding-top: 8px; border-top: 1px solid var(--border); border-radius: 6px 6px 0 0; }
 .mode-live .editor-host .cm-line.cm-live-codeblock-end { padding-bottom: 8px; border-bottom: 1px solid var(--border); border-radius: 0 0 6px 6px; }
 .mode-live .editor-host .cm-line.cm-live-codeblock-start.cm-live-codeblock-end { border-radius: 6px; }
@@ -172,9 +176,11 @@ input { min-width: 0; }
 .mode-live .cm-live-code-language { display: inline-block; color: var(--muted); font-size: .8em; letter-spacing: .04em; user-select: none; }
 .mode-live .cm-live-task-checkbox { appearance: auto; width: 1em; height: 1em; margin: 0 .4em 0 0; vertical-align: -.1em; accent-color: var(--accent); cursor: pointer; }
 .mode-live .cm-live-task-checkbox:disabled { cursor: default; }
+/* KaTeX gives CJK text its own span outside its mathematical font metrics. */
+.katex .cjk_fallback { font-family: var(--font-sans); }
 .markdown-body { overflow: auto; flex: 1; padding: 25px 31px 80px; font-size: calc(13px * var(--text-scale)); color: var(--text); line-height: 1.9; overflow-wrap: anywhere; }
 .markdown-body > :first-child { margin-top: 0; }
-.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { font-family: Georgia, "Times New Roman", serif; color: var(--text); font-weight: 400; line-height: 1.35; scroll-margin-top: 24px; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { font-family: var(--font-serif); color: var(--text); font-weight: 400; line-height: 1.35; scroll-margin-top: 24px; }
 .markdown-body h1 { font-size: calc(27px * var(--text-scale)); letter-spacing: -.6px; margin-bottom: 20px; }
 .markdown-body h2 { font-size: calc(22px * var(--text-scale)); margin-top: 30px; margin-bottom: 13px; }
 .markdown-body h3 { font-size: calc(18px * var(--text-scale)); margin-top: 26px; }
@@ -187,7 +193,7 @@ input { min-width: 0; }
 .markdown-body ul, .markdown-body ol { padding-left: 22px; }
 .markdown-body li { margin: 6px 0; padding-left: 3px; }
 .markdown-body li::marker { color: var(--muted); }
-.markdown-body code { font-family: "Cascadia Code", Consolas, monospace; font-size: .88em; background: var(--tint); border: 1px solid var(--border); padding: 2px 4px; border-radius: 4px; color: var(--link); }
+.markdown-body code { font-family: var(--font-mono); font-size: .88em; background: var(--tint); border: 1px solid var(--border); padding: 2px 4px; border-radius: 4px; color: var(--link); }
 .markdown-body pre { background: var(--tint); border: 1px solid var(--border); border-radius: 7px; overflow: auto; padding: 16px; line-height: 1.7; }
 .markdown-body pre code { padding: 0; border: none; background: none; font-size: calc(11px * var(--text-scale)); }
 .markdown-body hr { border: 0; height: 1px; background: var(--border); margin: 29px 0; }
@@ -202,7 +208,7 @@ input { min-width: 0; }
 .cm-live-math { cursor: text; border-radius: 4px; }
 .cm-live-math-display { margin: .5em 10px; }
 .cm-live-math:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-.prism-math-error, .cm-live-math-error { color: var(--danger); font-family: "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.prism-math-error, .cm-live-math-error { color: var(--danger); font-family: var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .mode-preview .markdown-body { width: 100%; max-width: 880px; padding: 35px 65px 80px; margin: 0 auto; font-size: calc(15px * var(--text-scale)); }
 .mode-preview .markdown-body h1 { font-size: calc(33px * var(--text-scale)); }
 .mode-source .source-pane { width: 100%; }
@@ -233,7 +239,7 @@ input { min-width: 0; }
 .inspector-empty code { font-size: calc(10px * var(--text-scale)); }
 .inspector-tip { margin-top: auto; padding: 25px 0 24px; text-align: center; color: var(--muted); }
 .inspector-tip .prism-mark { color: var(--accent-soft); }
-.inspector-tip p { font-family: Georgia, serif; font-style: italic; font-size: calc(12px * var(--text-scale)); line-height: 1.7; }
+.inspector-tip p { font-family: var(--font-serif); font-style: italic; font-size: calc(12px * var(--text-scale)); line-height: 1.7; }
 .statusbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 2px 12px; flex-shrink: 0; min-height: 28px; border-top: 1px solid var(--border); background: rgba(var(--panel-rgb), var(--surface-alpha)); padding: 3px 16px; font-size: calc(10px * var(--text-scale)); color: var(--muted); }
 .statusbar > div { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
 .statusbar > div:first-child { gap: 7px; }
@@ -248,7 +254,7 @@ input { min-width: 0; }
 .message-banner.notice { background: var(--tint); color: var(--link); border-bottom: 1px solid var(--border); }
 .empty-workspace { display: flex; flex: 1; align-items: center; justify-content: center; flex-direction: column; text-align: center; padding: 40px; }
 .empty-workspace > .prism-mark { margin-bottom: 35px; width: 50px; height: 58px; }
-.empty-workspace h1 { margin: 0 0 10px; font-family: Georgia, serif; font-weight: 400; font-size: calc(33px * var(--text-scale)); color: var(--link); }
+.empty-workspace h1 { margin: 0 0 10px; font-family: var(--font-serif); font-weight: 400; font-size: calc(33px * var(--text-scale)); color: var(--link); }
 .empty-workspace > p:not(.eyebrow) { color: var(--muted); font-size: calc(12px * var(--text-scale)); margin: 0 0 25px; }
 .primary-button, .subtle-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: calc(12px * var(--text-scale)); padding: 10px 15px; border-radius: 6px; white-space: nowrap; }
 .primary-button { background: var(--accent); color: var(--accent-contrast); border: 1px solid var(--accent); }
@@ -257,7 +263,7 @@ input { min-width: 0; }
 .subtle-button:hover:not(:disabled) { background: var(--hover); }
 .graph-page { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; padding: 36px 38px 18px; }
 .graph-page-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
-.graph-page-heading h1 { font-family: Georgia, serif; color: var(--link); font-size: calc(35px * var(--text-scale)); font-weight: 400; letter-spacing: -.8px; margin: 0 0 12px; }
+.graph-page-heading h1 { font-family: var(--font-serif); color: var(--link); font-size: calc(35px * var(--text-scale)); font-weight: 400; letter-spacing: -.8px; margin: 0 0 12px; }
 .graph-page-heading > div > p:last-child { font-size: calc(12px * var(--text-scale)); color: var(--muted); line-height: 1.8; }
 .graph-page > .graph-view { flex: 1; min-height: 260px; height: auto; }
 .graph-help { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 15px; padding-top: 15px; border-top: 1px solid var(--border); font-size: calc(10px * var(--text-scale)); color: var(--muted); }
@@ -268,7 +274,7 @@ input { min-width: 0; }
 .modal { width: min(470px, calc(100vw - 40px)); max-height: calc(100vh - 70px); overflow: auto; padding: 27px; border: 1px solid var(--border-strong); border-radius: 13px; background: var(--background); color: var(--text); box-shadow: 0 25px 80px var(--shadow); }
 .modal::backdrop { background: rgba(var(--titlebar-rgb), .5); }
 .modal-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 19px; }
-.modal-heading h2 { font-family: Georgia, serif; font-size: calc(24px * var(--text-scale)); font-weight: 400; margin: 0; letter-spacing: -.4px; }
+.modal-heading h2 { font-family: var(--font-serif); font-size: calc(24px * var(--text-scale)); font-weight: 400; margin: 0; letter-spacing: -.4px; }
 .modal-description { color: var(--muted); font-size: calc(12px * var(--text-scale)); line-height: 1.8; margin-bottom: 23px; }
 .field-label { display: block; font-size: calc(12px * var(--text-scale)); color: var(--muted); margin-bottom: 9px; }
 .text-input { width: 100%; padding: 12px 13px; border: 1px solid var(--border-strong); background: var(--background); border-radius: 6px; color: var(--text); font-size: calc(13px * var(--text-scale)); }
@@ -308,7 +314,7 @@ input { min-width: 0; }
 .theme-sample { display: flex; flex-shrink: 0; height: 65px; width: 100%; border: 1px solid color-mix(in srgb, var(--sample-text) 20%, transparent); border-radius: 4px; overflow: hidden; background: var(--sample-background); color: var(--sample-text); }
 .theme-sample-sidebar { width: 21%; flex-shrink: 0; background: color-mix(in srgb, var(--sample-accent) 45%, #000); border-right: 1px solid color-mix(in srgb, var(--sample-text) 15%, transparent); }
 .theme-sample-content { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; flex: 1; padding: 8px; }
-.theme-sample-content strong { display: block; margin-bottom: 2px; font-family: Georgia, serif; font-weight: 400; font-size: calc(19px * var(--text-scale)); line-height: 1; }
+.theme-sample-content strong { display: block; margin-bottom: 2px; font-family: var(--font-serif); font-weight: 400; font-size: calc(19px * var(--text-scale)); line-height: 1; }
 .theme-sample-content span { display: block; width: 82%; height: 2px; background: color-mix(in srgb, var(--sample-text) 35%, transparent); }
 .theme-sample-content span:last-child { width: 55%; }
 .theme-option-name { color: var(--text); font-size: calc(12px * var(--text-scale)); font-weight: 600; line-height: 1.2; }
@@ -319,7 +325,7 @@ input { min-width: 0; }
 .theme-option[data-theme-choice="paper"] .theme-sample-content span { height: 1px; margin-bottom: 1px; }
 .theme-option[data-theme-choice="scifi"] .theme-sample { border-radius: 0; border-color: color-mix(in srgb, var(--sample-accent) 50%, transparent); }
 .theme-option[data-theme-choice="scifi"] .theme-sample-sidebar { background: color-mix(in srgb, var(--sample-background) 88%, var(--sample-accent)); border-right-color: var(--sample-accent); }
-.theme-option[data-theme-choice="scifi"] .theme-sample-content strong { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; font-size: calc(17px * var(--text-scale)); color: var(--sample-accent); }
+.theme-option[data-theme-choice="scifi"] .theme-sample-content strong { font-family: var(--font-mono); font-size: calc(17px * var(--text-scale)); color: var(--sample-accent); }
 .setting-row { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
 .setting-row strong { font-size: calc(13px * var(--text-scale)); font-weight: 550; }
 .setting-row p { font-size: calc(11px * var(--text-scale)); color: var(--muted); margin: 6px 0; }
@@ -340,7 +346,7 @@ input { min-width: 0; }
 .color-inputs input[type="color"] { display: block; width: 34px; height: 32px; padding: 3px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--background); cursor: pointer; }
 .color-inputs input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
 .color-inputs input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 2px; }
-.color-inputs input[type="text"] { width: calc(74px * var(--text-scale) + 16px); min-height: 32px; padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--background); color: var(--text); font-family: "Cascadia Code", Consolas, monospace; font-size: calc(11px * var(--text-scale)); }
+.color-inputs input[type="text"] { width: calc(74px * var(--text-scale) + 16px); min-height: 32px; padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--background); color: var(--text); font-family: var(--font-mono); font-size: calc(11px * var(--text-scale)); }
 .color-inputs input[aria-invalid="true"] { border-color: var(--danger); }
 .color-error { grid-column: 1 / -1; color: var(--danger); margin: 0 0 5px; }
 .opacity-setting { margin: 23px 0 12px; }
@@ -364,7 +370,7 @@ input { min-width: 0; }
 .unsaved-list { list-style: none; padding: 0; max-height: 160px; overflow: auto; }
 .unsaved-list li { display: flex; align-items: center; gap: 8px; color: var(--muted); padding: 7px 0; font-size: calc(12px * var(--text-scale)); }
 .fatal-error { padding: 50px; height: 100%; overflow: auto; background: var(--background); color: var(--text); font-size: calc(14px * var(--text-scale)); }
-.fatal-error h1 { font-family: Georgia, serif; font-weight: 400; }
+.fatal-error h1 { font-family: var(--font-serif); font-weight: 400; }
 .fatal-error p { max-width: 500px; line-height: 1.8; }
 /* Theme treatments share the palette tokens above, so custom colors and true
    window transparency continue to apply to every surface. */
@@ -376,8 +382,8 @@ input { min-width: 0; }
 .app-shell[data-theme="paper"] .mode-switch { background: transparent; }
 .app-shell[data-theme="paper"] .mode-switch button { border-radius: 1px; }
 .app-shell[data-theme="paper"] .mode-switch button.active { box-shadow: inset 0 -2px var(--accent); background: var(--tint); }
-.app-shell[data-theme="paper"] .markdown-body { font-family: Georgia, "Times New Roman", serif; font-size: calc(15px * var(--text-scale)); line-height: 1.95; }
-.app-shell[data-theme="paper"] .mode-live .cm-scroller { font-family: Georgia, "Times New Roman", serif; }
+.app-shell[data-theme="paper"] .markdown-body { font-family: var(--font-serif); font-size: calc(15px * var(--text-scale)); line-height: 1.95; }
+.app-shell[data-theme="paper"] .mode-live .cm-scroller { font-family: var(--font-serif); }
 .app-shell[data-theme="paper"] .mode-live .cm-live-quote { border-left-width: 1px; background: transparent; }
 .app-shell[data-theme="paper"] .mode-preview .markdown-body { max-width: 840px; font-size: calc(17px * var(--text-scale)); }
 .app-shell[data-theme="paper"] .markdown-body blockquote { padding-left: 20px; border-left-width: 1px; background: transparent; }
@@ -385,7 +391,7 @@ input { min-width: 0; }
 .app-shell[data-theme="paper"] .markdown-body hr { height: 4px; background: transparent; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .app-shell[data-theme="paper"] .modal { border-radius: 5px; }
 .app-shell[data-theme="paper"] .theme-option { border-radius: 3px; }
-.app-shell[data-theme="scifi"] { --theme-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace; border-radius: 2px; }
+.app-shell[data-theme="scifi"] { --theme-mono: var(--font-mono); border-radius: 2px; }
 .app-shell[data-theme="scifi"] :is(.workspace-icon, .search-field, .graph-nav, .note-item, .new-note-button, .save-button, .mode-switch, .mode-switch button, .backlink, .primary-button, .subtle-button, .text-input, .icon-button, .theme-option, .color-inputs input) { border-radius: 2px; }
 .app-shell[data-theme="scifi"] :is(.titlebar-brand strong, .note-heading h1, .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .graph-page-heading h1, .empty-workspace h1, .modal-heading h2) { font-family: var(--theme-mono); letter-spacing: -.7px; }
 .app-shell[data-theme="scifi"] .titlebar-brand strong { font-size: calc(19px * var(--text-scale)); letter-spacing: -.5px; }
