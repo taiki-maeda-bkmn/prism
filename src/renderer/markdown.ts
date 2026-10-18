@@ -64,9 +64,12 @@ function getPurifier(): ReturnType<typeof createDOMPurify> {
   return purifier;
 }
 
-/** Markdown is user content: sanitize after rendering, including raw HTML. */
-export function renderMarkdown(content: string): string {
+export interface MarkdownHeading { title: string; level: number; index: number }
+
+/** Keep editable heading metadata separate from user-supplied HTML attributes. */
+export function renderMarkdownDocument(content: string): { html: string; headings: MarkdownHeading[] } {
   const headingIds = new Set<string>();
+  const headings: MarkdownHeading[] = [];
   const renderer = new Renderer();
   renderer.heading = function ({ tokens, depth, text }) {
     const base = plainHeading(text).toLocaleLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, '').trim().replace(/\s+/g, '-') || 'heading';
@@ -74,13 +77,25 @@ export function renderMarkdown(content: string): string {
     let suffix = 1;
     while (headingIds.has(id)) id = `${base}-${suffix++}`;
     headingIds.add(id);
-    return `<h${depth} id="${escapeHTML(id)}">${this.parser.parseInline(tokens)}</h${depth}>\n`;
+    const inline = this.parser.parseInline(tokens);
+    if (depth <= 3) headings.push({
+      title: getPurifier().sanitize(inline, { RETURN_DOM_FRAGMENT: true }).textContent || '',
+      level: depth,
+      index: headings.length,
+    });
+    return `<h${depth} id="${escapeHTML(id)}">${inline}</h${depth}>\n`;
   };
-  return getPurifier().sanitize(markdown.parse(content, { async: false, renderer }), {
+  const html = getPurifier().sanitize(markdown.parse(content, { async: false, renderer }), {
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|prism-note):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
     FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form', 'button'],
     FORBID_ATTR: ['style'],
   });
+  return { html, headings };
+}
+
+/** Markdown is user content: sanitize after rendering, including raw HTML. */
+export function renderMarkdown(content: string): string {
+  return renderMarkdownDocument(content).html;
 }
 
 function decodePath(path: string): string {

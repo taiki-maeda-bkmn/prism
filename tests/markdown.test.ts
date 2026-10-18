@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
-import { extractLinks, getBacklinks, getNoteLinks, getTitle, renderMarkdown, resolveLink, resolveNoteLink } from '../src/renderer/markdown';
+import { extractLinks, getBacklinks, getNoteLinks, getTitle, renderMarkdown, renderMarkdownDocument, resolveLink, resolveNoteLink } from '../src/renderer/markdown';
 import type { Note } from '../src/shared/types';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -233,6 +233,18 @@ test('headings receive stable unique IDs for in-note links, including Unicode he
   const fragment = JSDOM.fragment(renderMarkdown('# A quiet place\n\n## A quiet place\n\n## A quiet place-1\n\n## 日本語\n\n[Go](#a-quiet-place)'));
   assert.deepEqual([...fragment.querySelectorAll('h1,h2')].map(heading => heading.id), ['a-quiet-place', 'a-quiet-place-1', 'a-quiet-place-1-1', '日本語']);
   assert.equal(JSDOM.fragment(renderMarkdown('# A quiet place')).querySelector('h1')?.id, 'a-quiet-place');
+});
+
+test('editable heading indices follow Markdown H1–H3 while raw HTML and smaller headings stay outside the mapping', () => {
+  const content = '# First\n\n<h1 data-prism-heading="0">Raw HTML heading</h1>\n\n#### Small heading\n\n> ## Quoted heading\n\nSetext heading\n--------------\n\n```md\n## Not a heading\n```\n\n### Last';
+  const rendered = renderMarkdownDocument(content);
+  assert.deepEqual(rendered.headings, [
+    { title: 'First', level: 1, index: 0 },
+    { title: 'Quoted heading', level: 2, index: 1 },
+    { title: 'Setext heading', level: 2, index: 2 },
+    { title: 'Last', level: 3, index: 3 },
+  ]);
+  assert.equal(rendered.html, renderMarkdown(content));
 });
 
 test('GFM task lists preserve checked state as disabled checkboxes', () => {

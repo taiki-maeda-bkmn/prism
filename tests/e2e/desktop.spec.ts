@@ -88,7 +88,7 @@ test('writes, connects, protects drafts, and remembers window appearance', async
     await expect(page.getByLabel('Live preview')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Read', exact: true }).click();
-    await expect(page.getByLabel('Source editor')).toHaveCount(0);
+    await expect(page.getByLabel('Source editor')).not.toBeVisible();
     await expect(page.locator('.markdown-body h1')).toHaveText('Welcome to Prism');
 
     await page.getByRole('button', { name: 'Split', exact: true }).click();
@@ -268,7 +268,7 @@ test('writes, connects, protects drafts, and remembers window appearance', async
     desktop = undefined;
     await launch();
     await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByLabel('Source editor')).toHaveCount(0);
+    await expect(page.getByLabel('Source editor')).not.toBeVisible();
     await expect(page.locator('.app-shell')).toHaveAttribute('data-transparent', 'true');
     await page.getByRole('button', { name: 'Appearance settings', exact: true }).click();
     await expect(page.getByRole('switch', { name: 'Transparent window', exact: true })).toHaveAttribute('aria-checked', 'true');

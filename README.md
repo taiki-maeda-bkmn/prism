@@ -37,8 +37,9 @@ Keep this repository in place: the shortcuts use its installed Electron and buil
 
 ## Write, read, connect
 
-- **Source, Split, and Read:** switch between syntax-highlighted Markdown, live side-by-side preview, and a reading view.
-- **Tab snippets:** type `/` on an empty line in Source or Split mode to see templates, choose with the arrow keys, and press **Tab**. Full shortcuts such as `/task` also expand with Tab. Use Tab and Shift+Tab to move through fields, or Esc to leave a snippet. Open **Snippets** above the source editor for the guide.
+- **Source, Split, Live, and Read:** choose Markdown source, side-by-side preview, direct formatted editing, or a reading view. Mode changes retain your cursor and undo history.
+- **Live editing:** type `# Title` to format a heading immediately. Headings, emphasis, strikethrough, inline code, and quotes show their formatting in the editor. Markdown markers appear on the line you edit or select. The outline takes you directly to editable headings. Lists, tasks, links, tables, fenced code, and HTML keep their Markdown syntax for now; see the [staged plan](docs/live-editing.md).
+- **Tab snippets:** type `/` on an empty line in Source, Split, or Live mode to see templates, choose with the arrow keys, and press **Tab**. Full shortcuts such as `/task` also expand with Tab. Use Tab and Shift+Tab to move through fields, or Esc to leave a snippet. Open **Snippets** above the source editor for the guide.
 - **Ordinary files:** search notes by name or content, create notes in nested folders, and save directly to Markdown files. Nothing is sent to a server.
 - **Connected notes:** use `[[Note name]]`, `[[Note name|label]]`, `[label](folder/note.md)`, or extensionless `[label](folder/note)`. The graph and backlinks update as you write. Links such as `[[Note#Heading]]` and `[label](note.md#heading)` also scroll to the destination heading.
 - **A clear workspace:** navigate the outline, hide sidebars with Focus mode, or explore the graph with pan and zoom.
@@ -77,6 +78,7 @@ Saves preserve supported file metadata, including extended attributes and access
 | Open notebook | Ctrl+O | ⌘O |
 | Find a note | Ctrl+P | ⌘P |
 | Source / Split / Read | Ctrl+1 / 2 / 3 | ⌘1 / 2 / 3 |
+| Live editing | Ctrl+4 | ⌘4 |
 | Toggle graph | Ctrl+Shift+G | ⌘Shift+G |
 | Find text in the editor | Ctrl+F | ⌘F |
 

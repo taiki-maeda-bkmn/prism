@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Co
 import type { Note, Workspace } from '../shared/types';
 import { Editor } from './Editor';
 import { Graph } from './Graph';
-import { getBacklinks, getTitle, renderMarkdown, resolveNoteLink } from './markdown';
+import { getBacklinks, getTitle, renderMarkdownDocument, resolveNoteLink } from './markdown';
 import { appearanceStyle, parsePreferences, selectTheme, themes, textSize, type Mode, type Preferences } from './appearance';
 import { ColorSettings } from './ColorSettings';
 import { ThemeSettings } from './ThemeSettings';
@@ -72,6 +72,8 @@ export function App() {
   const [notice, setNotice] = useState('');
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
   const [previewNavigation, setPreviewNavigation] = useState<{ path: string; fragment?: string } | null>(null);
+  const [headingTarget, setHeadingTarget] = useState<{ path: string; index: number; request: number }>();
+  const headingRequest = useRef(0);
   const preview = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const latest = useRef({ workspace, drafts, activePath, busy });
@@ -105,6 +107,7 @@ export function App() {
     setQuery('');
     setView('note');
     setPreviewNavigation(null);
+    setHeadingTarget(undefined);
     setNotice(next.warnings.join(' '));
     window.prism.setDirty(false);
   }, []);
@@ -123,17 +126,20 @@ export function App() {
   }, [preferences]);
   useEffect(() => { window.prism?.setDirty(Object.keys(drafts).length > 0); }, [drafts]);
   useEffect(() => window.prism?.onCloseRequested(() => setPending('close')), []);
+  useEffect(() => { if (view === 'graph') setHeadingTarget(undefined); }, [view]);
 
   const notes = useMemo(() => (workspace?.notes || []).map(note => Object.hasOwn(drafts, note.path) ? { ...note, content: drafts[note.path] } : note), [workspace, drafts]);
   const active = notes.find(note => note.path === activePath);
   const filtered = useMemo(() => notes.filter(note => `${note.path}\n${note.content}`.toLowerCase().includes(query.trim().toLowerCase())), [notes, query]);
   const backlinks = useMemo(() => active ? getBacklinks(active.path, notes) : [], [active, notes]);
   const previewNote = useDeferredValue(active);
-  const html = useMemo(() => renderMarkdown(previewNote?.content || ''), [previewNote?.content]);
+  const rendered = useMemo(() => renderMarkdownDocument(previewNote?.content || ''), [previewNote?.content]);
+  const html = rendered.html;
   const outline = useMemo(() => {
+    if (preferences.mode === 'live') return rendered.headings;
     const document = new DOMParser().parseFromString(html, 'text/html');
     return [...document.querySelectorAll('h1,h2,h3')].map((heading, index) => ({ title: heading.textContent || '', level: Number(heading.tagName.slice(1)), index }));
-  }, [html]);
+  }, [html, rendered.headings, preferences.mode]);
   const words = active?.content.trim().split(/\s+/u).filter(Boolean).length || 0;
   const dirtyCount = Object.keys(drafts).length;
 
@@ -142,9 +148,15 @@ export function App() {
     setView('note');
     setCursor({ line: 1, column: 1 });
     setPreviewNavigation({ path, fragment });
+    setHeadingTarget(undefined);
+  }, []);
+  const chooseMode = useCallback((mode: Mode) => {
+    setHeadingTarget(undefined);
+    setView('note');
+    setPreferences(previous => ({ ...previous, mode }));
   }, []);
   useEffect(() => {
-    if (!previewNavigation || view !== 'note' || preferences.mode === 'source'
+    if (!previewNavigation || view !== 'note' || preferences.mode === 'source' || preferences.mode === 'live'
       || !active || previewNavigation.path !== active.path
       || previewNote?.path !== active.path || previewNote.content !== active.content) return;
     const container = preview.current;
@@ -229,11 +241,11 @@ export function App() {
       if (key === 'o') { event.preventDefault(); requestIntent('open'); }
       if (key === 'p') { event.preventDefault(); setFocus(false); requestAnimationFrame(() => search.current?.focus()); }
       if (key === 'g' && event.shiftKey) { event.preventDefault(); setView(previous => previous === 'note' ? 'graph' : 'note'); }
-      if (['1', '2', '3'].includes(key)) { event.preventDefault(); setView('note'); setPreferences(previous => ({ ...previous, mode: (['source', 'split', 'preview'] as Mode[])[Number(key) - 1] })); }
+      if (['1', '2', '3', '4'].includes(key)) { event.preventDefault(); chooseMode((['source', 'split', 'preview', 'live'] as Mode[])[Number(key) - 1]); }
     };
     window.addEventListener('keydown', keyboard, true);
     return () => window.removeEventListener('keydown', keyboard, true);
-  }, [save, requestIntent]);
+  }, [save, requestIntent, chooseMode]);
 
   const create = async () => {
     if (operation.current || !newName.trim()) return;
@@ -297,17 +309,17 @@ export function App() {
         {notice && <div className="message-banner notice" role="status"><span>{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={14} /></button></div>}
 
         {view === 'graph' ? <section className="graph-page"><div className="graph-page-heading"><div><p className="eyebrow">SEE THE CONNECTIONS</p><h1>Your ideas, together.</h1><p>Every note is a starting point. Follow a connection to see where it leads.</p></div><button className="subtle-button" onClick={() => setView('note')}><ArrowLeft size={15} />Back to note</button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} /><div className="graph-help"><span><i />Note</span><span><i className="active" />Current note</span><span>Drag to explore · Scroll to zoom · Select a note to open</span></div></section> : active ? <>
-          <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source'], ['split', Columns2, 'Split'], ['preview', BookOpen, 'Read']] as const).map(([mode, Icon, label], index) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl+${index + 1})`} onClick={() => setPreferences(previous => ({ ...previous, mode }))}><Icon size={15} /><span>{label}</span></button>)}</div></div>
+          <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source', 1], ['split', Columns2, 'Split', 2], ['live', Sparkles, 'Live', 4], ['preview', BookOpen, 'Read', 3]] as const).map(([mode, Icon, label, shortcut]) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl/⌘+${shortcut})`} onClick={() => chooseMode(mode)}><Icon size={15} /><span>{label}</span></button>)}</div></div>
           <div className={`editor-layout mode-${preferences.mode}`}>
-            {preferences.mode !== 'preview' && <section className="source-pane" aria-label="Source editor"><div className="pane-label"><span><Code2 size={13} />MARKDOWN</span><button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} textScale={preferences.textScale} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>}
-            {preferences.mode !== 'source' && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
+            <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
+            {(preferences.mode === 'split' || preferences.mode === 'preview') && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
           </div>
         </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><FilePlus2 size={17} />Create your first note</button></div>}
       </main>
 
       {!focus && view === 'note' && active && <aside className="inspector">
         <div className="inspector-title"><Sparkles size={16} /><span>IN THIS NOTE</span></div>
-        <section className="outline-section"><div className="inspector-section-heading">Outline <span>{outline.length}</span></div><nav aria-label="Note outline">{outline.length ? outline.map(item => <button key={item.index} className={`outline-link level-${item.level}`} onClick={() => { if (preferences.mode === 'source') setPreferences(previous => ({ ...previous, mode: 'split' })); requestAnimationFrame(() => document.querySelectorAll('.markdown-body h1,.markdown-body h2,.markdown-body h3')[item.index]?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }}><span />{item.title}</button>) : <p className="inspector-empty">Add a heading with # to give your ideas a little structure.</p>}</nav></section>
+        <section className="outline-section"><div className="inspector-section-heading">Outline <span>{outline.length}</span></div><nav aria-label="Note outline">{outline.length ? outline.map(item => <button key={item.index} className={`outline-link level-${item.level}`} onClick={() => { if (previewNote?.path !== active.path || previewNote.content !== active.content) return; if (preferences.mode === 'live') { setHeadingTarget({ path: active.path, index: item.index, request: ++headingRequest.current }); return; } if (preferences.mode === 'source') chooseMode('split'); requestAnimationFrame(() => document.querySelectorAll('.markdown-body h1,.markdown-body h2,.markdown-body h3')[item.index]?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }}><span />{item.title}</button>) : <p className="inspector-empty">Add a heading with # to give your ideas a little structure.</p>}</nav></section>
         <section className="connections-section"><div className="inspector-section-heading">Connections <button className="icon-button" aria-label="Expand graph" onClick={() => setView('graph')}><ArrowUpRight size={15} /></button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} compact /><button className="text-button" onClick={() => setView('graph')}>Explore your graph <ArrowUpRight size={13} /></button></section>
         <section className="backlinks-section"><div className="inspector-section-heading"><span><Link2 size={14} />Backlinks</span><span>{backlinks.length}</span></div>{backlinks.length ? backlinks.map(note => <button className="backlink" key={note.path} onClick={() => openNote(note.path)}><FileText size={14} /><span>{getTitle(note)}</span><ChevronRight size={13} /></button>) : <p className="inspector-empty">Notes that link here will appear here. Connect one with <code>[[{active.path.replace(/\.md$/i, '')}]]</code>.</p>}</section>
         <div className="inspector-tip"><PrismMark small /><p>Good ideas rarely<br />happen in isolation.</p></div>
@@ -319,7 +331,7 @@ export function App() {
     {creating && <Modal title="A new place for an idea" onClose={() => !busy && setCreating(false)}><form onSubmit={event => { event.preventDefault(); void create(); }}><label className="field-label" htmlFor="new-note-name">Note name</label><input id="new-note-name" className="text-input" autoFocus value={newName} onChange={event => setNewName(event.target.value)} placeholder="An idea worth keeping" disabled={busy} maxLength={220} /><p className="field-help">Use a path like <code>Ideas/My note</code> to organize it in a folder. The .md extension is added for you.</p>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="subtle-button" disabled={busy} onClick={() => setCreating(false)}>Cancel</button><button className="primary-button" type="submit" disabled={busy || !newName.trim()}><Plus size={16} />{busy ? 'Creating…' : 'Create note'}</button></div></form></Modal>}
 
     {snippetHelp && <Modal title="Markdown snippets" onClose={() => setSnippetHelp(false)} className="snippet-help-modal">
-      <p className="modal-description">In Source or Split mode, type <code>/</code> on an empty line to see snippets. Use the arrow keys to choose one, then press <kbd>Tab</kbd> to insert it. You can also type a full shortcut, such as <code>/task</code>, and press <kbd>Tab</kbd>.</p>
+      <p className="modal-description">In Source, Split, or Live mode, type <code>/</code> on an empty line to see snippets. Use the arrow keys to choose one, then press <kbd>Tab</kbd> to insert it. You can also type a full shortcut, such as <code>/task</code>, and press <kbd>Tab</kbd>.</p>
       <dl className="snippet-catalog">{snippetCatalog.map(snippet => <div key={snippet.trigger}><dt><code>{snippet.trigger}</code><strong>{snippet.title}</strong></dt><dd>{snippet.description}</dd></div>)}</dl>
       <p className="field-help"><kbd>Tab</kbd> moves to the next field; <kbd>Shift+Tab</kbd> moves back. <kbd>Esc</kbd> closes suggestions or leaves a snippet. Outside snippets, Tab moves focus as usual.</p>
       <p className="field-help">Block snippets need an otherwise empty line. <code>/link</code> and <code>/wiki</code> also work after a space in a sentence. Snippets insert ordinary Markdown.</p>
@@ -339,7 +351,7 @@ export function App() {
       <div className="setting-row"><div><strong>Transparent window</strong><p>See your other windows through Prism.</p></div><button className={`toggle ${preferences.transparent ? 'on' : ''}`} role="switch" aria-checked={preferences.transparent} aria-label="Transparent window" onClick={() => setPreferences(previous => ({ ...previous, transparent: !previous.transparent }))}><span /></button></div>
       <div className={`opacity-setting ${!preferences.transparent ? 'disabled' : ''}`}><div><label htmlFor="opacity">Background opacity</label><output>{preferences.opacity}%</output></div><input id="opacity" type="range" min="25" max="100" step="1" value={preferences.opacity} disabled={!preferences.transparent} onChange={event => setPreferences(previous => ({ ...previous, opacity: Number(event.target.value) }))} /><div className="range-labels"><span>More transparent</span><span>More solid</span></div></div>
       <p className="field-help">Text stays crisp. Transparency depends on your desktop’s window compositor.</p>
-      <div className="shortcut-list"><span>Save note <kbd>Ctrl / ⌘ S</kbd></span><span>Find a note <kbd>Ctrl / ⌘ P</kbd></span><span>Change editor mode <kbd>Ctrl / ⌘ 1–3</kbd></span><span>Open graph <kbd>Ctrl / ⌘ Shift G</kbd></span></div>
+      <div className="shortcut-list"><span>Save note <kbd>Ctrl / ⌘ S</kbd></span><span>Find a note <kbd>Ctrl / ⌘ P</kbd></span><span>Change editor mode <kbd>Ctrl / ⌘ 1–4</kbd></span><span>Open graph <kbd>Ctrl / ⌘ Shift G</kbd></span></div>
       <div className="modal-actions"><button className="primary-button" onClick={() => setSettings(false)}><Check size={16} />Done</button></div>
     </Modal>}
 

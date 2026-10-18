@@ -2,10 +2,16 @@ import { useEffect, useRef } from 'react';
 import { Compartment, EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
-import { markdown } from '@codemirror/lang-markdown';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { HighlightStyle, syntaxHighlighting, syntaxTreeAvailable } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { markdownSnippets } from './snippets';
+import { findLiveHeading, liveMarkdown } from './liveMarkdown';
+import type { ThemeId } from './appearance';
+
+// A theme facet change also invalidates cached font/caret measurements when
+// the surrounding Live-mode CSS changes the editor's typography and gutters.
+const livePresentation = [liveMarkdown, EditorView.theme({ '&': { '--prism-live': '1' } })];
 
 // Color tokens update in place. Font size uses a compartment below so the editor
 // refreshes its measurements while preserving selection and undo history.
@@ -24,6 +30,9 @@ interface Props {
   path: string;
   content: string;
   textScale: number;
+  theme: ThemeId;
+  live?: boolean;
+  headingTarget?: { index: number; request: number };
   onChange: (value: string) => void;
   onCursor: (line: number, column: number) => void;
 }
@@ -32,10 +41,12 @@ function detectLineEnding(content: string, fallback = '\n'): string {
   return /\r\n|\r|\n/.exec(content)?.[0] ?? fallback;
 }
 
-export function Editor({ path, content, textScale, onChange, onCursor }: Props) {
+export function Editor({ path, content, textScale, theme, live = false, headingTarget, onChange, onCursor }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const textSize = useRef(new Compartment());
+  const presentation = useRef(new Compartment());
+  const lastHeadingRequest = useRef<number | null>(null);
   const lineEnding = useRef('\n');
   const synchronizing = useRef(false);
   const handlers = useRef({ onChange, onCursor });
@@ -53,11 +64,14 @@ export function Editor({ path, content, textScale, onChange, onCursor }: Props) 
         extensions: [
           markdownSnippets,
           basicSetup,
-          markdown(),
+          markdown({ base: markdownLanguage }),
           syntaxHighlighting(markdownHighlight),
           textSize.current.of(EditorView.theme({ '&': { fontSize: `${14 * textScale / 100}px` } })),
           EditorView.lineWrapping,
-          EditorView.contentAttributes.of({ 'aria-label': 'Markdown source', spellcheck: 'true' }),
+          presentation.current.of([
+            live ? livePresentation : [],
+            EditorView.contentAttributes.of({ 'aria-label': live ? 'Live Markdown editor' : 'Markdown source', spellcheck: 'true' }),
+          ]),
           keymap.of([{ key: 'Mod-s', run: () => true }]),
           EditorView.updateListener.of(update => {
             if (update.docChanged && !synchronizing.current) {
@@ -126,10 +140,41 @@ export function Editor({ path, content, textScale, onChange, onCursor }: Props) 
   useEffect(() => {
     // Reconfigure only the font theme: this invalidates CodeMirror's measured
     // line/cursor geometry even on short notes, keeping its state and history.
+    // Theme changes also change Live-mode font families through the shell CSS.
     view.current?.dispatch({ effects: textSize.current.reconfigure(
       EditorView.theme({ '&': { fontSize: `${14 * textScale / 100}px` } }),
     ) });
-  }, [textScale]);
+  }, [textScale, theme]);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: presentation.current.reconfigure([
+      live ? livePresentation : [],
+      EditorView.contentAttributes.of({ 'aria-label': live ? 'Live Markdown editor' : 'Markdown source', spellcheck: 'true' }),
+    ]) });
+  }, [live]);
+
+  useEffect(() => {
+    const editor = view.current;
+    if (!editor || !live || !headingTarget || lastHeadingRequest.current === headingTarget.request) return;
+    lastHeadingRequest.current = headingTarget.request;
+    const requestedDocument = editor.state.doc;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const navigate = () => {
+      if (cancelled || view.current !== editor || editor.state.doc !== requestedDocument) return;
+      const position = findLiveHeading(editor.state, headingTarget.index, 15);
+      if (position !== null) {
+        editor.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'start', yMargin: 24 }) });
+        editor.focus();
+      } else if (!syntaxTreeAvailable(editor.state, editor.state.doc.length)) {
+        // Distant headings can lie beyond the background parser's viewport.
+        // Advance parsing in small tasks so large notes do not freeze the UI.
+        timer = setTimeout(navigate, 16);
+      }
+    };
+    navigate();
+    return () => { cancelled = true; if (timer !== undefined) clearTimeout(timer); };
+  }, [headingTarget, live, path]);
 
   return <div ref={host} className="editor-host" />;
 }
