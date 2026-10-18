@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Code2, Columns2, FilePlus2, FileText, Folder, FolderOpen, GitFork, Layers3, Link2, LoaderCircle, Maximize2, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Save, Search, Settings2, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Code2, Columns2, Copy, FilePlus2, FileText, Folder, FolderOpen, GitFork, Layers3, Link2, LoaderCircle, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Square, X } from 'lucide-react';
 import type { Note, Workspace } from '../shared/types';
 import { Editor } from './Editor';
 import { Graph } from './Graph';
@@ -62,6 +62,7 @@ export function App() {
   const [view, setView] = useState<'note' | 'graph'>('note');
   const [query, setQuery] = useState('');
   const [focus, setFocus] = useState(false);
+  const [maximized, setMaximized] = useState(false);
   const [settings, setSettings] = useState(false);
   const [snippetHelp, setSnippetHelp] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -126,6 +127,20 @@ export function App() {
   }, [preferences]);
   useEffect(() => { window.prism?.setDirty(Object.keys(drafts).length > 0); }, [drafts]);
   useEffect(() => window.prism?.onCloseRequested(() => setPending('close')), []);
+  useEffect(() => {
+    if (!window.prism) return;
+    let current = true;
+    let receivedEvent = false;
+    const unsubscribe = window.prism.onWindowStateChanged(state => {
+      receivedEvent = true;
+      setMaximized(state.maximized);
+    });
+    void window.prism.getWindowState().then(state => {
+      // A native change after the request is newer than the initial snapshot.
+      if (current && !receivedEvent) setMaximized(state.maximized);
+    }).catch(() => { /* The native events still keep the controls up to date. */ });
+    return () => { current = false; unsubscribe(); };
+  }, []);
   useEffect(() => { if (view === 'graph') setHeadingTarget(undefined); }, [view]);
 
   const notes = useMemo(() => (workspace?.notes || []).map(note => Object.hasOwn(drafts, note.path) ? { ...note, content: drafts[note.path] } : note), [workspace, drafts]);
@@ -281,10 +296,10 @@ export function App() {
 
   const appStyle = appearanceStyle(preferences);
 
-  return <div className={`app-shell ${focus ? 'focus-mode' : ''}`} style={appStyle} data-transparent={preferences.transparent} data-theme={preferences.theme}>
+  return <div className={`app-shell ${focus ? 'focus-mode' : ''}`} style={appStyle} data-transparent={preferences.transparent} data-theme={preferences.theme} data-maximized={maximized}>
     <header className="titlebar">
       <div className="titlebar-brand"><PrismMark small /><strong>prism</strong><span className="titlebar-divider" /><span>A little space for big ideas.</span></div>
-      <div className="window-controls"><button aria-label="Minimize window" onClick={() => window.prism?.windowControl('minimize')}><Minus size={15} /></button><button aria-label="Expand or restore window" onClick={() => window.prism?.windowControl('expand')}><Maximize2 size={13} /></button><button className="close-window" aria-label="Close window" onClick={() => requestIntent('close')}><X size={17} /></button></div>
+      <div className="window-controls"><button aria-label="Minimize window" title="Minimize window" onClick={() => window.prism?.windowControl('minimize')}><Minus size={15} /></button><button aria-label={maximized ? 'Restore window' : 'Maximize window'} title={maximized ? 'Restore window' : 'Maximize window'} onClick={() => window.prism?.windowControl('maximize')}>{maximized ? <Copy size={13} /> : <Square size={13} />}</button><button className="close-window" aria-label="Close window" title="Close window" onClick={() => requestIntent('close')}><X size={17} /></button></div>
     </header>
 
     <div className="app-body" inert={busy} aria-busy={busy}>

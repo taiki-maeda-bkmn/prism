@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { PrismAPI } from '../shared/types';
+import type { PrismAPI, WindowState } from '../shared/types';
 
 const api: PrismAPI = {
   loadWorkspace: () => ipcRenderer.invoke('prism:load'),
@@ -10,6 +10,12 @@ const api: PrismAPI = {
   setDirty: (dirty) => ipcRenderer.send('prism:dirty', dirty),
   openExternal: (url) => ipcRenderer.invoke('prism:external', url),
   windowControl: (action) => ipcRenderer.send('prism:window', action),
+  getWindowState: () => ipcRenderer.invoke('prism:window-state'),
+  onWindowStateChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: WindowState) => callback(state);
+    ipcRenderer.on('prism:window-state', listener);
+    return () => { ipcRenderer.removeListener('prism:window-state', listener); };
+  },
   onCloseRequested: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('prism:close-requested', listener);

@@ -11,6 +11,10 @@ export interface Workspace {
   warnings: string[];
 }
 
+export interface WindowState {
+  maximized: boolean;
+}
+
 export interface PrismAPI {
   loadWorkspace(): Promise<Workspace>;
   openWorkspace(): Promise<Workspace | null>;
@@ -19,7 +23,9 @@ export interface PrismAPI {
   createNote(path: string): Promise<Note>;
   setDirty(dirty: boolean): void;
   openExternal(url: string): Promise<void>;
-  windowControl(action: 'minimize' | 'expand' | 'close'): void;
+  windowControl(action: 'minimize' | 'maximize' | 'close'): void;
+  getWindowState(): Promise<WindowState>;
+  onWindowStateChanged(callback: (state: WindowState) => void): () => void;
   onCloseRequested(callback: () => void): () => void;
   confirmClose(): void;
   platform: string;
