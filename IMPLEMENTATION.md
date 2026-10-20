@@ -21,6 +21,7 @@ The new requirements in `AGENTS.md` are being implemented one at a time:
 - [ ] Switchable direct editing in the rendered Markdown view: [stage 1](docs/live-editing.md) adds Live editing for headings and text formatting; follow-ups add editable highlighted code blocks, interactive task checkboxes, and rendered top-level tables with source reveal. Nested tables, direct cell editing, list markers, and links remain separate stages.
 - [x] [Live tables](docs/live-tables.md): render top-level GFM tables with alignment, formatting, and cell math; click a cell to edit exact source, with keyboard access, scrolling, snippets, undo, and unchanged Markdown saves.
 - [x] [Math rendering](docs/math-rendering.md): offline inline and display equations in Split, Read, and Live, with source editing, invalid-formula recovery, and unchanged Markdown saves.
+- [x] Wider writing area: Live and Read fill the available pane in every theme, with responsive side padding and no fixed centered-column width.
 - [ ] Rearrange the graph by dragging individual vertices.
 
 Text size now defaults to 120% and remains adjustable in Appearance. Built-in slash snippets now support Tab completion in Source, Split, and Live modes. User-defined templates and richer Live blocks remain separate follow-ups.
