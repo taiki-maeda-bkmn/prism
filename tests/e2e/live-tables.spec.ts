@@ -231,6 +231,20 @@ test('recovers from an incomplete table, leaves nested tables editable, and rend
   await expect(widgets().getByRole('cell', { name: '東京', exact: true })).toBeVisible();
   await saveAndExpect('Welcome to Prism.md', malformed.replace('| --- |', '| --- | ---: |'));
 
+  const mathHeader = '# Header math\n\n| $|x|$ | Value |\n| --- | --- |\n| 東京 | 1 |\n\nAfter tables.\n';
+  await replaceDocument(mathHeader);
+  await editor().press('ControlOrMeta+Home');
+  await expect(widgets()).toHaveCount(1);
+  await expect(widgets().getByRole('columnheader')).toHaveCount(2);
+  await expect(widgets().getByRole('columnheader').first().locator('.katex-mathml annotation')).toHaveText('|x|');
+  await widgets().getByRole('columnheader', { name: 'Value', exact: true }).click();
+  await page.keyboard.insertText('New ');
+  await expect(editor()).toContainText('| $|x|$ | New Value |');
+  await editor().press('ControlOrMeta+Home');
+  await expect(widgets().getByRole('columnheader', { name: 'New Value', exact: true })).toBeVisible();
+  await expect(widgets().locator('.katex')).toHaveCount(1);
+  await saveAndExpect('Welcome to Prism.md', mathHeader.replace('| Value |', '| New Value |'));
+
   const nested = '# Nested\n\n> | Quote | Value |\n> | --- | --- |\n> | 東京 | 1 |\n\n- Parent\n\n  | List | Value |\n  | --- | --- |\n  | 日本語 | 2 |\n\nAfter tables.\n';
   await replaceDocument(nested);
   await editor().press('ControlOrMeta+Home');

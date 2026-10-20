@@ -6,6 +6,7 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { Compartment, EditorSelection, EditorState } from '@codemirror/state';
 import { type EditorView, type WidgetType } from '@codemirror/view';
 import { liveMathState } from '../src/renderer/liveMath';
+import { buildLiveDecorations } from '../src/renderer/liveMarkdown';
 import { getLiveTableRanges, liveTables, liveTableState } from '../src/renderer/liveTables';
 import { renderMarkdown } from '../src/renderer/markdown';
 import { scanMarkdownTables, tableCellPosition } from '../src/renderer/tables';
@@ -239,8 +240,39 @@ test('formula-owned pipes preserve following cell positions and ambiguous header
   assert.equal(rendered.querySelectorAll('tbody td').length, 2);
   assert.equal(rendered.querySelectorAll('tbody td')[1].textContent, 'target');
   assert.equal(rendered.querySelectorAll('.katex').length, 1);
-  // Lezer sees four raw columns; math masking leaves only two, so the shared
-  // renderer cannot safely produce the table that those source offsets imply.
+  for (const formula of ['$|x|$', '$|\\text{𠮷}|$']) {
+    const headerSource = `\ufeff# 日本語𠮷\n\n| ${formula} | Value𠮷 |\n| --- | --- |\n| 一 | 二 |\n\nCaret`;
+    let headerState = stateFor(headerSource);
+    const [headerTable] = getLiveTableRanges(headerState);
+    assert.ok(headerTable, formula);
+    assert.equal(headerTable.rows[0].cells.length, 2);
+    assert.equal(tableCellPosition(headerTable, 0, 1), headerSource.indexOf('Value𠮷'));
+    assert.equal(headerSource.slice(headerTable.rows[0].cells[0].from, headerTable.rows[0].cells[0].to), formula);
+    const view = {
+      dom: dom.window.document.body,
+      get state() { return headerState; },
+      compositionStarted: false, composing: false,
+      posAtDOM: () => headerTable.from,
+      dispatch: (spec: Parameters<EditorState['update']>[0]) => { headerState = headerState.update(spec).state; },
+      focus() {},
+    } as unknown as EditorView;
+    const widget = tables(headerState)[0].widget.toDOM(view);
+    dom.window.document.body.append(widget);
+    try {
+      const reading = dom.window.document.createElement('div');
+      reading.innerHTML = renderMarkdown(headerSource);
+      assert.deepEqual([...widget.querySelectorAll('th')].map(cell => cell.textContent), [...reading.querySelectorAll('th')].map(cell => cell.textContent));
+      assert.equal(widget.querySelectorAll('th .katex').length, 1);
+      assert.equal(widget.querySelector('th .katex-mathml annotation')?.textContent, formula.slice(1, -1));
+      widget.querySelectorAll('th')[1].dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true, button: 0 }));
+      assert.equal(headerState.selection.main.head, headerSource.indexOf('Value𠮷'), 'Header clicks retain UTF-16 source positions after math and Japanese text.');
+      assert.equal(headerState.doc.toString(), headerSource);
+    } finally {
+      widget.remove();
+    }
+  }
+  // Math masking leaves only two header columns, so a four-column delimiter
+  // does not describe a table in either Live or reading mode.
   const ambiguous = '| $|x|$ | B |\n| --- | --- | --- | --- |\n| 1 | 2 | 3 | 4 |\n\nCaret';
   assert.equal(tables(stateFor(ambiguous)).length, 0);
 });
@@ -293,6 +325,20 @@ test('the Edit table control reveals the first cell without adding an edit', () 
     assert.equal(tables(state).length, 0);
   } finally {
     element.remove();
+  }
+});
+
+test('math-header tables own all formatting while rendered and while their source is revealed', () => {
+  const source = '| $|x|$ | **B** |\n| --- | --- |\n| *A* | target |\n\nCaret';
+  let state = stateFor(source);
+  for (const anchor of [source.length, source.indexOf('target')]) {
+    state = state.update({ selection: { anchor } }).state;
+    const table = getLiveTableRanges(state)[0];
+    const decorations: unknown[] = [];
+    buildLiveDecorations(state, [{ from: 0, to: source.length }]).between(table.from, table.to,
+      (from, to, decoration) => { decorations.push({ from, to, decoration }); });
+    assert.deepEqual(decorations, [], 'Table source must not have independently hidden Markdown markers.');
+    assert.equal(state.doc.toString(), source);
   }
 });
 

@@ -53,8 +53,18 @@ export function scanMarkdownTables(source: string): MarkdownTableRange[] {
   if (source.includes('|')) {
     // Treat a UTF-8 BOM as encoding metadata without shifting source positions.
     const offset = source.startsWith('\ufeff') ? 1 : 0;
-    const tree = markdownLanguage.parser.parse(source.slice(offset));
     const math = scanMarkdownMath(source);
+    // The reading renderer hides math before recognizing Markdown structure.
+    // Mask it here too, preserving every UTF-16 offset and newline so headers
+    // such as | $|x|$ | B | have the same columns and exact source positions.
+    const structural: string[] = [];
+    let position = 0;
+    for (const range of math) {
+      structural.push(source.slice(position, range.from), range.raw.replace(/[^\n]/g, 'x'));
+      position = range.to;
+    }
+    structural.push(source.slice(position));
+    const tree = markdownLanguage.parser.parse(structural.join('').slice(offset));
     tree.iterate({
       enter(reference) {
         const node = reference.node;

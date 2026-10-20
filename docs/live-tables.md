@@ -12,7 +12,7 @@
 - Let wide tables scroll horizontally without widening the editor. Inherit theme colors, Japanese fonts, text scaling, and window transparency.
 - Treat displayed links as labels in this editing surface: clicking opens the cell source. Read and Split retain normal link navigation. Images display their alternative text.
 
-Incomplete tables remain editable Markdown. Tables nested inside quotes or lists also retain source in this increment, preserving their container markers. Table-like text inside code, HTML blocks, or multiline equations is not converted.
+Incomplete tables remain editable Markdown. Tables nested inside quotes or lists also retain source in this increment, preserving their container markers. Table-like text inside code, HTML blocks, or multiline equations is not converted. Formulas spanning physical table rows also retain source; supported cell formulas fit on one line.
 
 ## Later increments
 
