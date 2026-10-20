@@ -4,13 +4,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-const tableSource = '| Item | Details | Value |\n| :--- | :---: | ---: |\n| **東京** | `const value = 1` | $x^2$ |\n|  | [[Linked note]] |  |';
+const tableSource = '| Item | Details | Value |\n| :--- | :---: | ---: |\n| **東京** | `const value = 1` | $x^2$ |\n|  | [Linked note][guide] |  |';
 const wideSource = [
   `| ${Array.from({ length: 12 }, (_, index) => `WideColumn${index + 1}WithoutBreaks`).join(' | ')} |`,
   `| ${Array.from({ length: 12 }, () => '---').join(' | ')} |`,
   `| ${Array.from({ length: 12 }, (_, index) => `value ${index + 1}`).join(' | ')} |`,
 ].join('\n');
-const initial = `# Tables\n\n${tableSource}\n\n${wideSource}\n\nAfter tables.\n`;
+const initial = `# Tables\n\n${tableSource}\n\n${wideSource}\n\n> [guide]: Linked%20note.md\n\nAfter tables.\n`;
 const windows = '\ufeff# Windows tables\r\n\r\n| Name | Value |\r\n| --- | ---: |\r\n| 東京 | 1 |\r\n|  | 2 |\r\n\r\nAfter tables.\r\n';
 let temporary: string;
 let notebook: string;
@@ -47,6 +47,7 @@ async function expectRichTable(container: Locator) {
   await expect(table.locator('.katex')).toHaveCount(1);
   await expect(table.locator('.katex-mathml annotation')).toHaveText('x^2');
   await expect(table.getByRole('cell').nth(3)).toHaveText('');
+  await expect(table.getByRole('cell').nth(4)).toHaveText('Linked note');
   await expect(table.getByRole('cell').nth(5)).toHaveText('');
   await expect(container.locator('.katex')).toHaveCount(1);
 }
@@ -117,7 +118,7 @@ test('renders rich tables, keeps wide tables scrollable, and reveals source thro
 
   await widgets().first().getByRole('cell', { name: 'Linked note', exact: true }).click();
   await expect(page.locator('.note-heading h1')).toHaveText('Tables');
-  await expect(editor()).toContainText('|  | [[Linked note]] |  |');
+  await expect(editor()).toContainText('|  | [Linked note][guide] |  |');
   await expect(widgets()).toHaveCount(1);
   await editor().press('ControlOrMeta+Home');
   await expect(widgets()).toHaveCount(2);

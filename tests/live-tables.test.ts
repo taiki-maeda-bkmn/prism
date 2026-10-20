@@ -7,6 +7,7 @@ import { Compartment, EditorSelection, EditorState } from '@codemirror/state';
 import { type EditorView, type WidgetType } from '@codemirror/view';
 import { liveMathState } from '../src/renderer/liveMath';
 import { getLiveTableRanges, liveTables, liveTableState } from '../src/renderer/liveTables';
+import { renderMarkdown } from '../src/renderer/markdown';
 import { scanMarkdownTables, tableCellPosition } from '../src/renderer/tables';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -128,11 +129,77 @@ test('moving a caret reuses table parsing while reference-definition edits inval
   assert.equal(widgetDOM(state).querySelector('.cm-live-table-link')?.textContent, 'guide');
   const edited = moved.update({ changes: { from: source.indexOf('/first'), to: source.indexOf('/first') + 6, insert: '/second' } }).state;
   assert.equal(getLiveTableRanges(edited)[0].raw, ranges[0].raw);
-  assert.notEqual(getLiveTableRanges(edited)[0].source, ranges[0].source);
+  assert.notEqual(getLiveTableRanges(edited)[0].referenceKey, ranges[0].referenceKey);
   assert.equal(tables(state)[0].widget.eq(tables(edited)[0].widget), false);
-  assert.equal(ranges[0].source.includes('/second'), false, 'Older states remain unchanged.');
+  assert.equal(ranges[0].references.guide.href, 'https://example.com/first', 'Older states remain unchanged.');
   const fakeReference = '| Reference |\n| --- |\n| [fake] |\n\n```md\n[fake]: https://example.com\n```\n\nCaret';
   assert.equal(widgetDOM(stateFor(fakeReference)).querySelector('.cm-live-table-link'), null, 'Code examples are not reference definitions.');
+});
+
+test('quoted and listed reference definitions keep table labels and destinations consistent with reading', () => {
+  const examples = [
+    { label: 'guide', definition: '> [guide]: https://example.com/quote "Quoted title"' },
+    { label: 'guide', definition: '- [guide]: https://example.com/list\n    "List title"' },
+    { label: 'guide', definition: '> - [guide]:\n>     https://example.com/nested\n>     "Nested title"' },
+    { label: 'long guide', definition: '> [long\n> guide]: https://example.com/multiline "A title\n> across lines"' },
+    { label: 'long guide', definition: '> - [long\n>   guide]: https://example.com/nested-multiline\n>   "A title\n>   across lines"' },
+    { label: 'a\\]b', definition: '- [a\\]b]: https://example.com/escaped "Escaped label"' },
+    { label: 'guide', definition: '> [guide]: </a\\>b> "Escaped destination"' },
+  ];
+  for (const { label, definition } of examples) {
+    const source = `| Reference |\n| --- |\n| [**Guide**][${label}] |\n\n${definition}\n\nCaret`;
+    const state = stateFor(source);
+    const rendered = dom.window.document.createElement('div');
+    rendered.innerHTML = renderMarkdown(source);
+    const readingLink = rendered.querySelector<HTMLAnchorElement>('table a');
+    assert.ok(readingLink, definition);
+    assert.equal(readingLink.textContent, 'Guide');
+    const tableContext = dom.window.document.createElement('div');
+    const table = getLiveTableRanges(state)[0];
+    tableContext.innerHTML = renderMarkdown(table.raw, table.references);
+    const contextLink = tableContext.querySelector<HTMLAnchorElement>('table a');
+    assert.ok(contextLink, definition);
+    assert.deepEqual(
+      [contextLink.textContent, contextLink.getAttribute('href'), contextLink.getAttribute('title')],
+      [readingLink.textContent, readingLink.getAttribute('href'), readingLink.getAttribute('title')],
+      definition,
+    );
+    const widget = widgetDOM(state);
+    assert.equal(widget.querySelector('.cm-live-table-link strong')?.textContent, 'Guide', definition);
+    assert.equal(widget.querySelector('a'), null, 'Reference links remain inert while editing.');
+    assert.equal(state.doc.toString(), source);
+  }
+});
+
+test('reference definitions preserve first-definition precedence across container boundaries', () => {
+  for (const definitions of [
+    '> [guide]: https://example.com/first\n\n[guide]: https://example.com/second',
+    '- [guide]: https://example.com/first\n\n> [guide]: https://example.com/second',
+    '[guide]: https://example.com/first\n\n> - [guide]: https://example.com/second',
+  ]) {
+    const source = `| Reference |\n| --- |\n| [Guide][guide] |\n\n${definitions}\n\nCaret`;
+    const state = stateFor(source);
+    const table = getLiveTableRanges(state)[0];
+    for (const html of [renderMarkdown(source), renderMarkdown(table.raw, table.references)]) {
+      const rendered = dom.window.document.createElement('div');
+      rendered.innerHTML = html;
+      assert.equal(rendered.querySelector('table a')?.getAttribute('href'), 'https://example.com/first', definitions);
+    }
+    assert.equal(widgetDOM(state).querySelector('.cm-live-table-link')?.textContent, 'Guide');
+  }
+});
+
+test('reference examples in quoted and listed code remain literal', () => {
+  for (const definition of [
+    '> ```md\n> [fake]: https://example.com/code\n> ```',
+    '- Example\n\n      [fake]: https://example.com/code',
+  ]) {
+    const source = `| Reference |\n| --- |\n| [Code][fake] |\n\n${definition}\n\nCaret`;
+    const state = stateFor(source);
+    assert.equal(widgetDOM(state).querySelector('.cm-live-table-link'), null, definition);
+    assert.equal(widgetDOM(state).querySelector('td')?.textContent, '[Code][fake]');
+    assert.equal(getLiveTableRanges(state)[0].references.fake, undefined);
+  }
 });
 
 test('table widgets sanitize note HTML and keep links, images, and authored focus targets inert', () => {

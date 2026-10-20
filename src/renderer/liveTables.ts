@@ -8,7 +8,9 @@ const composingTable = Annotation.define<boolean>();
 class TableWidget extends WidgetType {
   constructor(readonly table: MarkdownTableRange) { super(); }
 
-  eq(other: TableWidget) { return this.table.source === other.table.source; }
+  eq(other: TableWidget) {
+    return this.table.raw === other.table.raw && this.table.referenceKey === other.table.referenceKey;
+  }
 
   toDOM(view: EditorView) {
     const document = view.dom.ownerDocument;
@@ -22,7 +24,7 @@ class TableWidget extends WidgetType {
     const content = document.createElement('div');
     content.className = 'cm-live-table-content';
     const template = document.createElement('template');
-    template.innerHTML = renderMarkdown(this.table.source);
+    template.innerHTML = renderMarkdown(this.table.raw, this.table.references);
     // This surface opens source for editing. Keep note content from creating
     // competing focus targets or navigating away from the editor.
     for (const link of template.content.querySelectorAll('a')) {

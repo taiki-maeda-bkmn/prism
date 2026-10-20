@@ -1,5 +1,7 @@
 import { markdownLanguage } from '@codemirror/lang-markdown';
+import type { Links } from 'marked';
 import { type MathRange, scanMarkdownMath } from './math';
+import { getMarkdownReferences } from './markdown';
 
 export interface TableCellRange { from: number; to: number }
 export interface TableRowRange { from: number; to: number; cells: TableCellRange[] }
@@ -7,8 +9,9 @@ export interface MarkdownTableRange {
   from: number;
   to: number;
   raw: string;
-  /** Rendering context includes reference definitions, but never changes the note. */
-  source: string;
+  references: Links;
+  /** Include reference changes in widget identity without retaining the full note. */
+  referenceKey: string;
   rows: TableRowRange[];
 }
 
@@ -52,15 +55,9 @@ export function scanMarkdownTables(source: string): MarkdownTableRange[] {
     const offset = source.startsWith('\ufeff') ? 1 : 0;
     const tree = markdownLanguage.parser.parse(source.slice(offset));
     const math = scanMarkdownMath(source);
-    const references: string[] = [];
     tree.iterate({
       enter(reference) {
         const node = reference.node;
-        if (node.name === 'LinkReference') {
-          // Container prefixes on continuation lines are not standalone definitions.
-          if (node.parent?.name === 'Document') references.push(source.slice(node.from + offset, node.to + offset));
-          return false;
-        }
         if (node.name !== 'Table') return;
         if (node.parent?.name !== 'Document') return false;
         const from = node.from + offset;
@@ -96,13 +93,16 @@ export function scanMarkdownTables(source: string): MarkdownTableRange[] {
         const delimiter = node.getChild('TableDelimiter');
         if (!delimiter || rows[0]?.cells.length !== rowCells(source, delimiter.from + offset, delimiter.to + offset).length) return false;
         const raw = source.slice(from, to);
-        ranges.push({ from, to, raw, source: raw, rows });
+        ranges.push({ from, to, raw, references: {}, referenceKey: '', rows });
         return false;
       },
     });
-    if (references.length) {
-      const context = '\n\n' + references.join('\n');
-      for (const table of ranges) table.source += context;
+    if (ranges.length) {
+      // Marked owns reference syntax and precedence in Read/Split, including
+      // definitions nested in containers and escapes the editor parser lacks.
+      const references = getMarkdownReferences(source);
+      const referenceKey = JSON.stringify(references);
+      for (const table of ranges) Object.assign(table, { references, referenceKey });
     }
   }
   lastScan = { source, ranges };

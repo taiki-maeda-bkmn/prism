@@ -1,5 +1,5 @@
 import createDOMPurify from 'dompurify';
-import { Marked, Renderer, type Token, type Tokens } from 'marked';
+import { Marked, Renderer, type Links, type Token, type Tokens } from 'marked';
 import type { Note } from '../shared/types';
 import { renderMath, scanMarkdownMath, type MathRange } from './math';
 
@@ -130,8 +130,13 @@ function restoreMath(fragment: DocumentFragment, formulas: Map<string, MathRange
 
 export interface MarkdownHeading { title: string; level: number; index: number }
 
+/** Match the reading renderer's document-global definitions, including containers. */
+export function getMarkdownReferences(content: string): Links {
+  return markdown.lexer(prepareMath(content).source).links;
+}
+
 /** Keep editable heading metadata separate from user-supplied HTML attributes. */
-export function renderMarkdownDocument(content: string): { html: string; headings: MarkdownHeading[] } {
+export function renderMarkdownDocument(content: string, references?: Links): { html: string; headings: MarkdownHeading[] } {
   const prepared = prepareMath(content);
   const headingIds = new Set<string>();
   const headings: MarkdownHeading[] = [];
@@ -150,7 +155,17 @@ export function renderMarkdownDocument(content: string): { html: string; heading
     });
     return `<h${depth} id="${escapeHTML(id)}">${inline}</h${depth}>\n`;
   };
-  const fragment = getPurifier().sanitize(markdown.parse(prepared.source, { async: false, renderer }), {
+  let html: string;
+  if (references) {
+    // Resolve table references during inline tokenization, without serializing
+    // decoded labels/destinations/titles back into potentially different syntax.
+    const lexer = new markdown.Lexer({ ...markdown.defaults });
+    Object.assign(lexer.tokens.links, references);
+    html = markdown.parser(lexer.lex(prepared.source), { ...markdown.defaults, renderer });
+  } else {
+    html = markdown.parse(prepared.source, { async: false, renderer });
+  }
+  const fragment = getPurifier().sanitize(html, {
     RETURN_DOM_FRAGMENT: true,
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|prism-note):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
     FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form', 'button'],
@@ -163,8 +178,8 @@ export function renderMarkdownDocument(content: string): { html: string; heading
 }
 
 /** Markdown is user content: sanitize after rendering, including raw HTML. */
-export function renderMarkdown(content: string): string {
-  return renderMarkdownDocument(content).html;
+export function renderMarkdown(content: string, references?: Links): string {
+  return renderMarkdownDocument(content, references).html;
 }
 
 function decodePath(path: string): string {
