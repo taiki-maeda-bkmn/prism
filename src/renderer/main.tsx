@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import 'katex/dist/katex.css';
+import '@fontsource-variable/noto-sans-jp';
 import './styles.css';
 
 class ErrorBoundary extends React.Component<React.PropsWithChildren, { error: boolean }> {

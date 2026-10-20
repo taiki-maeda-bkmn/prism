@@ -1,5 +1,7 @@
 import { build } from 'esbuild';
-import { copyFile, mkdir, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
+import path from 'node:path';
+import { japaneseFontCSS } from './japanese-font.mjs';
 
 await rm('dist', { recursive: true, force: true });
 await mkdir('dist/renderer', { recursive: true });
@@ -27,6 +29,15 @@ await Promise.all([
   }),
   build({
     entryPoints: ['src/renderer/main.tsx'],
+    plugins: [{
+      name: 'japanese-glyph-font',
+      setup(plugin) {
+        plugin.onLoad({ filter: /@fontsource-variable[\\/]noto-sans-jp[\\/]index\.css$/ }, async (args) => ({
+          contents: japaneseFontCSS(await readFile(args.path, 'utf8')),
+          loader: 'css', resolveDir: path.dirname(args.path),
+        }));
+      },
+    }],
     outfile: 'dist/renderer/app.js',
     bundle: true,
     platform: 'browser',
@@ -42,4 +53,5 @@ await Promise.all([
 await copyFile('src/renderer/index.html', 'dist/renderer/index.html');
 await copyFile('assets/prism.png', 'dist/icon.png');
 await copyFile('node_modules/katex/LICENSE', 'dist/katex-LICENSE.txt');
+await copyFile('node_modules/@fontsource-variable/noto-sans-jp/LICENSE', 'dist/noto-sans-jp-OFL.txt');
 console.log('Prism built in dist/.');
