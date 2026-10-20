@@ -3,6 +3,8 @@ import { isolateHistory } from '@codemirror/commands';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view';
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import { getLiveMathRanges, isWithinLiveMath } from './liveMath';
+import { getLiveTableRanges } from './liveTables';
+import { isWithinMarkdownTable } from './tables';
 
 interface VisibleRange { from: number; to: number }
 
@@ -97,6 +99,7 @@ export function buildLiveDecorations(state: EditorState, visibleRanges: readonly
   const lineSafety = new Map<number, boolean>();
   const tree = syntaxTree(state);
   const mathRanges = getLiveMathRanges(state);
+  const tableRanges = getLiveTableRanges(state);
 
   function lineIsActive(from: number, to: number): boolean {
     // Include both endpoint lines. This also handles reversed selections and
@@ -137,6 +140,9 @@ export function buildLiveDecorations(state: EditorState, visibleRanges: readonly
         // TeX contains Markdown-looking underscores, stars, and even headings.
         // Neither rendered formulas nor their editable source use those marks.
         if (isWithinLiveMath(mathRanges, node.from, node.to)) return false;
+        // Tables detected with math masking may be ordinary prose in this
+        // unmasked tree. Keep their complete source visible when revealed.
+        if (isWithinMarkdownTable(tableRanges, node.from, node.to)) return false;
         if (node.name === 'FencedCode' || node.name === 'CodeBlock') {
           protectedBlocks.push({ from: node.from, to: node.to });
           const first = state.doc.lineAt(node.from);

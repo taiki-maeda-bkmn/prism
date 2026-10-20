@@ -9,11 +9,12 @@ import { tags } from '@lezer/highlight';
 import { markdownSnippets } from './snippets';
 import { findLiveHeading, liveMarkdown } from './liveMarkdown';
 import { liveMath } from './liveMath';
+import { liveTables } from './liveTables';
 import type { ThemeId } from './appearance';
 
 // A theme facet change also invalidates cached font/caret measurements when
 // the surrounding Live-mode CSS changes the editor's typography and gutters.
-const livePresentation = (getView: () => EditorView | null) => [liveMarkdown, liveMath(getView), EditorView.theme({ '&': { '--prism-live': '1' } })];
+const livePresentation = (getView: () => EditorView | null) => [liveMarkdown, liveMath(getView), liveTables(getView), EditorView.theme({ '&': { '--prism-live': '1' } })];
 
 // Color tokens update in place. Font size uses a compartment below so the editor
 // refreshes its measurements while preserving selection and undo history.

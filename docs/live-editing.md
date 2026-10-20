@@ -7,7 +7,7 @@ The brief asks for a mode where typing `# Title` formats the heading in the edit
 - Add **Live** beside Source, Split, and Read. Remember the selected mode. Keep existing shortcuts; Ctrl/⌘+4 opens Live.
 - Use the existing CodeMirror document and undo history. Render formatting with decorations rather than converting edited HTML back into Markdown.
 - Style headings, bold, italic, strikethrough, inline code, and block quotes as the user types. Hide their formatting markers on inactive lines; reveal markers on every line touched by the cursor or a selection.
-- Initially keep unsupported block syntax as editable Markdown, then add the code/checklist follow-up below. Links, ordinary list markers, tables, and raw HTML retain their source syntax. Inline formatting inside list items receives the supported text treatment.
+- Initially keep unsupported block syntax as editable Markdown, then add the code/checklist and table follow-ups below. Links, ordinary list markers, and raw HTML retain their source syntax. Inline formatting inside list items receives the supported text treatment.
 - Preserve selection and undo when switching modes, including Read. Maintain snippets, search, theme colors, text size, and background transparency.
 - Navigate the Live outline to Markdown headings in the editor, including headings outside the current viewport. Raw HTML headings remain available in the reading outline.
 - Verify literal Markdown saves, LF/CRLF/BOM preservation, mouse caret placement, selection of literal Markdown, composition-event handling, large notes, and startup preferences. Native IME candidate-window behavior still needs manual platform testing.
@@ -23,8 +23,8 @@ The brief asks for a mode where typing `# Title` formats the heading in the edit
 
 Add readable list markers and link labels with an explicit navigation gesture. Retain reliable access to their Markdown source. Define behavior for selection, keyboard navigation, nested formatting, and incomplete syntax before hiding additional markers.
 
-## Stage 3: tables
+## Stage 3: tables (first increment implemented)
 
-Add table editing treatments only after defining lossless source mapping, keyboard navigation, paste behavior, undo boundaries, and fallback behavior for malformed content. Images, embedded notes, and arbitrary HTML rendering remain outside the current editor scope.
+Top-level GFM tables render when the selection is outside them. Clicking a cell reveals the complete source with the caret at that cell; **Edit table** offers keyboard access. Edits, paste, selection, copying, and undo use the existing Markdown document. See [table editing](live-tables.md) for source mapping, malformed content, and the remaining work on nested tables and direct cell editing. Images, embedded notes, and arbitrary HTML editing remain outside the current editor scope.
 
 Each stage gets its own branch and review. Stage 1 is the first usable increment, not full rich-text editing of every Markdown construct. Rearranging graph nodes by dragging is a separate requirement.
