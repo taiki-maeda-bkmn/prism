@@ -1,6 +1,7 @@
 import { Annotation, EditorState, type Extension, type Range, StateField } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view';
 import { type MathRange, renderMath, scanMarkdownMath } from './math';
+import { isWithinMarkdownTable, scanMarkdownTables } from './tables';
 
 const composingMath = Annotation.define<boolean>();
 
@@ -69,7 +70,11 @@ export interface LiveMathState {
 
 function decorationsFor(state: EditorState, ranges: readonly MathRange[]): DecorationSet {
   const decorations: Range<Decoration>[] = [];
+  const tables = scanMarkdownTables(state.doc.toString());
   for (const math of ranges) {
+    // A table owns its cell rendering. When revealed, all cell Markdown stays
+    // editable, without overlapping block/inline replacement decorations.
+    if (isWithinMarkdownTable(tables, math.from, math.to)) continue;
     const first = state.doc.lineAt(math.from);
     const last = state.doc.lineAt(math.to);
     // The same convention as Live Markdown: all syntax on a touched line is
