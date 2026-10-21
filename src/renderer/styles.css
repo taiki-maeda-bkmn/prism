@@ -154,7 +154,7 @@ input { min-width: 0; }
 .mode-live .source-pane { width: 100%; background: transparent; }
 .mode-live .editor-host .cm-gutters { display: none; }
 .mode-live .editor-host .cm-scroller { font-family: var(--font-sans); font-size: calc(14px * var(--text-scale)); line-height: 1.85; }
-.mode-live .editor-host .cm-content { flex: 1 1 auto; width: 100%; min-width: 0; max-width: 880px; margin: 0 auto; padding: 28px 32px 80px; }
+.mode-live .editor-host .cm-content { flex: 1 1 auto; width: 100%; min-width: 0; padding: 28px clamp(20px, 2.5vw, 40px) 80px; }
 .mode-live .editor-host .cm-line { padding: 0; }
 .mode-live .editor-host :is(.cm-live-heading-1, .cm-live-heading-2, .cm-live-heading-3, .cm-live-heading-4, .cm-live-heading-5, .cm-live-heading-6) { font-family: var(--font-serif); font-weight: 600; line-height: 1.4; color: var(--text); padding-top: .22em; padding-bottom: .12em; }
 .mode-live .editor-host .cm-live-heading-1 { font-size: 1.85em; letter-spacing: -.025em; }
@@ -221,7 +221,7 @@ input { min-width: 0; }
 .cm-live-math-display { margin: .5em 10px; }
 .cm-live-math:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .prism-math-error, .cm-live-math-error { color: var(--danger); font-family: var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-.mode-preview .markdown-body { width: 100%; max-width: 880px; padding: 35px 65px 80px; margin: 0 auto; font-size: calc(15px * var(--text-scale)); }
+.mode-preview .markdown-body { width: 100%; padding: 35px clamp(20px, 2.5vw, 40px) 80px; font-size: calc(15px * var(--text-scale)); }
 .mode-preview .markdown-body h1 { font-size: calc(33px * var(--text-scale)); }
 .mode-source .source-pane { width: 100%; }
 .inspector { display: flex; flex-direction: column; width: 226px; flex: 0 0 226px; overflow: auto; padding: 0 20px; background: rgba(var(--panel-rgb), var(--surface-alpha)); border-left: 1px solid var(--border); }
@@ -397,7 +397,7 @@ input { min-width: 0; }
 .app-shell[data-theme="paper"] .markdown-body { font-family: var(--font-serif); font-size: calc(15px * var(--text-scale)); line-height: 1.95; }
 .app-shell[data-theme="paper"] .mode-live .cm-scroller { font-family: var(--font-serif); }
 .app-shell[data-theme="paper"] .mode-live .cm-live-quote { border-left-width: 1px; background: transparent; }
-.app-shell[data-theme="paper"] .mode-preview .markdown-body { max-width: 840px; font-size: calc(17px * var(--text-scale)); }
+.app-shell[data-theme="paper"] .mode-preview .markdown-body { font-size: calc(17px * var(--text-scale)); }
 .app-shell[data-theme="paper"] .markdown-body blockquote { padding-left: 20px; border-left-width: 1px; background: transparent; }
 .app-shell[data-theme="paper"] .markdown-body :is(pre, code, img) { border-radius: 2px; }
 .app-shell[data-theme="paper"] .markdown-body hr { height: 4px; background: transparent; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
