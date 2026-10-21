@@ -2,7 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, ty
 import { ArrowLeft, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Code2, Columns2, Copy, FilePlus2, FileText, Folder, FolderOpen, GitFork, Layers3, Link2, LoaderCircle, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Square, X } from 'lucide-react';
 import type { Note, Workspace } from '../shared/types';
 import { Editor } from './Editor';
-import { Graph } from './Graph';
+import { Graph, type GraphPoint } from './Graph';
 import { getBacklinks, getTitle, renderMarkdownDocument, resolveNoteLink } from './markdown';
 import { mathTextContent } from './math';
 import { appearanceStyle, parsePreferences, selectTheme, themes, textSize, type Mode, type Preferences } from './appearance';
@@ -61,6 +61,11 @@ export function App() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [preferences, setPreferences] = useState(readPreferences);
   const [view, setView] = useState<'note' | 'graph'>('note');
+  const [graphPositions, setGraphPositions] = useState<ReadonlyMap<string, GraphPoint>>(new Map());
+  const moveGraphNode = useCallback((path: string, point: GraphPoint) => {
+    setGraphPositions(previous => new Map(previous).set(path, point));
+  }, []);
+  const resetGraphLayout = useCallback(() => setGraphPositions(new Map()), []);
   const [query, setQuery] = useState('');
   const [focus, setFocus] = useState(false);
   const [maximized, setMaximized] = useState(false);
@@ -96,6 +101,9 @@ export function App() {
   }, [busy]);
 
   const acceptWorkspace = useCallback((next: Workspace) => {
+    const sameNotebook = latest.current.workspace?.path === next.path;
+    const paths = new Set(next.notes.map(note => note.path));
+    setGraphPositions(previous => sameNotebook ? new Map([...previous].filter(([path]) => paths.has(path))) : new Map());
     latest.current.workspace = next;
     latest.current.drafts = {};
     setWorkspace(next);
@@ -324,7 +332,7 @@ export function App() {
         {error && <div className="message-banner error" role="alert"><span>{error}</span>{!workspace && <button onClick={() => void initialize()}>Try again</button>}<button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
         {notice && <div className="message-banner notice" role="status"><span>{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={14} /></button></div>}
 
-        {view === 'graph' ? <section className="graph-page"><div className="graph-page-heading"><div><p className="eyebrow">SEE THE CONNECTIONS</p><h1>Your ideas, together.</h1><p>Every note is a starting point. Follow a connection to see where it leads.</p></div><button className="subtle-button" onClick={() => setView('note')}><ArrowLeft size={15} />Back to note</button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} /><div className="graph-help"><span><i />Note</span><span><i className="active" />Current note</span><span>Drag to explore · Scroll to zoom · Select a note to open</span></div></section> : active ? <>
+        {view === 'graph' ? <section className="graph-page"><div className="graph-page-heading"><div><p className="eyebrow">SEE THE CONNECTIONS</p><h1>Your ideas, together.</h1><p>Every note is a starting point. Follow a connection to see where it leads.</p></div><button className="subtle-button" onClick={() => setView('note')}><ArrowLeft size={15} />Back to note</button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} manualPositions={graphPositions} onMoveNode={moveGraphNode} onResetLayout={resetGraphLayout} /><div className="graph-help"><span><i />Note</span><span><i className="active" />Current note</span><span>Drag background to pan · Scroll to zoom · Click to open · Arrow keys move a focused note</span></div></section> : active ? <>
           <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source', 1], ['split', Columns2, 'Split', 2], ['live', Sparkles, 'Live', 4], ['preview', BookOpen, 'Read', 3]] as const).map(([mode, Icon, label, shortcut]) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl/⌘+${shortcut})`} onClick={() => chooseMode(mode)}><Icon size={15} /><span>{label}</span></button>)}</div></div>
           <div className={`editor-layout mode-${preferences.mode}`}>
             <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>

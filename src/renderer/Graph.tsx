@@ -8,10 +8,24 @@ interface GraphProps {
   activePath: string;
   onOpen: (path: string) => void;
   compact?: boolean;
+  manualPositions?: ReadonlyMap<string, GraphPoint>;
+  onMoveNode?: (path: string, point: GraphPoint) => void;
+  onResetLayout?: () => void;
 }
 
-interface Point { x: number; y: number }
+export interface GraphPoint { x: number; y: number }
+type Point = GraphPoint;
 interface Edge { source: string; target: string }
+interface Gesture {
+  pointerId: number;
+  node?: string;
+  clientStart: Point;
+  canvasStart: Point;
+  initial: Point;
+  zoom: number;
+  moved: boolean;
+  target: SVGElement;
+}
 
 function createLayout(notes: Note[], edges: Edge[], width: number, height: number): Map<string, Point> {
   const count = notes.length;
@@ -66,12 +80,14 @@ function createLayout(notes: Note[], edges: Edge[], width: number, height: numbe
   return new Map(points.map(point => [point.path, { x: point.x, y: point.y }]));
 }
 
-export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = false }: GraphProps) {
+export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = false, manualPositions, onMoveNode, onResetLayout }: GraphProps) {
   const width = compact ? 300 : 960;
   const height = compact ? 220 : 620;
   const patternId = useId().replace(/:/g, '');
   const svg = useRef<SVGSVGElement>(null);
-  const drag = useRef<{ x: number; y: number; pan: Point } | null>(null);
+  const drag = useRef<Gesture | null>(null);
+  const suppressClick = useRef(false);
+  const [draggedNode, setDraggedNode] = useState<string | null>(null);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -80,11 +96,17 @@ export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = 
     if (!canvas || compact) return;
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
+      if (drag.current) return;
       setZoom(current => Math.max(0.4, Math.min(2.5, current - Math.sign(event.deltaY) * 0.1)));
     };
     canvas.addEventListener('wheel', wheel, { passive: false });
     return () => canvas.removeEventListener('wheel', wheel);
   }, [compact, notes.length]);
+  useEffect(() => {
+    const cancel = () => finishGesture();
+    window.addEventListener('blur', cancel);
+    return () => window.removeEventListener('blur', cancel);
+  }, []);
   const allEdges = useMemo(() => {
     const unique = new Map<string, Edge>();
     for (const note of notes) {
@@ -114,21 +136,63 @@ export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = 
   }, [allEdges, graphNotes, compact]);
   const topology = useMemo(() => JSON.stringify([graphNotes.map(note => note.path), edges]), [graphNotes, edges]);
   // Text-only edits keep the existing layout; only changes to nodes/edges move it.
-  const positions = useMemo(() => createLayout(graphNotes, edges, width, height), [topology, width, height]);
+  const layout = useMemo(() => createLayout(graphNotes, edges, width, height), [topology, width, height]);
+  const positions = useMemo(() => {
+    if (compact || !manualPositions?.size) return layout;
+    return new Map([...layout].map(([path, point]) => [path, manualPositions.get(path) ?? point]));
+  }, [layout, compact, manualPositions]);
   const focused = hovered ?? activePath;
   const neighbors = new Set(edges.filter(edge => edge.source === focused || edge.target === focused).flatMap(edge => [edge.source, edge.target]));
 
-  function pointerDown(event: PointerEvent<SVGSVGElement>) {
-    if (compact || event.button !== 0 || (event.target as Element).closest('[data-graph-node]')) return;
+  function canvasPoint(event: PointerEvent<SVGElement>): Point | null {
+    const matrix = svg.current?.getScreenCTM();
+    if (!matrix) return null;
+    // The inverse includes viewBox scaling and letterboxing on wide windows.
+    return new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+  }
+
+  function pointerDown(event: PointerEvent<SVGElement>, node?: string) {
+    if (compact || event.button !== 0 || !event.isPrimary || drag.current) return;
+    const start = canvasPoint(event);
+    if (!start) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressClick.current = false;
+    // Capture on the node itself so a click still targets that note.
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { x: event.clientX, y: event.clientY, pan };
+    if (node) event.currentTarget.focus();
+    drag.current = {
+      pointerId: event.pointerId, node, clientStart: { x: event.clientX, y: event.clientY },
+      canvasStart: start, initial: node ? positions.get(node)! : pan,
+      zoom, moved: false, target: event.currentTarget,
+    };
   }
 
   function pointerMove(event: PointerEvent<SVGSVGElement>) {
-    if (!drag.current || !svg.current) return;
-    const bounds = svg.current.getBoundingClientRect();
-    const ratio = Math.min(bounds.width / width, bounds.height / height) || 1;
-    setPan({ x: drag.current.pan.x + (event.clientX - drag.current.x) / ratio, y: drag.current.pan.y + (event.clientY - drag.current.y) / ratio });
+    const gesture = drag.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (!gesture.moved && Math.hypot(event.clientX - gesture.clientStart.x, event.clientY - gesture.clientStart.y) < 4) return;
+    const point = canvasPoint(event);
+    if (!point) return;
+    gesture.moved = true;
+    const scale = gesture.node ? gesture.zoom : 1;
+    const next = {
+      x: gesture.initial.x + (point.x - gesture.canvasStart.x) / scale,
+      y: gesture.initial.y + (point.y - gesture.canvasStart.y) / scale,
+    };
+    if (gesture.node) {
+      setDraggedNode(gesture.node);
+      onMoveNode?.(gesture.node, next);
+    } else setPan(next);
+  }
+
+  function finishGesture(event?: PointerEvent<SVGSVGElement>) {
+    const gesture = drag.current;
+    if (!gesture || (event && gesture.pointerId !== event.pointerId)) return;
+    if (gesture.node) suppressClick.current = gesture.moved || event?.type !== 'pointerup';
+    drag.current = null;
+    setDraggedNode(null);
+    if (gesture.target.hasPointerCapture(gesture.pointerId)) gesture.target.releasePointerCapture(gesture.pointerId);
   }
 
   const adjustZoom = (delta: number) => setZoom(current => Math.max(0.4, Math.min(2.5, current + delta)));
@@ -141,10 +205,11 @@ export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = 
       viewBox={`0 0 ${width} ${height}`}
       role="group"
       aria-label={compact ? 'Local note graph' : 'Note graph. Select a note to open it. Drag the background to pan.'}
-      onPointerDown={pointerDown}
+      onPointerDown={event => pointerDown(event)}
       onPointerMove={pointerMove}
-      onPointerUp={() => { drag.current = null; }}
-      onPointerCancel={() => { drag.current = null; }}
+      onPointerUp={finishGesture}
+      onPointerCancel={finishGesture}
+      onLostPointerCapture={finishGesture}
     >
       <defs><pattern id={patternId} width="25" height="25" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.8" fill="currentColor" /></pattern></defs>
       {!compact && <rect width={width} height={height} fill={`url(#${patternId})`} className="graph-grid" />}
@@ -164,11 +229,26 @@ export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = 
           const labelAnchor = point.x < -width * 0.18 ? 'start' : point.x > width * 0.18 ? 'end' : 'middle';
           return <g key={note.path}
             data-graph-node="true"
-            className={`graph-node${active ? ' graph-node-active' : ''}${neighbors.has(note.path) ? ' graph-node-connected' : ''}`}
+            className={`graph-node${active ? ' graph-node-active' : ''}${neighbors.has(note.path) ? ' graph-node-connected' : ''}${draggedNode === note.path ? ' graph-node-dragging' : ''}`}
             transform={`translate(${point.x} ${point.y})`}
             tabIndex={0} role="button" aria-label={`Open ${title}`} aria-pressed={active}
-            onClick={() => onOpen(note.path)}
-            onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(note.path); } }}
+            aria-description={compact ? undefined : 'Drag or use arrow keys to move. Hold Shift for larger steps. Enter or Space opens the note.'}
+            onPointerDown={event => pointerDown(event, note.path)}
+            onClick={event => {
+              if (drag.current) return;
+              if (event.detail !== 0 && suppressClick.current) { suppressClick.current = false; return; }
+              onOpen(note.path);
+            }}
+            onKeyDown={event => {
+              if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(note.path); }
+              if (compact || drag.current || event.ctrlKey || event.metaKey || event.altKey) return;
+              const step = (event.shiftKey ? 40 : 10) / zoom;
+              const delta: Record<string, Point> = { ArrowLeft: { x: -step, y: 0 }, ArrowRight: { x: step, y: 0 }, ArrowUp: { x: 0, y: -step }, ArrowDown: { x: 0, y: step } };
+              if (delta[event.key]) {
+                event.preventDefault();
+                onMoveNode?.(note.path, { x: point.x + delta[event.key].x, y: point.y + delta[event.key].y });
+              }
+            }}
             onMouseEnter={() => setHovered(note.path)} onMouseLeave={() => setHovered(null)}
             onFocus={() => setHovered(note.path)} onBlur={() => setHovered(null)}
           >
@@ -181,7 +261,8 @@ export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = 
         })}
       </g>
     </svg>}
-    {!compact && <><div className="graph-hint">Connected thoughts, a little clearer.</div><div className="graph-controls" aria-label="Graph zoom controls">
+    {!compact && <><div className="graph-hint">Drag notes to arrange.</div><div className="graph-controls" aria-label="Graph zoom controls">
+      <button type="button" onClick={() => { onResetLayout?.(); setZoom(1); setPan({ x: 0, y: 0 }); }} aria-label="Reset graph layout" title="Restore the automatic layout" className="graph-reset">Reset layout</button>
       <button type="button" onClick={() => adjustZoom(-0.2)} disabled={zoom <= 0.4} aria-label="Zoom out" title="Zoom out">−</button>
       <button type="button" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} aria-label="Reset graph view" title="Reset view" className="graph-reset">{Math.round(zoom * 100)}%</button>
       <button type="button" onClick={() => adjustZoom(0.2)} disabled={zoom >= 2.5} aria-label="Zoom in" title="Zoom in">+</button>
