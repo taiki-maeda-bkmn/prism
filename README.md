@@ -4,6 +4,8 @@ A local Markdown notebook with live preview, connected notes, and a transparent 
 
 The repository also contains **[Prism PDF](pdf-manager/README.md)**, a separate desktop PDF library and reader. Run it with `npm run start:pdf` after installing dependencies.
 
+The [PDF integration plan](docs/pdf-integration.md) describes bringing that library and reader into Prism in stages. The integration is planned; the two apps currently launch separately.
+
 ![Prism showing source editing, live preview, and connected notes](docs/prism-desktop.png)
 
 [See the graph view](docs/prism-graph.png).
