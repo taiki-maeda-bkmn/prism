@@ -319,7 +319,7 @@ export function App() {
       return;
     }
     const target = resolveNoteLink(href, fromPath, notes);
-    if (target) openNote(target.note.path, target.fragment);
+    if (target) openNote(target.note.path, target.fragment ?? (preferences.mode === 'live' ? '' : undefined));
     else setNotice('That linked note is not in this notebook yet. Create it with New note.');
   };
 
