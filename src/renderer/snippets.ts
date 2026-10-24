@@ -1,4 +1,4 @@
-import { Prec, StateEffect, StateField, EditorState, type Extension } from '@codemirror/state';
+import { Facet, Prec, StateEffect, StateField, EditorState, type Extension } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { ensureSyntaxTree } from '@codemirror/language';
 import { isolateHistory } from '@codemirror/commands';
@@ -8,24 +8,8 @@ import {
   type Completion, type CompletionContext, type CompletionResult,
 } from '@codemirror/autocomplete';
 
-export interface MarkdownSnippet {
-  trigger: string;
-  title: string;
-  description: string;
-  template: string;
-  block: boolean;
-}
-
-export const snippetCatalog: readonly MarkdownSnippet[] = [
-  { trigger: '/h1', title: 'Heading 1', description: 'A large heading.', template: '# ${1:Heading}\n${0}', block: true },
-  { trigger: '/h2', title: 'Heading 2', description: 'A section heading.', template: '## ${1:Heading}\n${0}', block: true },
-  { trigger: '/task', title: 'Task', description: 'An unchecked task.', template: '- [ ] ${1:Task}\n${0}', block: true },
-  { trigger: '/quote', title: 'Quote', description: 'A block quote.', template: '> ${1:Quote}\n${0}', block: true },
-  { trigger: '/code', title: 'Code block', description: 'A fenced block with language and code fields.', template: '```${1:language}\n${2:code}\n```\n${0}', block: true },
-  { trigger: '/table', title: 'Table', description: 'Two columns with a header and a row.', template: '| ${1:Column 1} | ${2:Column 2} |\n| --- | --- |\n| ${3:Value 1} | ${4:Value 2} |\n${0}', block: true },
-  { trigger: '/link', title: 'Link', description: 'A label and web address.', template: '[${1:label}](${2:https://example.com})${0}', block: false },
-  { trigger: '/wiki', title: 'Note link', description: 'A link to another note in this notebook.', template: '[[${1:Note name}]]${0}', block: false },
-];
+import { snippetCatalog, type MarkdownSnippet } from './snippetDefinitions';
+export { snippetCatalog, type MarkdownSnippet } from './snippetDefinitions';
 
 interface SnippetContext {
   from: number;
@@ -114,7 +98,7 @@ export function findSnippetContext(state: EditorState, pos = state.selection.mai
   if (state.readOnly || selection.ranges.length !== 1 || !selection.main.empty || selection.main.head !== pos) return null;
   const line = state.doc.lineAt(pos);
   const before = state.sliceDoc(line.from, pos);
-  const match = /\/[a-z0-9]*$/.exec(before);
+  const match = /\/[a-z0-9_-]*$/.exec(before);
   if (!match || (match.index > 0 && !/\s/.test(before[match.index - 1]))) return null;
   const after = state.sliceDoc(pos, line.to);
   if (/^[\p{L}\p{N}_/\-]/u.test(after)) return null;
@@ -141,7 +125,7 @@ export function findSnippetContext(state: EditorState, pos = state.selection.mai
   };
 }
 
-const completions: readonly Completion[] = snippetCatalog.map(definition => {
+function createCompletion(definition: MarkdownSnippet): Completion {
   const insert = snippet(definition.template);
   return {
     label: definition.trigger,
@@ -150,19 +134,27 @@ const completions: readonly Completion[] = snippetCatalog.map(definition => {
     type: 'text',
     apply(view, completion, from, to) {
       const context = findSnippetContext(view.state);
-      if (composing(view) || !context || context.from !== from || context.to !== to
+      if (!view.state.facet(customSnippetConfiguration).some(entry => entry.completion === completion)
+        || composing(view) || !context || context.from !== from || context.to !== to
         || !definition.trigger.startsWith(context.query) || (definition.block && !context.block)) return;
       insert(view, completion, from, to);
     },
   };
+}
+
+// Reconfigure this facet to change templates without replacing the editor or
+// its undo history. Compile templates only when the catalog changes.
+export const customSnippetConfiguration = Facet.define<readonly MarkdownSnippet[], readonly { definition: MarkdownSnippet; completion: Completion }[]>({
+  combine: inputs => [...snippetCatalog, ...inputs.flat()].map(definition => ({ definition, completion: createCompletion(definition) })),
 });
 
 export function snippetCompletionSource(context: CompletionContext): CompletionResult | null {
   if (composing(context.view)) return null;
   const match = findSnippetContext(context.state, context.pos);
   if (!match) return null;
-  const options = completions.filter((completion, index) => completion.label.startsWith(match.query)
-    && (!snippetCatalog[index].block || match.block));
+  const options = context.state.facet(customSnippetConfiguration)
+    .filter(({ definition }) => definition.trigger.startsWith(match.query) && (!definition.block || match.block))
+    .map(({ completion }) => completion);
   if (!options.length) return null;
   return {
     from: match.from,
@@ -181,13 +173,13 @@ export function expandSnippet(view: EditorView): boolean {
   const context = findSnippetContext(view.state);
   if (!context) return false;
   const selected = selectedCompletion(view.state);
-  const selectedDefinition = snippetCatalog.find(definition => definition.trigger === selected?.label);
+  const catalog = view.state.facet(customSnippetConfiguration);
+  const selectedDefinition = catalog.find(({ completion }) => completion === selected)?.definition;
   if (selectedDefinition && selectedDefinition.trigger.startsWith(context.query)
     && (!selectedDefinition.block || context.block) && acceptCompletion(view)) return true;
   // A complete trigger works even before the asynchronous popup has opened.
-  const index = snippetCatalog.findIndex(definition => definition.trigger === context.query && (!definition.block || context.block));
-  if (index < 0) return false;
-  const completion = completions[index];
+  const completion = catalog.find(({ definition }) => definition.trigger === context.query && (!definition.block || context.block))?.completion;
+  if (!completion) return false;
   if (typeof completion.apply !== 'function') return false;
   completion.apply(view, completion, context.from, context.to);
   closeCompletion(view);
@@ -197,7 +189,7 @@ export function expandSnippet(view: EditorView): boolean {
 export function dismissSnippets(view: EditorView): boolean {
   if (composing(view)) return false;
   const context = findSnippetContext(view.state);
-  const hasOptions = context && snippetCatalog.some(definition => definition.trigger.startsWith(context.query) && (!definition.block || context.block));
+  const hasOptions = context && view.state.facet(customSnippetConfiguration).some(({ definition }) => definition.trigger.startsWith(context.query) && (!definition.block || context.block));
   const cleared = clearSnippet(view);
   const closed = closeCompletion(view);
   if (hasOptions) view.dispatch({ effects: dismissContext.of(context) });
