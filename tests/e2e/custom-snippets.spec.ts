@@ -89,7 +89,7 @@ test('adds Japanese templates without losing drafts and expands fields immediate
   await manager().getByLabel('Shortcut', { exact: true }).fill('/task');
   await manager().getByLabel('Template', { exact: true }).fill('## ${1:議題}\n- [ ] ${2:次の行動}\n${0}');
   await manager().getByLabel('Description (optional)', { exact: true }).fill('議題と次の行動を書く。');
-  await expect(manager().getByLabel('Allow inside a sentence', { exact: true })).not.toBeChecked();
+  await expect(manager().getByLabel('Insert as a separate block', { exact: true })).not.toBeChecked();
   await manager().getByRole('button', { name: 'Save snippet', exact: true }).click();
   await expect(manager().getByRole('alert')).toContainText(/already|built-in|reserved|used/i);
   await expect(manager().getByRole('button', { name: 'Save snippet', exact: true })).toBeVisible();
@@ -158,10 +158,10 @@ test('edits inline shortcuts, remembers them after restart, and removes deleted 
   await manager().getByLabel('Name', { exact: true }).fill('Signature');
   await manager().getByLabel('Shortcut', { exact: true }).fill('/signature');
   await manager().getByLabel('Template', { exact: true }).fill('${1:署名} — ${2:役割}${0}');
-  await manager().getByLabel('Allow inside a sentence', { exact: true }).check();
+  await expect(manager().getByLabel('Insert as a separate block', { exact: true })).not.toBeChecked();
   await manager().getByRole('button', { name: 'Save snippet', exact: true }).click();
   await manager().getByRole('button', { name: 'Edit /signature', exact: true }).click();
-  await expect(manager().getByLabel('Allow inside a sentence', { exact: true })).toBeChecked();
+  await expect(manager().getByLabel('Insert as a separate block', { exact: true })).not.toBeChecked();
   await manager().getByLabel('Shortcut', { exact: true }).fill('/sign-off');
   await manager().getByLabel('Template', { exact: true }).fill('${1:お名前} (${2:部署})${0}');
   await manager().getByRole('button', { name: 'Save snippet', exact: true }).click();
@@ -239,5 +239,80 @@ test('edits inline shortcuts, remembers them after restart, and removes deleted 
   await expect(manager().getByRole('button', { name: 'Edit /sign-off', exact: true })).toHaveCount(0);
   await expect(manager().locator('.snippet-catalog dt')).toHaveCount(8);
   expect(await readFile(path.join(notebook, 'Welcome to Prism.md'), 'utf8')).toBe(diskText(savedAgain));
+  expect(pageErrors).toEqual([]);
+});
+
+test('expands snippets within Source and Live prose while preserving both sides and saved block templates', async ({}, testInfo) => {
+  // A template saved before this fix used block:true by default. It must become
+  // usable within prose without a manual migration or editing the saved record.
+  await page.evaluate(() => localStorage.setItem('prism.snippets', JSON.stringify({ version: 1, snippets: [
+    { trigger: '/aside', title: 'Saved block', description: '', template: '## ${1:項目}\n\n${2:本文}${0}', block: true },
+  ] })));
+  await page.reload();
+  await expect(page.locator('.note-heading h1')).toHaveText('Snippet practice');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await openManager();
+  await manager().getByRole('button', { name: 'Add snippet', exact: true }).click();
+  await manager().getByLabel('Name', { exact: true }).fill('A word');
+  await manager().getByLabel('Shortcut', { exact: true }).fill('/term');
+  await manager().getByLabel('Template', { exact: true }).fill('${1:単語}${0}');
+  await expect(manager().getByLabel('Insert as a separate block', { exact: true })).not.toBeChecked();
+  await manager().getByRole('button', { name: 'Save snippet', exact: true }).click();
+  await manager().getByRole('button', { name: 'Edit /aside', exact: true }).click();
+  await expect(manager().getByLabel('Insert as a separate block', { exact: true })).toBeChecked();
+  await manager().getByRole('button', { name: 'Cancel editing', exact: true }).click();
+  await closeManager();
+
+  await sourceEditor().focus();
+  await sourceEditor().press('ControlOrMeta+End');
+  await page.keyboard.insertText('前/term後');
+  await sourceEditor().press('ArrowLeft');
+  await sourceEditor().press('Tab');
+  await expect.poll(selectedText).toBe('単語');
+  await expect.poll(source).toBe(welcome + '前単語後');
+  await sourceEditor().press('ControlOrMeta+z');
+  await expect.poll(source).toBe(welcome + '前/term後');
+  // Undo restores the previous history selection, which may follow the suffix.
+  // Put the caret back at the shortcut before testing a second expansion.
+  await sourceEditor().press('ControlOrMeta+End');
+  await sourceEditor().press('ArrowLeft');
+  await sourceEditor().press('Tab');
+  await expect.poll(selectedText).toBe('単語');
+  await page.keyboard.insertText('用語');
+  await sourceEditor().press('Tab');
+  await page.keyboard.insertText('です');
+  await expect.poll(source).toBe(welcome + '前用語です後');
+
+  await page.getByRole('button', { name: 'Live', exact: true }).click();
+  await liveEditor().focus();
+  await liveEditor().press('ControlOrMeta+End');
+  await page.keyboard.insertText('\n\n続き/term末尾');
+  await liveEditor().press('ArrowLeft');
+  await liveEditor().press('ArrowLeft');
+  await liveEditor().press('Tab');
+  await expect.poll(selectedText).toBe('単語');
+  await page.keyboard.insertText('確認');
+  await liveEditor().press('Tab');
+  await page.keyboard.insertText('済');
+  await expect(liveEditor()).toContainText('続き確認済末尾');
+
+  await liveEditor().press('ControlOrMeta+End');
+  await page.keyboard.insertText('\n\nBefore /aside after.');
+  for (let index = 0; index < ' after.'.length; index++) await liveEditor().press('ArrowLeft');
+  await liveEditor().press('Tab');
+  await expect.poll(selectedText).toBe('項目');
+  await page.keyboard.insertText('独立した項目');
+  await liveEditor().press('Tab');
+  await expect.poll(selectedText).toBe('本文');
+  await page.keyboard.insertText('内容を残す');
+  await liveEditor().press('Tab');
+  await expect(liveEditor().locator('.cm-live-heading-2')).toContainText('独立した項目');
+  const saved = welcome + '前用語です後\n\n続き確認済末尾\n\nBefore \n\n## 独立した項目\n\n内容を残す\n\n after.';
+  await saveNote(saved);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect.poll(source).toBe(saved);
+  await testInfo.attach('Snippets inserted within prose', {
+    body: await page.screenshot({ path: testInfo.outputPath('snippets-in-prose.png') }), contentType: 'image/png',
+  });
   expect(pageErrors).toEqual([]);
 });

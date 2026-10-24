@@ -8,7 +8,7 @@ interface Props {
   onChange: (snippets: MarkdownSnippet[]) => string | null;
 }
 
-const blankSnippet = (): MarkdownSnippet => ({ trigger: '/', title: '', description: '', template: '', block: true });
+const blankSnippet = (): MarkdownSnippet => ({ trigger: '/', title: '', description: '', template: '', block: false });
 
 export function SnippetSettings({ snippets, onChange }: Props) {
   const id = useId();
@@ -45,7 +45,7 @@ export function SnippetSettings({ snippets, onChange }: Props) {
     {!draft && snippets.length >= customSnippetLimits.count && <p className="field-help">You have reached the limit of {customSnippetLimits.count} custom snippets. Edit or delete one to make room.</p>}
 
     {!draft && snippets.length > 0 && <ul className="custom-snippet-list">{snippets.map(snippet => <li key={snippet.trigger}>
-      <div className="custom-snippet-summary"><div><code>{snippet.trigger}</code><strong>{snippet.title}</strong></div><p>{snippet.description || (snippet.block ? 'On an empty line' : 'Also inside a sentence')}</p></div>
+      <div className="custom-snippet-summary"><div><code>{snippet.trigger}</code><strong>{snippet.title}</strong></div><p>{snippet.description || (snippet.block ? 'Inserts as a separate block' : 'Inserts at the cursor')}</p></div>
       <div className="custom-snippet-actions">
         <button type="button" className="subtle-button" aria-label={`Edit ${snippet.trigger}`} onClick={() => startEditing(snippet)}><Pencil size={14} />Edit</button>
         <button type="button" className="subtle-button" aria-label={`Delete ${snippet.trigger}`} onClick={() => { setDeleting(snippet.trigger); setError(''); setStatus(''); }}><Trash2 size={14} />Delete</button>
@@ -83,8 +83,8 @@ export function SnippetSettings({ snippets, onChange }: Props) {
       <label className="field-label" htmlFor={`${id}-description`}>Description (optional)</label><input id={`${id}-description`} className="text-input" value={draft.description} maxLength={customSnippetLimits.description} onChange={event => update({ description: event.target.value })} placeholder="A short agenda and action items" />
       <label className="field-label snippet-template-label" htmlFor={`${id}-template`}>Template</label><textarea id={`${id}-template`} className="text-input snippet-template-input" rows={7} value={draft.template} maxLength={customSnippetLimits.template} onChange={event => update({ template: event.target.value })} placeholder={'## ${1:Meeting}\n\n- [ ] ${2:Action}\n${0}'} spellCheck={false} aria-describedby={`${id}-template-help`} />
       <p id={`${id}-template-help`} className="field-help">Write Markdown, with optional fields such as <code>{'${1:Text}'}</code> and <code>{'${2:More text}'}</code>. Tab moves through fields; <code>{'${0}'}</code> marks the final cursor position. To insert literal braces, write <code>{'\\{'}</code> and <code>{'\\}'}</code>.</p>
-      <label className="snippet-inline-option"><input type="checkbox" checked={!draft.block} onChange={event => update({ block: !event.target.checked })} />Allow inside a sentence</label>
-      <p className="field-help">Otherwise, the shortcut only expands on an empty line. Sentence snippets also work after a space in prose.</p>
+      <label className="snippet-inline-option"><input type="checkbox" checked={draft.block} onChange={event => update({ block: event.target.checked })} />Insert as a separate block</label>
+      <p className="field-help">Snippets can expand within prose. This option adds line breaks as needed to separate the template from surrounding text; otherwise it inserts directly at the cursor.</p>
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="modal-actions"><button type="button" className="subtle-button" onClick={cancel}>Cancel editing</button><button type="submit" className="primary-button"><Check size={15} />Save snippet</button></div>
     </form>}

@@ -23,12 +23,13 @@ test('validates usable custom shortcuts and rejects collisions with built-ins or
   assert.match(validateCustomSnippet(meeting, [meeting])!, /already in use/);
 });
 
-test('validates template bounds and inline scope without changing Markdown content', () => {
+test('validates template bounds and allows multiline insertion at the cursor', () => {
   assert.equal(validateCustomSnippet(inline, []), null);
+  assert.equal(validateCustomSnippet({ ...meeting, block: false }, []), null);
   for (const change of [
     { title: '  ' }, { title: 'a'.repeat(81) }, { description: 'a'.repeat(241) },
     { template: '\n ' }, { template: 'a'.repeat(customSnippetLimits.template + 1) },
-    { template: 'a\0b' }, { block: false },
+    { template: 'a\0b' },
   ]) assert.ok(validateCustomSnippet({ ...meeting, ...change }, []), JSON.stringify(change));
   assert.equal(validateCustomSnippet({ ...meeting, template: 'a'.repeat(customSnippetLimits.template) }, []), null);
 });
@@ -90,8 +91,9 @@ const completions = (state: EditorState) => snippetCompletionSource(new Completi
 test('custom suggestions share built-in context guards and IME protections', () => {
   assert.equal(completions(stateAt('/'))!.options.length, 10);
   assert.deepEqual(completions(stateAt('/mee'))!.options.map(option => option.label), ['/meeting']);
+  assert.deepEqual(completions(stateAt('A sentence /meeting'))!.options.map(option => option.label), ['/meeting']);
   assert.deepEqual(completions(stateAt('A sentence /sign-'))!.options.map(option => option.label), ['/sign-off']);
-  for (const doc of ['A sentence /meeting', '`/sign-off', '```\n/meeting', '[some /sign-off', '<span title="/sign-off']) {
+  for (const doc of ['`/sign-off', '```\n/meeting', '[some /sign-off', '<span title="/sign-off']) {
     assert.equal(completions(stateAt(doc)), null, doc);
   }
   const state = stateAt('/meeting');
@@ -100,6 +102,25 @@ test('custom suggestions share built-in context guards and IME protections', () 
   const completion = completions(state)!.options[0];
   assert.equal(typeof completion.apply, 'function');
   if (typeof completion.apply === 'function') completion.apply(view, completion, 0, state.doc.length);
+});
+
+test('cursor templates replace only the shortcut inside Japanese text, including multiple lines', () => {
+  let state = EditorState.create({
+    doc: '前の文章/sign-off続き', selection: { anchor: '前の文章/sign-off'.length },
+    extensions: [markdown(), markdownSnippets, history(), customSnippetConfiguration.of([{ ...inline, template: '${1:一行目}\n${2:二行目}${0}' }])],
+  });
+  const original = state.doc.toString();
+  const completion = completions(state)!.options[0];
+  const editor = { get state() { return state; }, dispatch(transaction: Transaction) { state = transaction.state; } } as unknown as EditorView;
+  if (typeof completion.apply === 'function') completion.apply(editor, completion, '前の文章'.length, state.selection.main.head);
+  assert.equal(state.doc.toString(), '前の文章一行目\n二行目続き');
+  assert.equal(state.sliceDoc(state.selection.main.from, state.selection.main.to), '一行目');
+  assert.equal(nextSnippetField(editor), true);
+  assert.equal(state.sliceDoc(state.selection.main.from, state.selection.main.to), '二行目');
+  assert.equal(nextSnippetField(editor), true);
+  assert.equal(state.doc.sliceString(state.selection.main.head), '続き');
+  assert.equal(undo(editor), true);
+  assert.equal(state.doc.toString(), original);
 });
 
 test('updated catalogs invalidate stale suggestions while retaining note drafts and undo', () => {

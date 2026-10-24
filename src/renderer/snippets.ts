@@ -9,13 +9,14 @@ import {
 } from '@codemirror/autocomplete';
 
 import { snippetCatalog, type MarkdownSnippet } from './snippetDefinitions';
+import { MAX_MATH_LENGTH, matchMathAt } from './math';
 export { snippetCatalog, type MarkdownSnippet } from './snippetDefinitions';
 
 interface SnippetContext {
   from: number;
   to: number;
   query: string;
-  block: boolean;
+  allowBlock: boolean;
 }
 
 const dismissContext = StateEffect.define<SnippetContext>();
@@ -34,6 +35,22 @@ const excludedNodes = new Set([
   'FencedCode', 'CodeBlock', 'InlineCode', 'HTMLBlock', 'HTMLTag', 'CommentBlock',
   'Link', 'Image', 'Autolink', 'URL', 'LinkTitle', 'LinkReference',
 ]);
+const inlineFormatting = new Set(['Emphasis', 'StrongEmphasis', 'Strikethrough', 'Table', 'TableHeader', 'TableRow', 'TableCell']);
+const japaneseCharacter = /[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}]/u;
+
+function atProseBoundary(before: string, from: number): boolean {
+  if (!from) return true;
+  const prefix = before.slice(0, from);
+  const previous = Array.from(prefix.slice(-2)).at(-1)!;
+  if (/\s/.test(previous)) return true;
+  // Japanese words have no separating spaces. Punctuation is also a useful
+  // boundary, but slashes in paths, URLs, and escaped literals are not triggers.
+  if (!japaneseCharacter.test(previous) && !/[\p{P}\p{S}]/u.test(previous)) return false;
+  let tokenStart = prefix.length;
+  while (tokenStart > 0 && !/\s/.test(prefix[tokenStart - 1])) tokenStart--;
+  const token = prefix.slice(tokenStart);
+  return !/[\\/]|[\w+.-]:/.test(token) && previous !== '_';
+}
 
 function composing(view: EditorView | undefined): boolean {
   // compositionStarted also covers the interval before the IME's first edit.
@@ -99,9 +116,9 @@ export function findSnippetContext(state: EditorState, pos = state.selection.mai
   const line = state.doc.lineAt(pos);
   const before = state.sliceDoc(line.from, pos);
   const match = /\/[a-z0-9_-]*$/.exec(before);
-  if (!match || (match.index > 0 && !/\s/.test(before[match.index - 1]))) return null;
+  if (!match || !atProseBoundary(before, match.index)) return null;
   const after = state.sliceDoc(pos, line.to);
-  if (/^[\p{L}\p{N}_/\-]/u.test(after)) return null;
+  if (/^[\p{L}\p{N}_/\-]/u.test(after) && !japaneseCharacter.test(String.fromCodePoint(after.codePointAt(0)!))) return null;
   const from = line.from + match.index;
   const dismissed = state.field(dismissedContext, false);
   if (dismissed?.from === from && dismissed.to === pos && dismissed.query === match[0]) return null;
@@ -110,19 +127,48 @@ export function findSnippetContext(state: EditorState, pos = state.selection.mai
   const tree = ensureSyntaxTree(state, pos, 50);
   if (!tree) return null;
   let inlineFrom = line.from;
+  let allowBlock = true;
   for (const position of [from, pos]) {
     for (let node = tree.resolveInner(position, -1); node; node = node.parent!) {
       if (excludedNodes.has(node.name)) return null;
+      if (inlineFormatting.has(node.name)) allowBlock = false;
       if (node.name === 'Paragraph' || node.name.startsWith('ATXHeading') || node.name.startsWith('SetextHeading')) {
         inlineFrom = Math.min(inlineFrom, node.from);
       }
     }
   }
   if (insideUnfinishedMarkup(state.sliceDoc(inlineFrom, from))) return null;
+  // Cursor templates can fill inline formatting or equations. A separate
+  // Markdown block would split the surrounding delimiters across paragraphs.
+  if (allowBlock) {
+    // Search only nearby delimiters, using the document's existing syntax tree
+    // to exclude code/HTML. Reparsing a sliced document can misread a closing
+    // fence at the slice's start as an opening fence and hide the real equation.
+    const mathStart = Math.max(0, from - MAX_MATH_LENGTH - 2);
+    const mathSource = state.sliceDoc(mathStart, Math.min(state.doc.length, pos + MAX_MATH_LENGTH + 2));
+    const hasClosingParenthesis = mathSource.includes('\\)');
+    const hasClosingBracket = mathSource.includes('\\]');
+    let mathEnd = 0;
+    for (const opening of mathSource.slice(0, from - mathStart).matchAll(/\$|\\[([]/g)) {
+      if (opening.index < mathEnd || opening[0] === '\\(' && !hasClosingParenthesis || opening[0] === '\\[' && !hasClosingBracket) continue;
+      let protectedOpening = false;
+      for (let node = tree.resolveInner(mathStart + opening.index, 1); node; node = node.parent!) {
+        if (excludedNodes.has(node.name)) { protectedOpening = true; break; }
+      }
+      if (protectedOpening) continue;
+      const math = matchMathAt(mathSource, opening.index);
+      if (math) mathEnd = math.to;
+      if (math && from - mathStart >= math.contentFrom && pos - mathStart <= math.contentTo) { allowBlock = false; break; }
+    }
+  }
   return {
     from, to: pos, query: match[0],
-    block: /^ {0,3}$/.test(before.slice(0, match.index)) && /^\s*$/.test(after),
+    allowBlock,
   };
+}
+
+function matches(definition: MarkdownSnippet, context: SnippetContext): boolean {
+  return definition.trigger.startsWith(context.query) && (!definition.block || context.allowBlock);
 }
 
 function createCompletion(definition: MarkdownSnippet): Completion {
@@ -136,8 +182,14 @@ function createCompletion(definition: MarkdownSnippet): Completion {
       const context = findSnippetContext(view.state);
       if (!view.state.facet(customSnippetConfiguration).some(entry => entry.completion === completion)
         || composing(view) || !context || context.from !== from || context.to !== to
-        || !definition.trigger.startsWith(context.query) || (definition.block && !context.block)) return;
-      insert(view, completion, from, to);
+        || !matches(definition, context)) return;
+      const line = view.state.doc.lineAt(from);
+      const prefix = definition.block && /\S/.test(view.state.sliceDoc(line.from, from)) ? '\n\n' : '';
+      const suffix = definition.block && /\S/.test(view.state.sliceDoc(to, line.to)) ? '\n\n' : '';
+      // One snippet transaction keeps the surrounding prose, placeholder
+      // positions, and undo together, including when a block splits a line.
+      const apply = prefix || suffix ? snippet(prefix + definition.template + suffix) : insert;
+      apply(view, completion, from, to);
     },
   };
 }
@@ -153,7 +205,7 @@ export function snippetCompletionSource(context: CompletionContext): CompletionR
   const match = findSnippetContext(context.state, context.pos);
   if (!match) return null;
   const options = context.state.facet(customSnippetConfiguration)
-    .filter(({ definition }) => definition.trigger.startsWith(match.query) && (!definition.block || match.block))
+    .filter(({ definition }) => matches(definition, match))
     .map(({ completion }) => completion);
   if (!options.length) return null;
   return {
@@ -175,10 +227,9 @@ export function expandSnippet(view: EditorView): boolean {
   const selected = selectedCompletion(view.state);
   const catalog = view.state.facet(customSnippetConfiguration);
   const selectedDefinition = catalog.find(({ completion }) => completion === selected)?.definition;
-  if (selectedDefinition && selectedDefinition.trigger.startsWith(context.query)
-    && (!selectedDefinition.block || context.block) && acceptCompletion(view)) return true;
+  if (selectedDefinition && matches(selectedDefinition, context) && acceptCompletion(view)) return true;
   // A complete trigger works even before the asynchronous popup has opened.
-  const completion = catalog.find(({ definition }) => definition.trigger === context.query && (!definition.block || context.block))?.completion;
+  const completion = catalog.find(({ definition }) => definition.trigger === context.query && matches(definition, context))?.completion;
   if (!completion) return false;
   if (typeof completion.apply !== 'function') return false;
   completion.apply(view, completion, context.from, context.to);
@@ -189,7 +240,7 @@ export function expandSnippet(view: EditorView): boolean {
 export function dismissSnippets(view: EditorView): boolean {
   if (composing(view)) return false;
   const context = findSnippetContext(view.state);
-  const hasOptions = context && view.state.facet(customSnippetConfiguration).some(({ definition }) => definition.trigger.startsWith(context.query) && (!definition.block || context.block));
+  const hasOptions = context && view.state.facet(customSnippetConfiguration).some(({ definition }) => matches(definition, context));
   const cleared = clearSnippet(view);
   const closed = closeCompletion(view);
   if (hasOptions) view.dispatch({ effects: dismissContext.of(context) });
