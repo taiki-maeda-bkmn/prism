@@ -34,8 +34,8 @@ The brief asks for a mode where typing `# Title` formats the heading in the edit
 - Leave code, HTML, equations, escaped examples, and table-owned source protected. Defer presentation changes during IME composition and resolve the current source offset when a marker is clicked.
 - Verify numbering, nesting, task/link interaction, source reveal, selection/copy, undo across mode changes, wrapped Japanese text at larger sizes, and exact BOM/CRLF saves. Hanging-indent reflow and structural list editing controls are separate enhancements.
 
-## Stage 3: tables (first increment implemented)
+## Stage 3: tables (rendering and source editing implemented)
 
-Top-level GFM tables render when the selection is outside them. Clicking a cell reveals the complete source with the caret at that cell; **Edit table** offers keyboard access. Edits, paste, selection, copying, and undo use the existing Markdown document. See [table editing](live-tables.md) for source mapping, malformed content, and the remaining work on nested tables and direct cell editing. Images, embedded notes, and arbitrary HTML editing remain outside the current editor scope.
+GFM tables render when the selection is outside them, including tables nested inside quotes and lists. Clicking a cell reveals the complete source with the caret at that cell; **Edit table** offers keyboard access. Quote prefixes and list indentation remain intact in the source, and opening list markers can be clicked or activated by keyboard to edit them. Edits, paste, selection, copying, and undo use the existing Markdown document. See [table editing](live-tables.md) for source mapping, malformed content, and the remaining work on direct cell editing. Images, embedded notes, and arbitrary HTML editing remain outside the current editor scope.
 
 Each stage gets its own branch and review. Stage 1 is the first usable increment, not full rich-text editing of every Markdown construct. Rearranging graph nodes by dragging is a separate requirement.

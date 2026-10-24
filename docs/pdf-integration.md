@@ -101,6 +101,6 @@ Do not copy the sibling project's full application shell or catalogue into Prism
 
 ## Delivery workflow
 
-Use a separate branch and PR for each increment. Keep this plan and [the implementation checklist](../IMPLEMENTATION.md) current as work is completed. Commit and push automatically, request Copilot review, address actionable findings, and verify CI and the Codex review on the final commit. Leave PRs unmerged for user review.
+Use a separate branch and PR for each increment. Keep this plan and [the implementation checklist](../IMPLEMENTATION.md) current as work is completed. Commit and push automatically, request Copilot review, address actionable findings, run appropriate local checks, and verify the Codex review on the final commit. Per the user's instruction, do not check or wait for GitHub CI. Leave PRs unmerged for user review.
 
 For the current planning change, validate the document and its links. Runtime implementation and its tests begin with stage 1 in a separate change.

@@ -216,7 +216,7 @@ test('edits clicked cells and blank cells with undo across modes and exact BOM/C
   await expect(page.locator('.message-banner.error')).toHaveCount(0);
 });
 
-test('recovers from an incomplete table, leaves nested tables editable, and renders a completed table snippet', async () => {
+test('recovers from an incomplete table, renders nested tables, and renders a completed table snippet', async () => {
   const malformed = '# Recovery\n\n| Item | Value |\n| --- |\n| 東京 | 1 |\n\nAfter tables.\n';
   await replaceDocument(malformed);
   await editor().press('ControlOrMeta+Home');
@@ -248,9 +248,13 @@ test('recovers from an incomplete table, leaves nested tables editable, and rend
   const nested = '# Nested\n\n> | Quote | Value |\n> | --- | --- |\n> | 東京 | 1 |\n\n- Parent\n\n  | List | Value |\n  | --- | --- |\n  | 日本語 | 2 |\n\nAfter tables.\n';
   await replaceDocument(nested);
   await editor().press('ControlOrMeta+Home');
-  await expect(widgets()).toHaveCount(0);
-  await expect(editor()).toContainText('| Quote | Value |');
-  await expect(editor()).toContainText('| List | Value |');
+  await expect(widgets()).toHaveCount(2);
+  await expect(widgets().nth(0).getByRole('columnheader')).toHaveText(['Quote', 'Value']);
+  await expect(widgets().nth(1).getByRole('columnheader')).toHaveText(['List', 'Value']);
+  await widgets().first().getByRole('cell', { name: '東京', exact: true }).click();
+  await expect(editor()).toContainText('> | 東京 | 1 |');
+  await editor().press('ControlOrMeta+Home');
+  await expect(widgets()).toHaveCount(2);
   await saveAndExpect('Welcome to Prism.md', nested);
 
   const prefix = '# Snippet\n\n';

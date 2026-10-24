@@ -159,6 +159,9 @@ export function buildLiveDecorations(state: EditorState, visibleRanges: readonly
 
   function addLine(position: number, className: string) {
     const line = state.doc.lineAt(position);
+    // Ancestor blockquotes can span ordinary prose and a nested table. The
+    // table widget owns its container styling and all of its revealed source.
+    if (isWithinMarkdownTable(tableRanges, line.to, line.to)) return;
     const key = `${line.from}:${className}`;
     if (seenLines.has(key)) return;
     seenLines.add(key);
@@ -168,6 +171,7 @@ export function buildLiveDecorations(state: EditorState, visibleRanges: readonly
   function addMarker(from: number, to: number) {
     if (from >= to) return;
     const line = state.doc.lineAt(from);
+    if (isWithinMarkdownTable(tableRanges, line.to, line.to)) return;
     if (to > line.to || lineIsActive(line.from, line.to)) return;
     let safe = lineSafety.get(line.number);
     if (safe === undefined) {
