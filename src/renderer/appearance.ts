@@ -4,7 +4,7 @@ export type Mode = 'source' | 'split' | 'live' | 'preview';
 export type ThemeId = 'prism' | 'paper' | 'scifi';
 export interface Colors { accent: string; background: string; text: string; }
 export interface Preferences {
-  mode: Mode; transparent: boolean; opacity: number; textScale: number;
+  mode: Mode; transparent: boolean; opacity: number; textScale: number; inspectorWidth: number;
   theme: ThemeId; colors: Colors; themeColors: Partial<Record<ThemeId, Colors>>;
 }
 
@@ -16,7 +16,8 @@ export const themes: Record<ThemeId, { name: string; description: string; colors
 };
 export const themeIds: ThemeId[] = ['prism', 'paper', 'scifi'];
 export const textSize = { min: 100, max: 150, step: 5, default: 120 } as const;
-const defaults: Preferences = { mode: 'split', transparent: false, opacity: 82, textScale: textSize.default, theme: 'prism', colors: defaultColors, themeColors: {} };
+export const inspectorSize = { min: 198, max: 600, default: 226 } as const;
+const defaults: Preferences = { mode: 'split', transparent: false, opacity: 82, textScale: textSize.default, inspectorWidth: inspectorSize.default, theme: 'prism', colors: defaultColors, themeColors: {} };
 
 export function normalizeColor(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -54,6 +55,8 @@ export function parsePreferences(serialized: string | null): Preferences {
     opacity: typeof value.opacity === 'number' && Number.isFinite(value.opacity) ? Math.min(100, Math.max(25, value.opacity)) : defaults.opacity,
     textScale: typeof value.textScale === 'number' && Number.isFinite(value.textScale)
       ? Math.min(textSize.max, Math.max(textSize.min, Math.round(value.textScale / textSize.step) * textSize.step)) : textSize.default,
+    inspectorWidth: typeof value.inspectorWidth === 'number' && Number.isFinite(value.inspectorWidth)
+      ? Math.min(inspectorSize.max, Math.max(inspectorSize.min, Math.round(value.inspectorWidth))) : inspectorSize.default,
     theme, themeColors,
     colors: readColors(value.colors, themeColors[theme] ?? themes[theme].colors),
   };

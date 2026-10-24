@@ -226,7 +226,12 @@ input { min-width: 0; }
 .mode-preview .markdown-body { width: 100%; padding: 35px clamp(20px, 2.5vw, 40px) 80px; font-size: calc(15px * var(--text-scale)); }
 .mode-preview .markdown-body h1 { font-size: calc(33px * var(--text-scale)); }
 .mode-source .source-pane { width: 100%; }
-.inspector { display: flex; flex-direction: column; width: 226px; flex: 0 0 226px; overflow: auto; padding: 0 20px; background: rgba(var(--panel-rgb), var(--surface-alpha)); border-left: 1px solid var(--border); }
+.inspector-panel { position: relative; display: flex; flex: 0 0 auto; min-width: 0; }
+.inspector { display: flex; flex-direction: column; width: 100%; min-width: 0; overflow: auto; padding: 0 20px; background: rgba(var(--panel-rgb), var(--surface-alpha)); border-left: 1px solid var(--border); }
+.inspector-divider { position: absolute; z-index: 3; top: 0; bottom: 0; left: -4px; width: 9px; cursor: col-resize; touch-action: none; outline: none; }
+.inspector-divider::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 3px; background: transparent; }
+.inspector-divider:hover::after, .inspector-divider:focus-visible::after, .inspector-panel[data-resizing="true"] .inspector-divider::after { background: var(--accent); }
+.app-shell:has(.inspector-panel[data-resizing="true"]) { cursor: col-resize; user-select: none; }
 .inspector-title { display: flex; align-items: center; gap: 9px; height: 56px; flex-shrink: 0; font-size: calc(10px * var(--text-scale)); letter-spacing: 1.4px; color: var(--muted); border-bottom: 1px solid var(--border); }
 .inspector-section-heading { font-size: calc(11px * var(--text-scale)); font-weight: 550; color: var(--muted); display: flex; align-items: center; justify-content: space-between; margin: 0 0 15px; }
 .inspector-section-heading > span { display: flex; gap: 6px; align-items: center; }
@@ -426,8 +431,8 @@ input { min-width: 0; }
 .app-shell[data-theme="scifi"] .modal { border-radius: 3px; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 1190px) { .sidebar { width: 210px; flex-basis: 210px; padding-left: 12px; padding-right: 12px; } .inspector { width: 198px; flex-basis: 198px; padding: 0 15px; } .note-heading { padding: 27px 24px; align-items: flex-start; flex-direction: column; gap: 19px; } .mode-switch { align-self: flex-start; } .note-heading h1 { font-size: calc(28px * var(--text-scale)); } .markdown-body { padding-left: 22px; padding-right: 22px; } .search-field kbd { display: none; } }
-@media (max-width: 980px) { .inspector { display: none; } .note-heading { flex-direction: row; align-items: center; } .mode-switch { align-self: flex-end; } .sidebar { width: 200px; flex-basis: 200px; } .transparency-shortcut > span { display: none; } .document-toolbar { padding: 0 15px; } }
+@media (max-width: 1190px) { .sidebar { width: 210px; flex-basis: 210px; padding-left: 12px; padding-right: 12px; } .inspector { padding: 0 15px; } .note-heading { padding: 27px 24px; align-items: flex-start; flex-direction: column; gap: 19px; } .mode-switch { align-self: flex-start; } .note-heading h1 { font-size: calc(28px * var(--text-scale)); } .markdown-body { padding-left: 22px; padding-right: 22px; } .search-field kbd { display: none; } }
+@media (max-width: 980px) { .inspector-panel { display: none; } .note-heading { flex-direction: row; align-items: center; } .mode-switch { align-self: flex-end; } .sidebar { width: 200px; flex-basis: 200px; } .transparency-shortcut > span { display: none; } .document-toolbar { padding: 0 15px; } }
 @media (max-width: 740px) { .sidebar { width: 175px; flex-basis: 175px; padding-left: 9px; padding-right: 9px; } .new-note-button > span { display: none; } .note-heading { flex-direction: column; align-items: flex-start; } .mode-switch { align-self: flex-start; } .mode-split { flex-direction: column; } .mode-split .source-pane { flex: 0 0 45%; border-right: 0; border-bottom: 1px solid var(--border); } .titlebar-brand > span:last-child { display: none; } .graph-page { padding: 25px 20px; } .graph-page-heading { align-items: flex-start; flex-direction: column; } .graph-help > span:last-child { display: none; } .statusbar > div:last-child > span { display: none; } .mode-preview .markdown-body { padding: 25px; } }
 @media (max-height: 700px) {
   .sidebar { padding-top: 16px; padding-bottom: 12px; }

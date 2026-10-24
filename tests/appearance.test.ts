@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { appearanceStyle, defaultColors, normalizeColor, parsePreferences, selectTheme, textSize, themes } from '../src/renderer/appearance';
+import { appearanceStyle, defaultColors, inspectorSize, normalizeColor, parsePreferences, selectTheme, textSize, themes } from '../src/renderer/appearance';
 
 test('existing preferences acquire colors without losing editor mode or transparency', () => {
   const preferences = parsePreferences(JSON.stringify({ mode: 'preview', transparent: true, opacity: 35 }));
-  assert.deepEqual(preferences, { mode: 'preview', transparent: true, opacity: 35, textScale: 120, colors: defaultColors, theme: 'prism', themeColors: {} });
+  assert.deepEqual(preferences, { mode: 'preview', transparent: true, opacity: 35, textScale: 120, inspectorWidth: 226, colors: defaultColors, theme: 'prism', themeColors: {} });
 });
 
 test('Live mode persists while existing modes and invalid-mode recovery stay compatible', () => {
@@ -30,7 +30,7 @@ test('damaged saved preferences recover independently while retaining valid valu
     colors: { accent: '#AbC', background: 'url(file:///bad)', text: '#EeEefF' },
   }));
   assert.deepEqual(preferences, {
-    mode: 'source', transparent: true, opacity: 100, textScale: 120,
+    mode: 'source', transparent: true, opacity: 100, textScale: 120, inspectorWidth: 226,
     colors: { accent: '#aabbcc', background: defaultColors.background, text: '#eeeeff' },
     theme: 'prism', themeColors: {},
   });
@@ -52,6 +52,23 @@ test('text size migrates legacy preferences and safely recovers invalid saved si
     assert.equal(style['--text-scale'], expected / 100);
     assert.equal(style['--surface-alpha'], 0.35);
     assert.equal(saved.mode, 'source');
+  }
+});
+
+test('inspector width migrates older preferences and bounds malformed saved sizes independently', () => {
+  for (const inspectorWidth of [undefined, null, '400', true, [], {}, Infinity, -Infinity, NaN]) {
+    assert.equal(parsePreferences(JSON.stringify({ inspectorWidth })).inspectorWidth, inspectorSize.default);
+  }
+  assert.equal(parsePreferences('{"inspectorWidth":1e309}').inspectorWidth, inspectorSize.default);
+  for (const [inspectorWidth, expected] of [[-1, 198], [198, 198], [412.7, 413], [600, 600], [5000, 600]]) {
+    const saved = parsePreferences(JSON.stringify({ inspectorWidth, theme: 'paper', mode: 'live', textScale: 140, transparent: true, opacity: 35 }));
+    assert.equal(saved.inspectorWidth, expected);
+    assert.equal(selectTheme(saved, 'scifi').inspectorWidth, expected);
+    assert.equal(parsePreferences(JSON.stringify(saved)).inspectorWidth, expected);
+    assert.equal(saved.mode, 'live');
+    assert.equal(saved.textScale, 140);
+    assert.equal(saved.opacity, 35);
+    assert.equal(saved.transparent, true);
   }
 });
 
