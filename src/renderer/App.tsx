@@ -8,6 +8,7 @@ import { mathTextContent } from './math';
 import { appearanceStyle, parsePreferences, selectTheme, themes, textSize, type Mode, type Preferences } from './appearance';
 import { ColorSettings } from './ColorSettings';
 import { ThemeSettings } from './ThemeSettings';
+import { ResizableInspector } from './ResizableInspector';
 import { snippetCatalog } from './snippets';
 
 type Intent = 'open' | 'refresh' | 'close';
@@ -341,13 +342,13 @@ export function App() {
         </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><FilePlus2 size={17} />Create your first note</button></div>}
       </main>
 
-      {!focus && view === 'note' && active && <aside className="inspector">
+      {!focus && view === 'note' && active && <ResizableInspector width={preferences.inspectorWidth} onWidthChange={inspectorWidth => setPreferences(previous => ({ ...previous, inspectorWidth }))}>
         <div className="inspector-title"><Sparkles size={16} /><span>IN THIS NOTE</span></div>
         <section className="outline-section"><div className="inspector-section-heading">Outline <span>{outline.length}</span></div><nav aria-label="Note outline">{outline.length ? outline.map(item => <button key={item.index} className={`outline-link level-${item.level}`} onClick={() => { if (previewNote?.path !== active.path || previewNote.content !== active.content) return; if (preferences.mode === 'live') { setHeadingTarget({ path: active.path, index: item.index, request: ++headingRequest.current }); return; } if (preferences.mode === 'source') chooseMode('split'); requestAnimationFrame(() => document.querySelectorAll('.markdown-body h1,.markdown-body h2,.markdown-body h3')[item.index]?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }}><span />{item.title}</button>) : <p className="inspector-empty">Add a heading with # to give your ideas a little structure.</p>}</nav></section>
         <section className="connections-section"><div className="inspector-section-heading">Connections <button className="icon-button" aria-label="Expand graph" onClick={() => setView('graph')}><ArrowUpRight size={15} /></button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} compact /><button className="text-button" onClick={() => setView('graph')}>Explore your graph <ArrowUpRight size={13} /></button></section>
         <section className="backlinks-section"><div className="inspector-section-heading"><span><Link2 size={14} />Backlinks</span><span>{backlinks.length}</span></div>{backlinks.length ? backlinks.map(note => <button className="backlink" key={note.path} onClick={() => openNote(note.path)}><FileText size={14} /><span>{getTitle(note)}</span><ChevronRight size={13} /></button>) : <p className="inspector-empty">Notes that link here will appear here. Connect one with <code>[[{active.path.replace(/\.md$/i, '')}]]</code>.</p>}</section>
         <div className="inspector-tip"><PrismMark small /><p>Good ideas rarely<br />happen in isolation.</p></div>
-      </aside>}
+      </ResizableInspector>}
     </div>
 
     <footer className="statusbar"><div><span className={`status-dot ${dirtyCount ? 'unsaved' : ''}`} /><span>{busy ? 'Working…' : dirtyCount ? `${dirtyCount} unsaved ${dirtyCount === 1 ? 'note' : 'notes'}` : 'All changes saved'}</span><span className="status-divider" /><span>{notes.length} notes</span></div><div>{active && view === 'note' && <><span>Ln {cursor.line}, Col {cursor.column}</span><span className="status-divider" /><span>UTF-8</span><span>Markdown</span></>}<button onClick={() => setSettings(true)}><Layers3 size={12} />{preferences.transparent ? 'Transparent' : 'Opaque'}</button></div></footer>
