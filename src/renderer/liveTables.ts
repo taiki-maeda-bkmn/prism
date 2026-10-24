@@ -80,7 +80,9 @@ class TableWidget extends WidgetType {
       if (container.kind === 'list') {
         const marker = document.createElement('span');
         marker.className = 'cm-live-table-list-marker';
-        marker.style.width = `${container.indent}ch`;
+        // A computed number may be wider than its original `1.` marker.
+        // Reserve room for the displayed label before the table's border.
+        marker.style.width = `${Math.max(container.indent, (container.marker?.length ?? 0) + 1)}ch`;
         if (container.marker !== undefined) {
           marker.textContent = container.marker;
           marker.tabIndex = 0;

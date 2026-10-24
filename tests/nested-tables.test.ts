@@ -200,6 +200,10 @@ test('ordered container changes invalidate a table widget even when its table so
   assert.equal(widgetDOM(state).querySelector('.cm-live-table-list-marker')?.textContent, '4.');
   assert.equal(widgetDOM(changed).querySelector('.cm-live-table-list-marker')?.textContent, '8.');
   assert.equal(tables(state)[0].widget.eq(tables(changed)[0].widget), false, 'The visible enclosing number changes from 4 to 8.');
+  const wide = stateFor('999. Before\n1. ' + bare.replaceAll('\n', '\n   ') + '\n\nCaret');
+  const marker = widgetDOM(wide).querySelector<HTMLElement>('.cm-live-table-list-marker')!;
+  assert.equal(marker.textContent, '1000.');
+  assert.equal(marker.style.width, '6ch', 'Computed numbering needs enough room before the table border.');
 });
 
 test('container list markers reveal their current source by mouse or keyboard without edits and reject stale or composing interactions', () => {
