@@ -9,7 +9,9 @@ import { appearanceStyle, parsePreferences, selectTheme, themes, textSize, type 
 import { ColorSettings } from './ColorSettings';
 import { ThemeSettings } from './ThemeSettings';
 import { ResizableInspector } from './ResizableInspector';
-import { snippetCatalog } from './snippets';
+import { snippetCatalog, type MarkdownSnippet } from './snippetDefinitions';
+import { readCustomSnippets, saveCustomSnippets } from './customSnippets';
+import { SnippetSettings } from './SnippetSettings';
 
 type Intent = 'open' | 'refresh' | 'close';
 
@@ -72,6 +74,12 @@ export function App() {
   const [maximized, setMaximized] = useState(false);
   const [settings, setSettings] = useState(false);
   const [snippetHelp, setSnippetHelp] = useState(false);
+  const [customSnippets, setCustomSnippets] = useState(readCustomSnippets);
+  const changeCustomSnippets = useCallback((snippets: MarkdownSnippet[]): string | null => {
+    const failure = saveCustomSnippets(snippets);
+    if (!failure) setCustomSnippets(snippets);
+    return failure;
+  }, []);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [pending, setPending] = useState<Intent | null>(null);
@@ -336,7 +344,7 @@ export function App() {
         {view === 'graph' ? <section className="graph-page"><div className="graph-page-heading"><div><p className="eyebrow">SEE THE CONNECTIONS</p><h1>Your ideas, together.</h1><p>Every note is a starting point. Follow a connection to see where it leads.</p></div><button className="subtle-button" onClick={() => setView('note')}><ArrowLeft size={15} />Back to note</button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} manualPositions={graphPositions} onMoveNode={moveGraphNode} onResetLayout={resetGraphLayout} /><div className="graph-help"><span><i />Note</span><span><i className="active" />Current note</span><span>Drag background to pan · Scroll to zoom · Click to open · Arrow keys move a focused note</span></div></section> : active ? <>
           <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source', 1], ['split', Columns2, 'Split', 2], ['live', Sparkles, 'Live', 4], ['preview', BookOpen, 'Read', 3]] as const).map(([mode, Icon, label, shortcut]) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl/⌘+${shortcut})`} onClick={() => chooseMode(mode)}><Icon size={15} /><span>{label}</span></button>)}</div></div>
           <div className={`editor-layout mode-${preferences.mode}`}>
-            <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
+            <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} customSnippets={customSnippets} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
             {(preferences.mode === 'split' || preferences.mode === 'preview') && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
           </div>
         </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><FilePlus2 size={17} />Create your first note</button></div>}
@@ -357,6 +365,8 @@ export function App() {
 
     {snippetHelp && <Modal title="Markdown snippets" onClose={() => setSnippetHelp(false)} className="snippet-help-modal">
       <p className="modal-description">In Source, Split, or Live mode, type <code>/</code> on an empty line to see snippets. Use the arrow keys to choose one, then press <kbd>Tab</kbd> to insert it. You can also type a full shortcut, such as <code>/task</code>, and press <kbd>Tab</kbd>.</p>
+      <SnippetSettings snippets={customSnippets} onChange={changeCustomSnippets} />
+      <h3 className="snippet-builtins-heading">Built-in snippets</h3>
       <dl className="snippet-catalog">{snippetCatalog.map(snippet => <div key={snippet.trigger}><dt><code>{snippet.trigger}</code><strong>{snippet.title}</strong></dt><dd>{snippet.description}</dd></div>)}</dl>
       <p className="field-help"><kbd>Tab</kbd> moves to the next field; <kbd>Shift+Tab</kbd> moves back. <kbd>Esc</kbd> closes suggestions or leaves a snippet. Outside snippets, Tab moves focus as usual.</p>
       <p className="field-help">Block snippets need an otherwise empty line. <code>/link</code> and <code>/wiki</code> also work after a space in a sentence. Snippets insert ordinary Markdown.</p>

@@ -1,12 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { Compartment, EditorState } from '@codemirror/state';
+import { closeCompletion } from '@codemirror/autocomplete';
 import { EditorView, keymap } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { HighlightStyle, syntaxHighlighting, syntaxTreeAvailable } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
-import { markdownSnippets } from './snippets';
+import { customSnippetConfiguration, markdownSnippets, type MarkdownSnippet } from './snippets';
 import { findLiveHeading, liveMarkdown } from './liveMarkdown';
 import { liveMath } from './liveMath';
 import { liveTables } from './liveTables';
@@ -35,6 +36,7 @@ interface Props {
   path: string;
   content: string;
   textScale: number;
+  customSnippets: readonly MarkdownSnippet[];
   theme: ThemeId;
   live?: boolean;
   headingTarget?: { index: number; request: number };
@@ -46,10 +48,11 @@ function detectLineEnding(content: string, fallback = '\n'): string {
   return /\r\n|\r|\n/.exec(content)?.[0] ?? fallback;
 }
 
-export function Editor({ path, content, textScale, theme, live = false, headingTarget, onChange, onCursor }: Props) {
+export function Editor({ path, content, textScale, customSnippets, theme, live = false, headingTarget, onChange, onCursor }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const textSize = useRef(new Compartment());
+  const snippets = useRef(new Compartment());
   const presentation = useRef(new Compartment());
   const lastHeadingRequest = useRef<number | null>(null);
   const lineEnding = useRef('\n');
@@ -68,6 +71,7 @@ export function Editor({ path, content, textScale, theme, live = false, headingT
         // a facet that would only recognize one exact input separator.
         extensions: [
           markdownSnippets,
+          snippets.current.of(customSnippetConfiguration.of(customSnippets)),
           basicSetup,
           markdown({ base: markdownLanguage, codeLanguages: languages }),
           syntaxHighlighting(markdownHighlight),
@@ -141,6 +145,13 @@ export function Editor({ path, content, textScale, theme, live = false, headingT
       }
     }
   }, [content]);
+
+  useEffect(() => {
+    const editor = view.current;
+    if (!editor) return;
+    closeCompletion(editor);
+    editor.dispatch({ effects: snippets.current.reconfigure(customSnippetConfiguration.of(customSnippets)) });
+  }, [customSnippets]);
 
   useEffect(() => {
     // Reconfigure only the font theme: this invalidates CodeMirror's measured
