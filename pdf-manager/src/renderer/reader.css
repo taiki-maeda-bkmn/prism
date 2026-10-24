@@ -1,4 +1,4 @@
-.pdf-reader {
+.pdf-workspace .pdf-reader {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -7,12 +7,12 @@
   color: #29312d;
   background: #fbfaf7;
 }
-.pdf-reader button,
-.pdf-reader input,
-.pdf-reader select {
+.pdf-workspace .pdf-reader button,
+.pdf-workspace .pdf-reader input,
+.pdf-workspace .pdf-reader select {
   font: inherit;
 }
-.pdf-reader button {
+.pdf-workspace .pdf-reader button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -24,46 +24,46 @@
   background: transparent;
   transition: background .15s;
 }
-.pdf-reader button:hover:not(:disabled) {
+.pdf-workspace .pdf-reader button:hover:not(:disabled) {
   background: #eeece6;
 }
-.pdf-reader button:focus-visible,
-.pdf-reader input:focus-visible,
-.pdf-reader select:focus-visible,
-.pdf-reader-viewport:focus-visible {
+.pdf-workspace .pdf-reader button:focus-visible,
+.pdf-workspace .pdf-reader input:focus-visible,
+.pdf-workspace .pdf-reader select:focus-visible,
+.pdf-workspace .pdf-reader-viewport:focus-visible {
   outline: 2px solid #e56b3f;
   outline-offset: 2px;
 }
-.pdf-reader button:disabled {
+.pdf-workspace .pdf-reader button:disabled {
   opacity: .3;
   cursor: default;
 }
-.pdf-reader-heading {
+.pdf-workspace .pdf-reader-heading {
   display: flex;
   flex-direction: column;
   gap: 19px;
   padding: 24px 30px 22px;
   background: #fbfaf7;
 }
-.pdf-reader .pdf-back-button {
+.pdf-workspace .pdf-reader .pdf-back-button {
   align-self: flex-start;
-  font-size: 12px;
+  font-size: calc(12px * var(--pdf-text-scale, 1));
   font-weight: 600;
   padding: 2px 0;
   color: #737a73;
 }
-.pdf-reader-document {
+.pdf-workspace .pdf-reader-document {
   display: flex;
   gap: 11px;
   align-items: center;
   min-width: 0;
 }
-.pdf-reader-document > svg {
+.pdf-workspace .pdf-reader-document > svg {
   color: #e56b3f;
   flex: none;
 }
-.pdf-reader-document h1 {
-  font-size: 22px;
+.pdf-workspace .pdf-reader-document h1 {
+  font-size: calc(22px * var(--pdf-text-scale, 1));
   font-weight: 600;
   line-height: 1.3;
   letter-spacing: -.6px;
@@ -72,8 +72,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pdf-reader-document > span {
-  font-size: 10px;
+.pdf-workspace .pdf-reader-document > span {
+  font-size: calc(10px * var(--pdf-text-scale, 1));
   font-weight: 700;
   color: #8a8177;
   background: #ece8e1;
@@ -82,7 +82,7 @@
   padding: 4px 6px;
   flex: none;
 }
-.pdf-reader-toolbar {
+.pdf-workspace .pdf-reader-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -94,63 +94,63 @@
   background: #fffefa;
   z-index: 1;
 }
-.pdf-toolbar-group {
+.pdf-workspace .pdf-toolbar-group {
   display: flex;
   align-items: center;
   gap: 5px;
 }
-.pdf-toolbar-group > button {
+.pdf-workspace .pdf-toolbar-group > button {
   width: 32px;
   height: 32px;
 }
-.pdf-page-form {
+.pdf-workspace .pdf-page-form {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 12px;
+  font-size: calc(12px * var(--pdf-text-scale, 1));
   color: #7a8078;
 }
-.pdf-page-form input {
+.pdf-workspace .pdf-page-form input {
   width: 47px;
   text-align: center;
   border: 1px solid #dedfd7;
   background: white;
   border-radius: 5px;
   padding: 6px 2px;
-  font-size: 12px;
+  font-size: calc(12px * var(--pdf-text-scale, 1));
   color: #363e35;
   appearance: textfield;
 }
-.pdf-page-form input::-webkit-inner-spin-button {
+.pdf-workspace .pdf-page-form input::-webkit-inner-spin-button {
   appearance: none;
 }
-.pdf-page-total {
+.pdf-workspace .pdf-page-total {
   min-width: 32px;
 }
-.pdf-zoom-controls select {
+.pdf-workspace .pdf-zoom-controls select {
   border: 1px solid #e2e2d9;
   background: #fffefa;
   border-radius: 5px;
   color: #42493e;
-  font-size: 12px;
+  font-size: calc(12px * var(--pdf-text-scale, 1));
   padding: 6px 24px 6px 9px;
   min-width: 100px;
   cursor: pointer;
 }
-.pdf-toolbar-divider {
+.pdf-workspace .pdf-toolbar-divider {
   height: 20px;
   width: 1px;
   background: #e3e4db;
   margin: 0 7px;
 }
-.pdf-reader-progress {
-  font-size: 11px;
+.pdf-workspace .pdf-reader-progress {
+  font-size: calc(11px * var(--pdf-text-scale, 1));
   letter-spacing: .1px;
   color: #8a9086;
   min-width: 83px;
   text-align: right;
 }
-.pdf-reader-viewport {
+.pdf-workspace .pdf-reader-viewport {
   position: relative;
   flex: 1;
   min-height: 0;
@@ -163,32 +163,32 @@
   background: #e9e8e2;
   overscroll-behavior: contain;
 }
-.pdf-paper {
+.pdf-workspace .pdf-paper {
   margin: 0 auto;
   flex: none;
   line-height: 0;
   max-width: none;
 }
-.pdf-paper:empty {
+.pdf-workspace .pdf-paper:empty {
   display: none;
 }
-.pdf-paper canvas {
+.pdf-workspace .pdf-paper canvas {
   display: block;
   background: #fff;
   box-shadow: 0 2px 6px #30382f14, 0 10px 32px #30382f16;
   border-radius: 1px;
 }
-.pdf-reader-loading {
+.pdf-workspace .pdf-reader-loading {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   margin: auto;
   color: #74796e;
-  font-size: 13px;
+  font-size: calc(13px * var(--pdf-text-scale, 1));
   min-height: 80px;
 }
-.pdf-spinner {
+.pdf-workspace .pdf-spinner {
   animation: pdf-spin 1s linear infinite;
 }
 @keyframes pdf-spin {
@@ -197,11 +197,14 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pdf-spinner {
+.pdf-workspace .pdf-spinner {
     animation: none;
   }
+
+
+
 }
-.pdf-reader-state {
+.pdf-workspace .pdf-reader-state {
   width: min(380px, 100%);
   margin: auto;
   display: flex;
@@ -214,41 +217,41 @@
   border: 1px solid #ddddd3;
   box-sizing: border-box;
 }
-.pdf-reader-state > svg {
+.pdf-workspace .pdf-reader-state > svg {
   color: #bc8c6f;
   margin-bottom: 6px;
 }
-.pdf-reader-state h2 {
-  font-size: 17px;
+.pdf-workspace .pdf-reader-state h2 {
+  font-size: calc(17px * var(--pdf-text-scale, 1));
   letter-spacing: -.3px;
   font-weight: 600;
   margin: 12px 0 0;
 }
-.pdf-reader-state p {
-  font-size: 13px;
+.pdf-workspace .pdf-reader-state p {
+  font-size: calc(13px * var(--pdf-text-scale, 1));
   color: #777e72;
   line-height: 1.6;
   margin: 12px 0 20px;
   overflow-wrap: anywhere;
 }
-.pdf-reader-state button {
+.pdf-workspace .pdf-reader-state button {
   background: #e56b3f;
   color: white;
   padding: 9px 15px;
-  font-size: 12px;
+  font-size: calc(12px * var(--pdf-text-scale, 1));
   font-weight: 600;
   border: 1px solid #d35d32;
 }
-.pdf-reader-state button:hover:not(:disabled) {
+.pdf-workspace .pdf-reader-state button:hover:not(:disabled) {
   background: #d76037;
 }
-.pdf-password-form label {
-  font-size: 12px;
+.pdf-workspace .pdf-password-form label {
+  font-size: calc(12px * var(--pdf-text-scale, 1));
   align-self: flex-start;
   margin-bottom: 7px;
   color: #666e61;
 }
-.pdf-password-form input {
+.pdf-workspace .pdf-password-form input {
   border: 1px solid #cecec3;
   border-radius: 6px;
   background: white;
@@ -257,22 +260,22 @@
   box-sizing: border-box;
   margin-bottom: 14px;
 }
-.pdf-password-form button {
+.pdf-workspace .pdf-password-form button {
   align-self: stretch;
 }
-.pdf-reader-footer {
+.pdf-workspace .pdf-reader-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 10px;
+  font-size: calc(10px * var(--pdf-text-scale, 1));
   color: #8b9086;
   letter-spacing: .1px;
   padding: 10px 25px;
   background: #f8f7f3;
   border-top: 1px solid #dfdfd5;
 }
-.pdf-thumbnail {
+.pdf-workspace .pdf-thumbnail {
   height: 100%;
   width: 100%;
   display: flex;
@@ -282,7 +285,7 @@
   min-height: 100px;
   overflow: hidden;
 }
-.pdf-thumbnail canvas {
+.pdf-workspace .pdf-thumbnail canvas {
   display: block;
   max-width: 100%;
   max-height: 100%;
@@ -292,40 +295,43 @@
   box-shadow: 0 2px 9px #33392a16;
   background: white;
 }
-.pdf-thumbnail:not(.pdf-thumbnail-ready) canvas {
+.pdf-workspace .pdf-thumbnail:not(.pdf-thumbnail-ready) canvas {
   visibility: hidden;
   position: absolute;
 }
-.pdf-thumbnail-fallback {
+.pdf-workspace .pdf-thumbnail-fallback {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 11px;
   color: #b3afa1;
 }
-.pdf-thumbnail-fallback span {
-  font-size: 10px;
+.pdf-workspace .pdf-thumbnail-fallback span {
+  font-size: calc(10px * var(--pdf-text-scale, 1));
   letter-spacing: .4px;
   color: #96978a;
 }
 @media (max-width: 900px) {
-  .pdf-reader-heading {
+.pdf-workspace .pdf-reader-heading {
     padding: 20px;
   }
-  .pdf-reader-toolbar {
+.pdf-workspace .pdf-reader-toolbar {
     padding: 9px 14px;
     gap: 7px;
   }
-  .pdf-reader-progress {
+.pdf-workspace .pdf-reader-progress {
     display: none;
   }
-  .pdf-reader-viewport {
+.pdf-workspace .pdf-reader-viewport {
     padding: 20px;
   }
-  .pdf-reader-document h1 {
-    font-size: 19px;
+.pdf-workspace .pdf-reader-document h1 {
+    font-size: calc(19px * var(--pdf-text-scale, 1));
   }
-  .pdf-reader-footer {
+.pdf-workspace .pdf-reader-footer {
     padding: 9px 15px;
   }
+
+
+
 }

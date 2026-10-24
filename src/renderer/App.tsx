@@ -12,6 +12,7 @@ import { ResizableInspector } from './ResizableInspector';
 import { snippetCatalog, type MarkdownSnippet } from './snippetDefinitions';
 import { readCustomSnippets, saveCustomSnippets } from './customSnippets';
 import { SnippetSettings } from './SnippetSettings';
+import { PDFWorkspaceLoader } from './PDFWorkspaceLoader';
 
 type Intent = 'open' | 'refresh' | 'close';
 
@@ -58,6 +59,16 @@ function NoteTree({ notes, activePath, drafts, query, onOpen }: { notes: Note[];
 }
 
 export function App() {
+  const [activeWorkspace, setActiveWorkspace] = useState<'notes' | 'pdfs'>('notes');
+  const [pdfVisited, setPdfVisited] = useState(false);
+  const notesPanel = useRef<HTMLDivElement>(null);
+  const pdfPanel = useRef<HTMLDivElement>(null);
+  const workspaceFocus = useRef<{ notes: HTMLElement | null; pdfs: HTMLElement | null }>({ notes: null, pdfs: null });
+  const switchWorkspace = (next: 'notes' | 'pdfs') => {
+    if (next === activeWorkspace) return;
+    if (next === 'pdfs') setPdfVisited(true);
+    setActiveWorkspace(next);
+  };
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [activePath, setActivePath] = useState('');
@@ -103,11 +114,23 @@ export function App() {
   useEffect(() => {
     if (busy) return;
     const frame = requestAnimationFrame(() => {
-      if (focusBeforeIO.current?.isConnected && !document.querySelector('dialog[open]')) focusBeforeIO.current.focus({ preventScroll: true });
+      if (focusBeforeIO.current?.isConnected && !focusBeforeIO.current.closest('[hidden], [inert]')
+        && !document.querySelector('dialog[open]')) focusBeforeIO.current.focus({ preventScroll: true });
       focusBeforeIO.current = null;
     });
     return () => cancelAnimationFrame(frame);
   }, [busy]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      if (document.querySelector('dialog[open]')) return;
+      const remembered = workspaceFocus.current[activeWorkspace];
+      const panel = activeWorkspace === 'notes' ? notesPanel.current : pdfPanel.current;
+      if (remembered?.isConnected && !remembered.closest('[hidden], [inert]')) remembered.focus({ preventScroll: true });
+      else panel?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeWorkspace]);
 
   const acceptWorkspace = useCallback((next: Workspace) => {
     const sameNotebook = latest.current.workspace?.path === next.path;
@@ -282,6 +305,7 @@ export function App() {
 
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
+      if (activeWorkspace !== 'notes') return;
       if (!(event.metaKey || event.ctrlKey) || operation.current || document.querySelector('dialog[open]')) return;
       const key = event.key.toLowerCase();
       if (key === 's') { event.preventDefault(); void save(event.shiftKey); }
@@ -293,7 +317,7 @@ export function App() {
     };
     window.addEventListener('keydown', keyboard, true);
     return () => window.removeEventListener('keydown', keyboard, true);
-  }, [save, requestIntent, chooseMode]);
+  }, [save, requestIntent, chooseMode, activeWorkspace]);
 
   const create = async () => {
     if (operation.current || !newName.trim()) return;
@@ -332,13 +356,18 @@ export function App() {
 
   const appStyle = appearanceStyle(preferences);
 
-  return <div className={`app-shell ${focus ? 'focus-mode' : ''}`} style={appStyle} data-transparent={preferences.transparent} data-theme={preferences.theme} data-maximized={maximized}>
+  return <div className={`app-shell ${focus ? 'focus-mode' : ''}`} style={appStyle} data-transparent={preferences.transparent} data-theme={preferences.theme} data-maximized={maximized} data-workspace={activeWorkspace}>
     <header className="titlebar">
       <div className="titlebar-brand"><PrismMark small /><strong>prism</strong><span className="titlebar-divider" /><span>A little space for big ideas.</span></div>
+      <nav className="workspace-navigation" aria-label="Workspaces">
+        <button aria-label="Notes" aria-pressed={activeWorkspace === 'notes'} disabled={busy} onClick={() => switchWorkspace('notes')}><FileText size={15} />Notes{dirtyCount > 0 && <span className="workspace-unsaved" title={`${dirtyCount} unsaved notes`} />}</button>
+        <button aria-label="PDFs" aria-pressed={activeWorkspace === 'pdfs'} disabled={busy} onClick={() => switchWorkspace('pdfs')}><BookOpen size={15} />PDFs</button>
+      </nav>
       <div className="window-controls"><button aria-label="Minimize window" title="Minimize window" onClick={() => window.prism?.windowControl('minimize')}><Minus size={15} /></button><button aria-label={maximized ? 'Restore window' : 'Maximize window'} title={maximized ? 'Restore window' : 'Maximize window'} onClick={() => window.prism?.windowControl('maximize')}>{maximized ? <Copy size={13} /> : <Square size={13} />}</button><button className="close-window" aria-label="Close window" title="Close window" onClick={() => requestIntent('close')}><X size={17} /></button></div>
     </header>
 
-    <div className="app-body" inert={busy} aria-busy={busy}>
+    <div className="app-body" ref={notesPanel} tabIndex={-1} aria-label="Notes workspace" hidden={activeWorkspace !== 'notes'} inert={busy || activeWorkspace !== 'notes'} aria-busy={busy}
+      onFocusCapture={event => { workspaceFocus.current.notes = event.target as HTMLElement; }}>
       {!focus && <aside className="sidebar">
         <button className="workspace-switch" onClick={() => requestIntent('open')} title="Open a notebook folder (Ctrl+O)"><span className="workspace-icon"><BookOpen size={19} /></span><span><strong>{workspace?.name || 'Your notebook'}</strong><small>LOCAL NOTEBOOK</small></span><ChevronDown size={15} /></button>
         <div className="search-field"><Search size={15} /><input ref={search} value={query} onChange={event => setQuery(event.target.value)} placeholder="Find a note…" aria-label="Search notes" /><kbd>⌘ / Ctrl P</kbd></div>
@@ -377,7 +406,12 @@ export function App() {
       </ResizableInspector>}
     </div>
 
-    <footer className="statusbar"><div><span className={`status-dot ${dirtyCount ? 'unsaved' : ''}`} /><span>{busy ? 'Working…' : dirtyCount ? `${dirtyCount} unsaved ${dirtyCount === 1 ? 'note' : 'notes'}` : 'All changes saved'}</span><span className="status-divider" /><span>{notes.length} notes</span></div><div>{active && view === 'note' && <><span>Ln {cursor.line}, Col {cursor.column}</span><span className="status-divider" /><span>UTF-8</span><span>Markdown</span></>}<button onClick={() => setSettings(true)}><Layers3 size={12} />{preferences.transparent ? 'Transparent' : 'Opaque'}</button></div></footer>
+    {pdfVisited && <div className="pdf-panel" ref={pdfPanel} tabIndex={-1} aria-label="PDFs workspace" hidden={activeWorkspace !== 'pdfs'} inert={busy || activeWorkspace !== 'pdfs'} aria-busy={busy}
+      onFocusCapture={event => { workspaceFocus.current.pdfs = event.target as HTMLElement; }}>
+      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs'} onAppearance={() => setSettings(true)} />
+    </div>}
+
+    <footer className="statusbar"><div><span className={`status-dot ${dirtyCount ? 'unsaved' : ''}`} /><span>{busy ? 'Working…' : dirtyCount ? `${dirtyCount} unsaved ${dirtyCount === 1 ? 'note' : 'notes'}` : 'All changes saved'}</span><span className="status-divider" /><span>{notes.length} notes</span></div><div>{activeWorkspace === 'notes' && active && view === 'note' && <><span>Ln {cursor.line}, Col {cursor.column}</span><span className="status-divider" /><span>UTF-8</span><span>Markdown</span></>}<button onClick={() => setSettings(true)}><Layers3 size={12} />{preferences.transparent ? 'Transparent' : 'Opaque'}</button></div></footer>
 
     {creating && <Modal title="A new place for an idea" onClose={() => !busy && setCreating(false)}><form onSubmit={event => { event.preventDefault(); void create(); }}><label className="field-label" htmlFor="new-note-name">Note name</label><input id="new-note-name" className="text-input" autoFocus value={newName} onChange={event => setNewName(event.target.value)} placeholder="An idea worth keeping" disabled={busy} maxLength={220} /><p className="field-help">Use a path like <code>Ideas/My note</code> to organize it in a folder. The .md extension is added for you.</p>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="subtle-button" disabled={busy} onClick={() => setCreating(false)}>Cancel</button><button className="primary-button" type="submit" disabled={busy || !newName.trim()}><Plus size={16} />{busy ? 'Creating…' : 'Create note'}</button></div></form></Modal>}
 
@@ -397,7 +431,7 @@ export function App() {
         <legend>Text size</legend>
         <div className="text-size-heading"><output htmlFor="text-size">{preferences.textScale}%</output><button type="button" className="subtle-button" onClick={() => setPreferences(previous => ({ ...previous, textScale: textSize.default }))}>Reset text size</button></div>
         <input id="text-size" type="range" aria-label="Text size" aria-valuetext={`${preferences.textScale}%`} aria-describedby="text-size-help" min={textSize.min} max={textSize.max} step={textSize.step} value={preferences.textScale} onChange={event => setPreferences(previous => ({ ...previous, textScale: Number(event.target.value) }))} />
-        <p id="text-size-help" className="field-help">Applies to notes, navigation, and settings.</p>
+        <p id="text-size-help" className="field-help">Applies to notes, PDF controls, navigation, and settings.</p>
       </fieldset>
       <ThemeSettings theme={preferences.theme} palettes={{ ...preferences.themeColors, [preferences.theme]: preferences.colors }} onChange={theme => setPreferences(previous => selectTheme(previous, theme))} />
       <ColorSettings key={preferences.theme} colors={preferences.colors} defaultColors={themes[preferences.theme].colors} onChange={colors => setPreferences(previous => ({ ...previous, colors }))} />

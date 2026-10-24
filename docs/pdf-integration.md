@@ -1,6 +1,6 @@
 # PDF integration into Prism
 
-Status: stage 1 has started with the shared library foundation. Notes/PDFs navigation is the next increment; it is not implemented yet. Follow the smaller steps in [the stage 1 breakdown](pdf-stage-1.md).
+Status: the shared library foundation and Notes/PDFs navigation are implemented. The next increment completes broader compatibility and launch-transition checks. Follow the smaller steps in [the stage 1 breakdown](pdf-stage-1.md).
 
 ## Product direction
 

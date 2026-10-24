@@ -3,7 +3,7 @@
 Stage 1 of [PDF integration](pdf-integration.md) brings the existing Prism PDF library and reader into Prism. Deliver each increment on its own branch and leave its PR unmerged. Run local checks and request review; do not check GitHub CI.
 
 - [x] Shared library foundation in the standalone app.
-- [ ] Notes and PDFs in one window.
+- [x] Notes and PDFs in one window.
 - [ ] Integrated compatibility checks and launch transition.
 
 ## 1. Shared library foundation
@@ -22,6 +22,8 @@ Ownership is cooperative and uses the local filesystem's SQLite file locks: both
 Acceptance: real competing-process denial; retry after orderly close and abrupt process death; same-process contention; close during a pending write; failed-open cleanup; unchanged legacy catalogue and PDF bytes; the actual desktop's in-use error, retry, reader flow, and normal-quit handoff.
 
 ## 2. Notes and PDFs in one window
+
+Implemented with retained workspace panels, a lazy PDF renderer, shared appearance and native controls, and the common PDF service. The Notes panel stays mounted to preserve CodeMirror state; the reader stays mounted after its first visit. Keyboard shortcuts are limited to the visible workspace, while draft protection remains global.
 
 - Register the shared library service and validated bridge under Prism's existing lifecycle. Defer opening the library until PDFs is visited. The standalone launcher continues to use the same service and profile.
 - Add Notes/PDFs navigation. Keep the CodeMirror instance, drafts, selection, editor mode, and undo history alive across switches. Preserve save/discard/cancel protection while PDFs is active.

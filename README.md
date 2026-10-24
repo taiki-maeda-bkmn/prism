@@ -2,9 +2,9 @@
 
 A local Markdown notebook with live preview, connected notes, and a transparent desktop window. Built with Electron, React, TypeScript, and CodeMirror.
 
-The repository also contains **[Prism PDF](pdf-manager/README.md)**, a separate desktop PDF library and reader. Run it with `npm run start:pdf` after installing dependencies.
+Prism includes **Notes** and **PDFs** workspaces in the same window. Use the buttons in the title bar to switch between writing and the local PDF library and reader.
 
-The [PDF integration plan](docs/pdf-integration.md) describes bringing that library and reader into Prism in stages. The integration is planned; the two apps currently launch separately.
+The **[Prism PDF](pdf-manager/README.md)** standalone launcher remains available with `npm run start:pdf`. Both launchers use the same existing PDF library for your OS account; close the app that owns it before opening it in the other launcher. See the [integration plan](docs/pdf-integration.md) for later side-by-side writing and PDF page links.
 
 ![Prism showing source editing, live preview, and connected notes](docs/prism-desktop.png)
 
@@ -33,12 +33,13 @@ On Linux or Windows with WSLg, install the launcher once after installing depend
 npm run install:markdown
 ```
 
-On Windows, double-click **Prism** on your desktop or search for **Prism** in the Start menu. On Linux, choose **Prism** from your applications menu. The green prism icon opens the Markdown editor; **Prism PDF** opens the separate PDF manager. Launching needs no terminal and does not rebuild the app.
+On Windows, double-click **Prism** on your desktop or search for **Prism** in the Start menu. On Linux, choose **Prism** from your applications menu. The green prism icon opens Prism with Notes and PDFs; **Prism PDF** still opens the standalone reader. Launching needs no terminal and does not rebuild the app.
 
 Keep this repository in place: the shortcuts use its installed Electron and built app. Run `npm run install:markdown` again after moving the repository or updating the app. Your notebook and preferences remain in their existing locations. To remove the launchers, delete the Windows shortcuts and the Linux `io.github.beautysamurai.Prism.desktop` file from `${XDG_DATA_HOME:-~/.local/share}/applications`.
 
 ## Write, read, connect
 
+- **Notes and PDFs:** import, organize, and read PDFs without opening a second app. Switching workspaces keeps the note's draft, cursor, selection, mode, and undo history, as well as the reader's current page and password session. Library filters stay in place when returning from a document. PDFs use the same Appearance settings; document pages stay opaque. PDF resources load locally on your first visit.
 - **Source, Split, Live, and Read:** choose Markdown source, side-by-side preview, direct formatted editing, or a reading view. Mode changes retain your cursor and undo history.
 - **Room to write:** Live and Read use the available pane width in every theme, with modest side padding that adapts to the window size.
 - **Arrange your graph:** drag individual notes to reshape the full graph, or focus a note and use the arrow keys (hold Shift for larger steps). Click or press Enter/Space to open a note. Positions stay in place while navigating, editing, and refreshing the current notebook; they reset when you switch notebooks or restart Prism. **Reset layout** restores the automatic arrangement; the percentage button resets only pan and zoom.
@@ -59,6 +60,8 @@ Keep this repository in place: the shortcuts use its installed Electron and buil
 - **Your colors:** change the accent, page background, and text colors with a picker or hex code. Colors update immediately across the source editor, preview, and graph. Each theme remembers its custom palette, including when you switch away and return. **Reset colors** restores the selected theme’s default palette while keeping the other themes’ colors and your editor mode and transparency settings.
 
 Saving is explicit. Unsaved drafts survive switching between notes within the current session. Closing Prism, refreshing the notebook, or opening another folder asks you to save or discard those drafts. Drafts are kept in memory until saved, so save before terminating the process or shutting down the computer.
+
+In **PDFs**, **Ctrl+O / ⌘O** imports documents and **Ctrl+K / ⌘K** focuses library search. In **Notes**, **Ctrl+O / ⌘O** opens a notebook. Note editing shortcuts apply only in Notes. Closing from either workspace still asks about unsaved notes. PDFs remain in the existing managed library, separate from your Markdown notebook; see [library storage and backup](pdf-manager/README.md#your-library). Switching workspaces neither saves nor discards a draft, and PDF passwords are never persisted.
 
 Built-in snippets insert ordinary Markdown:
 

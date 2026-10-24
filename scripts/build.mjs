@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { copyFile, cp, mkdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { japaneseFontCSS } from './japanese-font.mjs';
 
@@ -28,7 +28,7 @@ await Promise.all([
     sourcemap: true,
   }),
   build({
-    entryPoints: ['src/renderer/main.tsx'],
+    entryPoints: { app: 'src/renderer/main.tsx' },
     plugins: [{
       name: 'japanese-glyph-font',
       setup(plugin) {
@@ -38,10 +38,14 @@ await Promise.all([
         }));
       },
     }],
-    outfile: 'dist/renderer/app.js',
+    outdir: 'dist/renderer',
     bundle: true,
     platform: 'browser',
-    format: 'iife',
+    format: 'esm',
+    splitting: true,
+    // Keep chunks beside app.js so the reader's import.meta.url-relative
+    // worker, character maps, fonts, and WASM paths work in both app builds.
+    chunkNames: '[name]-[hash]',
     target: 'chrome132',
     sourcemap: true,
     minify: true,
@@ -54,4 +58,9 @@ await copyFile('src/renderer/index.html', 'dist/renderer/index.html');
 await copyFile('assets/prism.png', 'dist/icon.png');
 await copyFile('node_modules/katex/LICENSE', 'dist/katex-LICENSE.txt');
 await copyFile('node_modules/@fontsource-variable/noto-sans-jp/LICENSE', 'dist/noto-sans-jp-OFL.txt');
+await copyFile('node_modules/pdfjs-dist/LICENSE', 'dist/pdfjs-LICENSE.txt');
+await copyFile('node_modules/pdfjs-dist/build/pdf.worker.mjs', 'dist/renderer/pdf.worker.mjs');
+await Promise.all(['cmaps', 'standard_fonts', 'wasm'].map(name => cp(
+  path.join('node_modules/pdfjs-dist', name), path.join('dist/renderer', name), { recursive: true },
+)));
 console.log('Prism built in dist/.');

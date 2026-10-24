@@ -33,13 +33,14 @@ function cancelled(error: unknown): boolean {
 }
 
 interface PdfReaderProps {
+  workspaceActive?: boolean;
   document: PDFDocument;
   onUpdate: (patch: { lastPage?: number; pageCount?: number }) => void;
   onClose: () => void;
 }
 
 /** PDF files never become executable documents: only PDF.js canvas output is mounted. */
-export function PdfReader({ document: entry, onUpdate, onClose }: PdfReaderProps) {
+export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive = true }: PdfReaderProps) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [pageNumber, setPageNumber] = useState(Math.max(1, entry.lastPage || 1));
   const [pageInput, setPageInput] = useState(String(Math.max(1, entry.lastPage || 1)));
@@ -54,6 +55,7 @@ export function PdfReader({ document: entry, onUpdate, onClose }: PdfReaderProps
   const [password, setPassword] = useState('');
   const [retry, setRetry] = useState(0);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
   const paperRef = useRef<HTMLDivElement>(null);
   const passwordCallback = useRef<((value: string) => void) | null>(null);
   const updateRef = useRef(onUpdate);
@@ -65,10 +67,17 @@ export function PdfReader({ document: entry, onUpdate, onClose }: PdfReaderProps
   useEffect(() => {
     const container = viewportRef.current;
     if (!container) return;
-    const observer = new ResizeObserver(([size]) => setAvailableWidth(Math.max(160, size.contentRect.width - 64)));
+    const observer = new ResizeObserver(([size]) => {
+      // Hiding the workspace must not replace the retained page with a tiny render.
+      if (size.contentRect.width > 0) setAvailableWidth(Math.max(160, size.contentRect.width - 64));
+    });
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (workspaceActive && passwordPrompt && !window.document.querySelector('dialog[open]')) passwordRef.current?.focus();
+  }, [workspaceActive, passwordPrompt]);
 
   useEffect(() => {
     let active = true;
@@ -235,7 +244,7 @@ export function PdfReader({ document: entry, onUpdate, onClose }: PdfReaderProps
         <LockKeyhole size={30} /><h2>Password required</h2>
         <p>{passwordPrompt === 'incorrect' ? 'That password did not work. Please try again.' : 'Enter this PDF’s password to read it. Passwords are never saved.'}</p>
         <label htmlFor="pdf-password">Document password</label>
-        <input id="pdf-password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoFocus autoComplete="off" />
+        <input ref={passwordRef} id="pdf-password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="off" />
         <button type="submit" disabled={!password}>Unlock PDF</button>
       </form>}
       {!passwordPrompt && error && <div className="pdf-reader-state" role="alert">
