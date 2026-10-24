@@ -23,6 +23,7 @@ The new requirements in `AGENTS.md` are being implemented one at a time:
 - [x] [Math rendering](docs/math-rendering.md): offline inline and display equations in Split, Read, and Live, with source editing, invalid-formula recovery, and unchanged Markdown saves.
 - [x] Wider writing area: Live and Read fill the available pane in every theme, with responsive side padding and no fixed centered-column width.
 - [x] Rearrange the full graph by dragging individual vertices or using arrow keys. Connections follow the moved notes, clicks and Enter/Space still open notes, and manual positions survive navigation, edits, and refresh within the current notebook session. Reset layout restores automatic positioning; restart or notebook switching starts a fresh layout.
+- [ ] [Integrate Prism PDF](docs/pdf-integration.md): first add Notes and PDFs workspaces in one app using the existing library and reader; later add side-by-side writing, page links, and PDF graph connections. Preserve existing data and keep the sibling `pdfmanager` project independent during the transition.
 
 Text size now defaults to 120% and remains adjustable in Appearance. Built-in slash snippets now support Tab completion in Source, Split, and Live modes. User-defined templates and richer Live blocks remain separate follow-ups.
 
