@@ -121,7 +121,8 @@ export class LibraryStore {
   private operations: Promise<unknown> = Promise.resolve();
   private readonly writeIO: LibraryWriteIO;
 
-  private constructor(root: string, rootIdentity: Stats, filesIdentity: Stats, documents: PDFDocument[], catalogHash: string | null, writeIO: LibraryWriteIO) {
+  private constructor(root: string, rootIdentity: Stats, filesIdentity: Stats, documents: PDFDocument[], catalogHash: string | null, writeIO: LibraryWriteIO,
+    private readonly checkOwnership: () => Promise<void>) {
     this.root = root;
     this.filesDirectory = path.join(root, 'documents');
     this.catalogPath = path.join(root, 'catalog.json');
@@ -132,7 +133,8 @@ export class LibraryStore {
     this.writeIO = writeIO;
   }
 
-  static async open(directory: string, writeIO: Partial<LibraryWriteIO> = {}): Promise<LibraryStore> {
+  static async open(directory: string, writeIO: Partial<LibraryWriteIO> = {}, checkOwnership: () => Promise<void> = async () => undefined): Promise<LibraryStore> {
+    await checkOwnership();
     await fs.mkdir(directory, { recursive: true, mode: 0o700 });
     const original = await fs.lstat(directory);
     if (!original.isDirectory() || original.isSymbolicLink()) throw new Error('The PDF library folder must be an ordinary directory.');
@@ -145,7 +147,7 @@ export class LibraryStore {
     try { bytes = await readRegularFile(path.join(root, 'catalog.json'), MAX_CATALOG_BYTES); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     return new LibraryStore(root, await fs.stat(root), filesIdentity, bytes ? parseCatalog(bytes) : [], bytes ? digest(bytes) : null,
-      { ...defaultWriteIO, ...writeIO });
+      { ...defaultWriteIO, ...writeIO }, checkOwnership);
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -155,6 +157,7 @@ export class LibraryStore {
   }
 
   private async checkDirectories(): Promise<void> {
+    await this.checkOwnership();
     const [root, files] = await Promise.all([fs.lstat(this.root), fs.lstat(this.filesDirectory)]);
     if (!root.isDirectory() || root.isSymbolicLink() || !sameFile(root, this.rootIdentity)
       || !files.isDirectory() || files.isSymbolicLink() || !sameFile(files, this.filesIdentity)) {

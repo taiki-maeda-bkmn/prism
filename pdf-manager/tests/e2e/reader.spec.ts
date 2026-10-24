@@ -301,10 +301,14 @@ test('uses real window transparency and restores its original bounds', async () 
     }, { x: Math.round(area.x + 4), y: Math.round(area.y + 4), width: 1, height: 1 });
   }
   // DOM visibility can precede the window manager's initial placement. Capture
-  // restore geometry only once the native window is mapped and focused.
-  await expect.poll(() => desktop!.evaluate(({ BrowserWindow }) => {
+  // restore geometry only once the native window is mapped on a display. WSLg
+  // can report focus while its initial off-screen placeholder bounds remain.
+  await expect.poll(() => desktop!.evaluate(({ BrowserWindow, screen }) => {
     const window = BrowserWindow.getAllWindows()[0];
-    return window.isVisible() && window.isFocused();
+    const bounds = window.getBounds();
+    return window.isVisible() && window.isFocused() && screen.getAllDisplays().some(({ workArea }) =>
+      bounds.x < workArea.x + workArea.width && bounds.x + bounds.width > workArea.x
+      && bounds.y < workArea.y + workArea.height && bounds.y + bounds.height > workArea.y);
   })).toBe(true);
   const originalBounds = await desktop!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
   const expandedBounds = await desktop!.evaluate(({ BrowserWindow, screen }) => screen.getDisplayMatching(BrowserWindow.getAllWindows()[0].getBounds()).workArea);

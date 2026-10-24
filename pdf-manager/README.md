@@ -33,6 +33,8 @@ Imported PDFs are copied into Prism PDF's application-data directory, separate f
 
 The default library locations are `%APPDATA%/prism-pdf/library` on Windows, `~/Library/Application Support/prism-pdf/library` on macOS, and `$XDG_CONFIG_HOME/prism-pdf/library` (normally `~/.config/prism-pdf/library`) on Linux. **Show library copy** opens its location in the system file manager.
 
+Only one updated Prism app can own a library at a time. If another app has it open, close that app and choose **Try again**. Ownership is released automatically after a crash; keep the hidden `.prism-library-lock.sqlite` file in place. Close older app builds before sharing their library with an updated build.
+
 **Remove** removes the catalog entry and its tags, favorite, and reading position. Both the original and the managed PDF remain on disk. Removed copies can be imported again from `library/documents`; this release does not automatically reclaim their disk space. The displayed storage total counts cataloged PDFs only. A damaged catalog is reported without overwriting it; restore its backup before continuing.
 
 Failed imports clean up copies that can still be verified as belonging to the failed operation. If a file was replaced, edited, or its ownership is uncertain, it is kept and its recovery path is shown in the error.
@@ -55,3 +57,5 @@ npm run test:pdf:e2e  # Actual Electron desktop journeys; needs a display
 On Linux without a display, run the desktop suite with `xvfb-run --auto-servernum npm run test:pdf:e2e`. The desktop suite uses temporary profiles; it does not alter your normal library.
 
 Source code is in `pdf-manager/src/`; generated output is in `pdf-manager/dist/`. Dependencies and their pinned versions are managed by the repository-root package manifest and lockfile.
+
+The [integration plan](../docs/pdf-stage-1.md) starts with a shared `PDFLibraryService`, profile resolver, and reusable IPC handlers. The standalone app uses these boundaries now; Notes/PDFs navigation inside the Markdown app is the next increment. The library uses bundled Node SQLite only as an ownership lock; the existing JSON catalogue and PDF files remain unchanged.
