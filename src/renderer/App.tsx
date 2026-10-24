@@ -364,12 +364,12 @@ export function App() {
     {creating && <Modal title="A new place for an idea" onClose={() => !busy && setCreating(false)}><form onSubmit={event => { event.preventDefault(); void create(); }}><label className="field-label" htmlFor="new-note-name">Note name</label><input id="new-note-name" className="text-input" autoFocus value={newName} onChange={event => setNewName(event.target.value)} placeholder="An idea worth keeping" disabled={busy} maxLength={220} /><p className="field-help">Use a path like <code>Ideas/My note</code> to organize it in a folder. The .md extension is added for you.</p>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="subtle-button" disabled={busy} onClick={() => setCreating(false)}>Cancel</button><button className="primary-button" type="submit" disabled={busy || !newName.trim()}><Plus size={16} />{busy ? 'Creating…' : 'Create note'}</button></div></form></Modal>}
 
     {snippetHelp && <Modal title="Markdown snippets" onClose={() => setSnippetHelp(false)} className="snippet-help-modal">
-      <p className="modal-description">In Source, Split, or Live mode, type <code>/</code> on an empty line to see snippets. Use the arrow keys to choose one, then press <kbd>Tab</kbd> to insert it. You can also type a full shortcut, such as <code>/task</code>, and press <kbd>Tab</kbd>.</p>
+      <p className="modal-description">In Source, Split, or Live mode, type <code>/</code> at the start of a line or within prose to see snippets. Use the arrow keys to choose one, then press <kbd>Tab</kbd> to insert it. You can also type a full shortcut, such as <code>/task</code>, and press <kbd>Tab</kbd>.</p>
       <SnippetSettings snippets={customSnippets} onChange={changeCustomSnippets} />
       <h3 className="snippet-builtins-heading">Built-in snippets</h3>
       <dl className="snippet-catalog">{snippetCatalog.map(snippet => <div key={snippet.trigger}><dt><code>{snippet.trigger}</code><strong>{snippet.title}</strong></dt><dd>{snippet.description}</dd></div>)}</dl>
       <p className="field-help"><kbd>Tab</kbd> moves to the next field; <kbd>Shift+Tab</kbd> moves back. <kbd>Esc</kbd> closes suggestions or leaves a snippet. Outside snippets, Tab moves focus as usual.</p>
-      <p className="field-help">Block snippets need an otherwise empty line. <code>/link</code> and <code>/wiki</code> also work after a space in a sentence. Snippets insert ordinary Markdown.</p>
+      <p className="field-help">Shortcuts work after whitespace, punctuation, or Japanese text in prose. Block snippets add line breaks as needed; <code>/link</code> and <code>/wiki</code> insert at the cursor. Snippets stay inactive inside code, HTML, links, and URLs.</p>
       <div className="modal-actions"><button className="primary-button" onClick={() => setSnippetHelp(false)}><Check size={16} />Done</button></div>
     </Modal>}
 

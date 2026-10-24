@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CompletionContext, nextSnippetField, prevSnippetField, snippet } from '@codemirror/autocomplete';
 import { markdown } from '@codemirror/lang-markdown';
+import { history, undo } from '@codemirror/commands';
 import { EditorSelection, EditorState, type Transaction } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
+import { marked } from 'marked';
 import { dismissSnippets, expandSnippet, findSnippetContext, markdownSnippets, snippetCatalog, snippetCompletionSource } from '../src/renderer/snippets';
 
 function stateAt(marked: string) {
@@ -12,7 +14,7 @@ function stateAt(marked: string) {
   return EditorState.create({
     doc: marked.replace('¦', ''),
     selection: { anchor },
-    extensions: [markdown(), markdownSnippets, EditorState.allowMultipleSelections.of(true)],
+    extensions: [markdown(), markdownSnippets, history(), EditorState.allowMultipleSelections.of(true)],
   });
 }
 
@@ -30,16 +32,19 @@ test('offers the built-in Markdown catalog and narrows slash prefixes', () => {
   assert.equal(completions(stateAt('ordinary text¦')), null);
 });
 
-test('allows block snippets only on otherwise blank lines with up to three leading spaces', () => {
+test('offers block snippets on blank lines and within prose', () => {
   for (const indentation of ['', ' ', '  ', '   ']) {
     const state = stateAt(`# A note\n\n${indentation}/h1¦`);
     const context = findSnippetContext(state);
     assert.ok(context, JSON.stringify(indentation));
-    assert.equal(context.block, true);
+    assert.equal(context.allowBlock, true);
     assert.equal(state.sliceDoc(context.from, context.to), '/h1');
     assert.deepEqual(completions(state)?.options.map(item => item.label), ['/h1']);
   }
-  for (const input of ['Text /h1¦', '- /h1¦', '> /h1¦', '    /h1¦', '\t/h1¦', '/h1¦ existing text']) {
+  for (const input of ['Text /h1¦', '- /h1¦', '> /h1¦', '/h1¦ existing text']) {
+    assert.deepEqual(completions(stateAt(input))?.options.map(item => item.label), ['/h1'], input);
+  }
+  for (const input of ['    /h1¦', '\t/h1¦']) {
     assert.equal(completions(stateAt(input)), null, input);
   }
 });
@@ -49,10 +54,10 @@ test('allows link and wiki snippets at whitespace boundaries in prose', () => {
     const state = stateAt(`A sentence ${trigger}¦ with more text.`);
     const context = findSnippetContext(state);
     assert.ok(context);
-    assert.equal(context.block, false);
+    assert.equal(context.allowBlock, true);
     assert.deepEqual(completions(state)?.options.map(item => item.label), [trigger]);
   }
-  assert.deepEqual(completions(stateAt('A sentence /¦'))?.options.map(item => item.label).sort(), ['/link', '/wiki']);
+  assert.deepEqual(completions(stateAt('A sentence /¦'))?.options.map(item => item.label).sort(), snippetCatalog.map(item => item.trigger).sort());
   for (const input of [
     'Some <span title=">">text</span> /link¦',
     "Some <span title='>'>text</span> /link¦",
@@ -93,10 +98,61 @@ test('does not interpret snippets inside code, links, HTML, escaped text, or wor
     '\\/link¦',
     '/link¦er',
     '/li¦nk',
+    'https://資料/link¦',
+    '資料/保存/link¦',
+    'C:\\資料\\/link¦',
+    'https:/link¦',
+    '/link¦/path',
   ];
   for (const input of guarded) {
     assert.equal(completions(stateAt(input)), null, input);
   }
+});
+
+test('recognizes punctuation and Japanese boundaries on either side of a shortcut', () => {
+  for (const input of ['Text (/link¦).', '日本語/link¦続き', 'カタカナ/link¦ひらがな', '文章。/link¦です', '「/wiki¦」']) {
+    assert.ok(completions(stateAt(input)), input);
+  }
+});
+
+test('inserts valid Markdown blocks between existing prose in one undoable transaction', () => {
+  for (const [trigger, tokenType] of [['/h1', 'heading'], ['/task', 'list'], ['/quote', 'blockquote'], ['/code', 'code'], ['/table', 'table']]) {
+    let state = stateAt(`Before ${trigger}¦ after.`);
+    const original = state.doc.toString();
+    const definition = snippetCatalog.find(item => item.trigger === trigger)!;
+    const completion = completions(state)!.options[0];
+    const context = findSnippetContext(state)!;
+    const editor = { get state() { return state; }, dispatch(transaction: Transaction) { state = transaction.state; } } as unknown as EditorView;
+    assert.equal(typeof completion.apply, 'function');
+    if (typeof completion.apply === 'function') completion.apply(editor, completion, context.from, context.to);
+    assert.ok(state.doc.toString().startsWith('Before \n\n'), trigger);
+    assert.ok(state.doc.toString().endsWith('\n\n after.'), trigger);
+    assert.ok(marked.lexer(state.doc.toString()).some(token => token.type === tokenType), definition.title);
+    assert.ok(!state.selection.main.empty, 'The first field remains selected inside the inserted block.');
+    const serialized = state.doc.sliceString(0, state.doc.length, '\r\n');
+    assert.equal(serialized.replace(/\r\n/g, '').includes('\n'), false);
+    assert.equal(undo(editor), true);
+    assert.equal(state.doc.toString(), original);
+  }
+});
+
+test('keeps separate blocks outside inline formatting and equations', () => {
+  for (const input of ['**Bold /task¦ text**', '*Emphasis /code¦ text*', '$x + /table¦$']) {
+    assert.equal(completions(stateAt(input)), null, input);
+  }
+  assert.ok(completions(stateAt('**Bold /link¦ text**')));
+  assert.ok(completions(stateAt('After **bold** /task¦')));
+  assert.ok(completions(stateAt('$a$日本語/task¦続き$b$')), 'Closing equation delimiters cannot start another equation across prose.');
+  assert.ok(completions(stateAt('\\(x + /link¦\\)')));
+});
+
+test('math context uses real document syntax when the nearby window starts inside code', () => {
+  const prefix = '```text\n' + 'a'.repeat(21_000) + '\n```\n\n';
+  assert.equal(completions(stateAt(prefix + '$x + /task¦$')), null);
+  assert.ok(completions(stateAt(prefix + 'After code /task¦')));
+  const large = stateAt('/task¦\n\n' + 'An ordinary paragraph.\n\n'.repeat(75_000) + '$x$');
+  assert.ok(completions(large), 'Distant equations do not affect a shortcut at the beginning of a large note.');
+  assert.ok(completions(stateAt('\\(a '.repeat(4_900) + ' /task¦')));
 });
 
 test('never replaces selected text or expands at multiple cursors', () => {

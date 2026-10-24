@@ -12,7 +12,6 @@ export function validateCustomSnippet(candidate: MarkdownSnippet, others: readon
   if (candidate.description.length > customSnippetLimits.description) return 'Keep the description within 240 characters.';
   if (!candidate.template.trim() || candidate.template.length > customSnippetLimits.template) return 'Enter a template of 1–20,000 characters.';
   if (/\0/.test(candidate.template)) return 'Remove null characters from the template.';
-  if (!candidate.block && /[\r\n]/.test(candidate.template)) return 'Snippets used inside a sentence must fit on one line.';
   return null;
 }
 
