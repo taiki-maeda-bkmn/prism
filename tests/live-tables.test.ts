@@ -85,12 +85,10 @@ test('tables without outer pipes and GFM short or extra rows follow reading rend
   assert.equal(state.doc.toString(), source, 'Extra source cells are retained even though GFM does not display them.');
 });
 
-test('malformed tables, container tables, HTML, and code examples remain source', () => {
+test('malformed tables, HTML, and code examples remain source', () => {
   const fallback = [
     '| A | B |\n| not a delimiter | --- |\n| one | two |',
     '| A | B |\n| --- |\n| one | two |',
-    `> ${simpleTable.replaceAll('\n', '\n> ')}`,
-    `- ${simpleTable.replaceAll('\n', '\n  ')}`,
     `\`\`\`md\n${simpleTable}\n\`\`\``,
     simpleTable.split('\n').map(line => `    ${line}`).join('\n'),
     `<div>\n${simpleTable}\n</div>`,

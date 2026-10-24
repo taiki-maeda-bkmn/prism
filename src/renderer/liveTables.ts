@@ -7,10 +7,15 @@ import { type MarkdownTableRange, scanMarkdownTables, tableCellPosition } from '
 const composingTable = Annotation.define<boolean>();
 
 class TableWidget extends WidgetType {
-  constructor(readonly table: MarkdownTableRange) { super(); }
+  readonly containerKey: string;
+  constructor(readonly table: MarkdownTableRange) {
+    super();
+    this.containerKey = JSON.stringify(table.containers);
+  }
 
   eq(other: TableWidget) {
-    return this.table.raw === other.table.raw && this.table.referenceKey === other.table.referenceKey;
+    return this.table.raw === other.table.raw && this.table.markdown === other.table.markdown
+      && this.table.referenceKey === other.table.referenceKey && this.containerKey === other.containerKey;
   }
 
   toDOM(view: EditorView) {
@@ -25,7 +30,7 @@ class TableWidget extends WidgetType {
     const content = document.createElement('div');
     content.className = 'cm-live-table-content';
     const template = document.createElement('template');
-    template.innerHTML = renderMarkdown(this.table.raw, this.table.references);
+    template.innerHTML = renderMarkdown(this.table.markdown, this.table.references);
     // Keep supported links available to Prism's navigation router. Ordinary
     // clicks still reveal the cell source; no anchor navigates the renderer.
     for (const link of template.content.querySelectorAll('a')) {
@@ -65,14 +70,55 @@ class TableWidget extends WidgetType {
       child.removeAttribute('autofocus');
     }
     content.append(template.content);
-    element.append(button, content);
+    // Keep container structure inside the measured block widget. Its source
+    // prefixes are included in the replacement and reappear on source reveal.
+    let nested: HTMLElement = content;
+    for (let index = this.table.containers.length - 1; index >= 0; index--) {
+      const container = this.table.containers[index];
+      const wrapper = document.createElement('div');
+      wrapper.className = `cm-live-table-${container.kind}`;
+      if (container.kind === 'list') {
+        const marker = document.createElement('span');
+        marker.className = 'cm-live-table-list-marker';
+        marker.style.width = `${container.indent}ch`;
+        if (container.marker !== undefined) {
+          marker.textContent = container.marker;
+          marker.tabIndex = 0;
+          marker.setAttribute('role', 'button');
+          marker.setAttribute('aria-label', `Edit list marker: ${container.marker}`);
+          marker.title = 'Edit list marker';
+          const revealMarker = () => {
+            const current = currentTable();
+            const currentContainer = current?.containers[index];
+            if (!current || currentContainer?.kind !== 'list' || currentContainer.markerOffset === undefined) return;
+            view.dispatch({ selection: { anchor: current.from + currentContainer.markerOffset }, scrollIntoView: true });
+            view.focus();
+          };
+          marker.addEventListener('mousedown', event => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            revealMarker();
+          });
+          marker.addEventListener('keydown', event => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            revealMarker();
+          });
+        } else marker.setAttribute('aria-hidden', 'true');
+        wrapper.append(marker);
+      }
+      wrapper.append(nested);
+      nested = wrapper;
+    }
+    element.append(button, nested);
 
     const currentTable = () => {
       if (view.compositionStarted || view.composing || !element.isConnected
         || view.state.field(liveTableState, false)?.pending) return;
       const position = view.posAtDOM(element);
       return getLiveTableRanges(view.state).find(table => table.from === position
-        && table.raw === this.table.raw && table.referenceKey === this.table.referenceKey);
+        && table.raw === this.table.raw && table.markdown === this.table.markdown
+        && table.referenceKey === this.table.referenceKey && JSON.stringify(table.containers) === this.containerKey);
     };
     const reveal = (row = 0, column = 0) => {
       const current = currentTable();
