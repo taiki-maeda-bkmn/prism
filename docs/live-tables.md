@@ -10,7 +10,7 @@
 - Keep formula decorations out of table-owned source, preventing overlapping replacements. The table renderer typesets cell equations once.
 - Defer decoration changes during IME composition and refresh after composition ends.
 - Let wide tables scroll horizontally without widening the editor. Inherit theme colors, Japanese fonts, text scaling, and window transparency.
-- Treat displayed links as labels in this editing surface: clicking opens the cell source. Read and Split retain normal link navigation. Images display their alternative text.
+- Ctrl+left-click displayed links to open them (Command+click also works). Ordinary clicks open the cell source. Read and Split retain normal link navigation. Images display their alternative text.
 
 Incomplete tables remain editable Markdown. Tables nested inside quotes or lists also retain source in this increment, preserving their container markers. Table-like text inside code, HTML blocks, or multiline equations is not converted. Formulas spanning physical table rows also retain source; supported cell formulas fit on one line.
 

@@ -7,7 +7,7 @@ The brief asks for a mode where typing `# Title` formats the heading in the edit
 - Add **Live** beside Source, Split, and Read. Remember the selected mode. Keep existing shortcuts; Ctrl/⌘+4 opens Live.
 - Use the existing CodeMirror document and undo history. Render formatting with decorations rather than converting edited HTML back into Markdown.
 - Style headings, bold, italic, strikethrough, inline code, and block quotes as the user types. Hide their formatting markers on inactive lines; reveal markers on every line touched by the cursor or a selection.
-- Initially keep unsupported block syntax as editable Markdown, then add the code/checklist and table follow-ups below. Links, ordinary list markers, and raw HTML retain their source syntax. Inline formatting inside list items receives the supported text treatment.
+- Initially keep unsupported block syntax as editable Markdown, then add the code/checklist, link, and table follow-ups below. Ordinary list markers and raw HTML retain their source syntax. Inline formatting inside list items receives the supported text treatment.
 - Preserve selection and undo when switching modes, including Read. Maintain snippets, search, theme colors, text size, and background transparency.
 - Navigate the Live outline to Markdown headings in the editor, including headings outside the current viewport. Raw HTML headings remain available in the reading outline.
 - Verify literal Markdown saves, LF/CRLF/BOM preservation, mouse caret placement, selection of literal Markdown, composition-event handling, large notes, and startup preferences. Native IME candidate-window behavior still needs manual platform testing.
@@ -19,9 +19,16 @@ The brief asks for a mode where typing `# Title` formats the heading in the edit
 - Keep snippets, source/reading mode switches, selections and copying, IME guards, custom palettes, text size, transparency, and LF/CRLF/BOM saves working. Never execute code.
 - Verify Java highlighting, direct code editing, fence access, actual mouse/keyboard checkbox behavior, nested tasks, exact source saves/copying, undo, read-only guards, and code/task snippets.
 
-## Stage 2: list presentation and links
+## Follow-up: links (implemented)
 
-Add readable list markers and link labels with an explicit navigation gesture. Retain reliable access to their Markdown source. Define behavior for selection, keyboard navigation, nested formatting, and incomplete syntax before hiding additional markers.
+- Render single-line Markdown links, reference links, autolinks, and wiki aliases with the existing sanitized reading renderer. Preserve inline formatting in labels and document-global reference definitions. Unresolved references remain literal source.
+- Ctrl+left-click opens the destination through Prism's existing note or external-link routing. Command+click also works. Same-note and other-note fragments navigate to Markdown headings at all six levels, including duplicate heading IDs. Links in rendered tables use the same gesture.
+- Ordinary clicks reveal the source. Caret and selection lines retain every character and remain Ctrl-clickable. Multiline links preserve line breaks and use clickable source text. Rendered link labels support keyboard focus and Enter.
+- Keep code, images, escaped examples, and equations out of link handling. Respect IME composition and current source offsets after edits. The document, newline convention, drafts, and undo history remain unchanged by rendering or navigation.
+
+## Stage 2: list presentation
+
+Add readable list markers while retaining access to their Markdown source. Define behavior for selection, keyboard navigation, nested formatting, and incomplete syntax before hiding additional markers.
 
 ## Stage 3: tables (first increment implemented)
 

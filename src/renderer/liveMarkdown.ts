@@ -307,8 +307,8 @@ export const liveMarkdown = ViewPlugin.fromClass(class {
   },
 });
 
-/** Find the outline's Markdown H1–H3 without confusing fenced examples for headings. */
-export function findLiveHeading(state: EditorState, index: number, parseBudget = 50): number | null {
+/** Find outline or fragment headings without confusing fenced examples for headings. */
+export function findLiveHeading(state: EditorState, index: number, parseBudget = 50, maxLevel: 3 | 6 = 3): number | null {
   if (!Number.isInteger(index) || index < 0) return null;
   const tree = ensureSyntaxTree(state, state.doc.length, parseBudget) ?? syntaxTree(state);
   const mathRanges = getLiveMathRanges(state);
@@ -317,7 +317,8 @@ export function findLiveHeading(state: EditorState, index: number, parseBudget =
   tree.iterate({
     enter(node) {
       if (position !== null || opaqueBlocks.has(node.name) || isWithinLiveMath(mathRanges, node.from, node.to)) return false;
-      if (/^(?:ATX|Setext)Heading[1-3]$/.test(node.name) && current++ === index) position = node.from;
+      const heading = /^(?:ATX|Setext)Heading([1-6])$/.exec(node.name);
+      if (heading && Number(heading[1]) <= maxLevel && current++ === index) position = node.from;
     },
   });
   return position;

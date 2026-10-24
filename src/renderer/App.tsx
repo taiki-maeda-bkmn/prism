@@ -88,7 +88,7 @@ export function App() {
   const [notice, setNotice] = useState('');
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
   const [previewNavigation, setPreviewNavigation] = useState<{ path: string; fragment?: string } | null>(null);
-  const [headingTarget, setHeadingTarget] = useState<{ path: string; index: number; request: number }>();
+  const [headingTarget, setHeadingTarget] = useState<{ path: string; index: number; request: number; allLevels?: boolean; top?: boolean }>();
   const headingRequest = useRef(0);
   const preview = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
@@ -189,12 +189,27 @@ export function App() {
     setPreferences(previous => ({ ...previous, mode }));
   }, []);
   useEffect(() => {
-    if (!previewNavigation || view !== 'note' || preferences.mode === 'source' || preferences.mode === 'live'
+    if (!previewNavigation || view !== 'note' || preferences.mode === 'source'
       || !active || previewNavigation.path !== active.path
       || previewNote?.path !== active.path || previewNote.content !== active.content) return;
+    const fragment = previewNavigation.fragment;
+    if (preferences.mode === 'live') {
+      if (fragment) {
+        // Use trusted Markdown metadata, excluding arbitrary HTML headings and
+        // retaining the renderer's exact duplicate IDs and math-aware labels.
+        const heading = rendered.allHeadings.find(item => item.id === fragment)
+          ?? rendered.allHeadings.find(item => item.title.trim().toLocaleLowerCase() === fragment.trim().toLocaleLowerCase());
+        if (heading) setHeadingTarget({ path: active.path, index: heading.index, request: ++headingRequest.current, allLevels: true });
+      } else if (fragment === '') {
+        // An empty fragment points to the document's beginning, even when this
+        // note is already open and its editor retains a lower scroll position.
+        setHeadingTarget({ path: active.path, index: 0, request: ++headingRequest.current, top: true });
+      }
+      setPreviewNavigation(null);
+      return;
+    }
     const container = preview.current;
     if (!container) return;
-    const fragment = previewNavigation.fragment;
     if (fragment) {
       const target = container.querySelector<HTMLElement>(`[id="${CSS.escape(fragment)}"]`)
         ?? [...container.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')]
@@ -205,7 +220,7 @@ export function App() {
       });
     } else container.scrollTop = 0;
     setPreviewNavigation(null);
-  }, [previewNavigation, view, preferences.mode, active, previewNote, html]);
+  }, [previewNavigation, view, preferences.mode, active, previewNote, html, rendered.allHeadings]);
   const changeContent = (content: string) => {
     if (!active) return;
     setDrafts(previous => {
@@ -297,19 +312,22 @@ export function App() {
     finally { operation.current = false; setWorking(false); }
   };
 
-  const clickPreview = (event: React.MouseEvent<HTMLDivElement>) => {
-    const link = (event.target as Element).closest('a');
-    if (!link) return;
-    event.preventDefault();
-    const href = link.getAttribute('href') || '';
+  const openHref = (href: string, fromPath: string) => {
     const externalHref = href.startsWith('//') ? `https:${href}` : href;
     if (/^https?:\/\//i.test(externalHref) || /^mailto:/i.test(externalHref)) {
       void window.prism.openExternal(externalHref).catch(cause => setError(message(cause)));
       return;
     }
-    const target = resolveNoteLink(href, previewNote?.path ?? activePath, notes);
-    if (target) openNote(target.note.path, target.fragment);
+    const target = resolveNoteLink(href, fromPath, notes);
+    if (target) openNote(target.note.path, target.fragment ?? (preferences.mode === 'live' ? '' : undefined));
     else setNotice('That linked note is not in this notebook yet. Create it with New note.');
+  };
+
+  const clickPreview = (event: React.MouseEvent<HTMLDivElement>) => {
+    const link = (event.target as Element).closest('a');
+    if (!link) return;
+    event.preventDefault();
+    openHref(link.getAttribute('href') || '', previewNote?.path ?? activePath);
   };
 
   const appStyle = appearanceStyle(preferences);
@@ -344,7 +362,7 @@ export function App() {
         {view === 'graph' ? <section className="graph-page"><div className="graph-page-heading"><div><p className="eyebrow">SEE THE CONNECTIONS</p><h1>Your ideas, together.</h1><p>Every note is a starting point. Follow a connection to see where it leads.</p></div><button className="subtle-button" onClick={() => setView('note')}><ArrowLeft size={15} />Back to note</button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} manualPositions={graphPositions} onMoveNode={moveGraphNode} onResetLayout={resetGraphLayout} /><div className="graph-help"><span><i />Note</span><span><i className="active" />Current note</span><span>Drag background to pan · Scroll to zoom · Click to open · Arrow keys move a focused note</span></div></section> : active ? <>
           <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source', 1], ['split', Columns2, 'Split', 2], ['live', Sparkles, 'Live', 4], ['preview', BookOpen, 'Read', 3]] as const).map(([mode, Icon, label, shortcut]) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl/⌘+${shortcut})`} onClick={() => chooseMode(mode)}><Icon size={15} /><span>{label}</span></button>)}</div></div>
           <div className={`editor-layout mode-${preferences.mode}`}>
-            <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} customSnippets={customSnippets} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
+            <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit. Ctrl+click links to open.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} customSnippets={customSnippets} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onOpenLink={href => openHref(href, active.path)} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
             {(preferences.mode === 'split' || preferences.mode === 'preview') && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
           </div>
         </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><FilePlus2 size={17} />Create your first note</button></div>}

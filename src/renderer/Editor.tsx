@@ -11,11 +11,12 @@ import { customSnippetConfiguration, markdownSnippets, type MarkdownSnippet } fr
 import { findLiveHeading, liveMarkdown } from './liveMarkdown';
 import { liveMath } from './liveMath';
 import { liveTables } from './liveTables';
+import { liveLinks } from './liveLinks';
 import type { ThemeId } from './appearance';
 
 // A theme facet change also invalidates cached font/caret measurements when
 // the surrounding Live-mode CSS changes the editor's typography and gutters.
-const livePresentation = (getView: () => EditorView | null) => [liveMarkdown, liveMath(getView), liveTables(getView), EditorView.theme({ '&': { '--prism-live': '1' } })];
+const livePresentation = (getView: () => EditorView | null, onOpenLink: (href: string) => void) => [liveMarkdown, liveMath(getView), liveTables(getView), liveLinks(onOpenLink), EditorView.theme({ '&': { '--prism-live': '1' } })];
 
 // Color tokens update in place. Font size uses a compartment below so the editor
 // refreshes its measurements while preserving selection and undo history.
@@ -39,7 +40,8 @@ interface Props {
   customSnippets: readonly MarkdownSnippet[];
   theme: ThemeId;
   live?: boolean;
-  headingTarget?: { index: number; request: number };
+  headingTarget?: { index: number; request: number; allLevels?: boolean; top?: boolean };
+  onOpenLink: (href: string) => void;
   onChange: (value: string) => void;
   onCursor: (line: number, column: number) => void;
 }
@@ -48,7 +50,7 @@ function detectLineEnding(content: string, fallback = '\n'): string {
   return /\r\n|\r|\n/.exec(content)?.[0] ?? fallback;
 }
 
-export function Editor({ path, content, textScale, customSnippets, theme, live = false, headingTarget, onChange, onCursor }: Props) {
+export function Editor({ path, content, textScale, customSnippets, theme, live = false, headingTarget, onOpenLink, onChange, onCursor }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const textSize = useRef(new Compartment());
@@ -57,8 +59,8 @@ export function Editor({ path, content, textScale, customSnippets, theme, live =
   const lastHeadingRequest = useRef<number | null>(null);
   const lineEnding = useRef('\n');
   const synchronizing = useRef(false);
-  const handlers = useRef({ onChange, onCursor });
-  handlers.current = { onChange, onCursor };
+  const handlers = useRef({ onChange, onCursor, onOpenLink });
+  handlers.current = { onChange, onCursor, onOpenLink };
 
   useEffect(() => {
     if (!host.current) return;
@@ -78,7 +80,7 @@ export function Editor({ path, content, textScale, customSnippets, theme, live =
           textSize.current.of(EditorView.theme({ '&': { fontSize: `${14 * textScale / 100}px` } })),
           EditorView.lineWrapping,
           presentation.current.of([
-            live ? livePresentation(() => view.current) : [],
+            live ? livePresentation(() => view.current, href => handlers.current.onOpenLink(href)) : [],
             EditorView.contentAttributes.of({ 'aria-label': live ? 'Live Markdown editor' : 'Markdown source', spellcheck: 'true' }),
           ]),
           keymap.of([{ key: 'Mod-s', run: () => true }]),
@@ -164,7 +166,7 @@ export function Editor({ path, content, textScale, customSnippets, theme, live =
 
   useEffect(() => {
     view.current?.dispatch({ effects: presentation.current.reconfigure([
-      live ? livePresentation(() => view.current) : [],
+      live ? livePresentation(() => view.current, href => handlers.current.onOpenLink(href)) : [],
       EditorView.contentAttributes.of({ 'aria-label': live ? 'Live Markdown editor' : 'Markdown source', spellcheck: 'true' }),
     ]) });
   }, [live]);
@@ -178,7 +180,7 @@ export function Editor({ path, content, textScale, customSnippets, theme, live =
     let timer: ReturnType<typeof setTimeout> | undefined;
     const navigate = () => {
       if (cancelled || view.current !== editor || editor.state.doc !== requestedDocument) return;
-      const position = findLiveHeading(editor.state, headingTarget.index, 15);
+      const position = headingTarget.top ? 0 : findLiveHeading(editor.state, headingTarget.index, 15, headingTarget.allLevels ? 6 : 3);
       if (position !== null) {
         editor.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'start', yMargin: 24 }) });
         editor.focus();

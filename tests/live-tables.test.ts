@@ -3,9 +3,10 @@ import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import { history, undo } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { Compartment, EditorSelection, EditorState } from '@codemirror/state';
+import { Compartment, EditorSelection, EditorState, type Extension } from '@codemirror/state';
 import { type EditorView, type WidgetType } from '@codemirror/view';
 import { liveMathState } from '../src/renderer/liveMath';
+import { liveLinkNavigation } from '../src/renderer/liveLinks';
 import { buildLiveDecorations } from '../src/renderer/liveMarkdown';
 import { getLiveTableRanges, liveTables, liveTableState } from '../src/renderer/liveTables';
 import { renderMarkdown } from '../src/renderer/markdown';
@@ -17,12 +18,12 @@ after(() => dom.window.close());
 
 const simpleTable = '| Name | Value |\n| --- | --- |\n| 日本語 | one |';
 
-function stateFor(doc: string, selection = EditorSelection.cursor(doc.length)) {
+function stateFor(doc: string, selection = EditorSelection.cursor(doc.length), extensions: Extension = []) {
   return EditorState.create({
     doc, selection: EditorSelection.create([selection]),
     extensions: [
       markdown({ base: markdownLanguage }), liveMathState, liveTableState,
-      EditorState.allowMultipleSelections.of(true),
+      EditorState.allowMultipleSelections.of(true), extensions,
     ],
   });
 }
@@ -167,7 +168,8 @@ test('quoted and listed reference definitions keep table labels and destinations
     );
     const widget = widgetDOM(state);
     assert.equal(widget.querySelector('.cm-live-table-link strong')?.textContent, 'Guide', definition);
-    assert.equal(widget.querySelector('a'), null, 'Reference links remain inert while editing.');
+    assert.equal(widget.querySelector('a.cm-live-link')?.getAttribute('href'), readingLink.getAttribute('href'));
+    assert.match(widget.querySelector('a.cm-live-link')?.getAttribute('title') ?? '', /Ctrl\+click to open/);
     assert.equal(state.doc.toString(), source);
   }
 });
@@ -203,13 +205,104 @@ test('reference examples in quoted and listed code remain literal', () => {
   }
 });
 
-test('table widgets sanitize note HTML and keep links, images, and authored focus targets inert', () => {
+test('table widgets sanitize note HTML and preserve only supported link targets', () => {
   const source = '| Content |\n| --- |\n| [link](https://example.com) ![alt text](https://example.com/image.png) <span tabindex="0" contenteditable="true" onclick="alert(1)">safe</span> <img src="x" onerror="alert(1)"> <select><option>Choice</option></select> <textarea>Draft</textarea> <details><summary>Open</summary>Hidden</details> <audio controls src="sound.mp3"></audio> <video controls src="movie.mp4"></video> |\n\nCaret';
   const element = widgetDOM(stateFor(source));
-  assert.equal(element.querySelector('a, img, script, select, textarea, details, summary, audio, video, [onclick], [onerror], [tabindex], [contenteditable]'), null);
+  assert.equal(element.querySelector('img, script, select, textarea, details, summary, audio, video, [onclick], [onerror], [tabindex], [contenteditable]'), null);
   assert.equal(element.querySelector('.cm-live-table-link')?.textContent, 'link');
+  assert.equal(element.querySelector('a.cm-live-link')?.getAttribute('href'), 'https://example.com');
   assert.match(element.textContent || '', /alt text/);
-  assert.equal(element.querySelectorAll('button').length, 1, 'Only Prism’s edit control is interactive.');
+  assert.equal(element.querySelectorAll('button').length, 1, 'Only Prism’s edit control is a button.');
+  const blocked = widgetDOM(stateFor('| Links |\n| --- |\n| [script](javascript:alert) [file](file:///tmp/note.md) [ftp](ftp://example.com) |\n\nCaret'));
+  assert.equal(blocked.querySelector('a'), null, 'Unsupported destinations never become actionable links.');
+  assert.equal(blocked.querySelectorAll('.cm-live-table-link').length, 3);
+});
+
+test('table links open only with Ctrl or Command plus left-click and retain source editing', () => {
+  const source = 'Before\n\n| Links |\n| --- |\n| [**Open**][target] |\n\n[target]: Next.md#section\n\nCaret';
+  const opened: string[] = [];
+  let state = stateFor(source, EditorSelection.cursor(source.length), liveLinkNavigation.of(href => opened.push(href)));
+  const original = tables(state)[0].widget;
+  let focused = false;
+  const view = {
+    dom: dom.window.document.body,
+    get state() { return state; },
+    compositionStarted: false, composing: false,
+    posAtDOM: () => getLiveTableRanges(state)[0].from,
+    dispatch: (spec: Parameters<EditorState['update']>[0]) => { state = state.update(spec).state; },
+    focus: () => { focused = true; },
+  } as unknown as EditorView;
+  const element = original.toDOM(view);
+  dom.window.document.body.append(element);
+  try {
+    // DOM can be reused after preceding text changes. Navigation resolves it
+    // against current ranges instead of the original widget's absolute offset.
+    state = state.update({ changes: { from: 0, insert: 'Added\n\n' } }).state;
+    assert.equal(original.eq(tables(state)[0].widget), true);
+    const selected = state.selection.main.head;
+    const label = element.querySelector('a strong')!;
+    for (const modifier of [{ ctrlKey: true }, { metaKey: true }]) {
+      for (const type of ['mousedown', 'click']) {
+        const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...modifier });
+        label.dispatchEvent(event);
+        assert.equal(event.defaultPrevented, true);
+      }
+      assert.equal(state.selection.main.head, selected, 'Opening a link must not reveal its table source.');
+      assert.equal(focused, false);
+    }
+    assert.deepEqual(opened, ['Next.md#section', 'Next.md#section']);
+    const middle = new dom.window.MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1, ctrlKey: true });
+    label.dispatchEvent(middle);
+    assert.equal(middle.defaultPrevented, true, 'Middle-click cannot navigate the renderer.');
+    assert.equal(opened.length, 2);
+    label.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    assert.equal(state.selection.main.head, state.doc.toString().indexOf('[**Open**]'));
+    assert.equal(focused, true);
+    assert.equal(opened.length, 2);
+    assert.equal(state.doc.toString(), 'Added\n\n' + source);
+  } finally {
+    element.remove();
+  }
+});
+
+test('table links ignore composition, detached DOM, and stale reference destinations', () => {
+  const source = '| Link |\n| --- |\n| [Open][target] |\n\n[target]: First.md\n\nCaret';
+  const opened: string[] = [];
+  let state = stateFor(source, EditorSelection.cursor(source.length), liveLinkNavigation.of(href => opened.push(href)));
+  let composing = false;
+  const view = {
+    dom: dom.window.document.body,
+    get state() { return state; },
+    get compositionStarted() { return composing; },
+    get composing() { return composing; },
+    posAtDOM: () => getLiveTableRanges(state)[0].from,
+    dispatch: (spec: Parameters<EditorState['update']>[0]) => { state = state.update(spec).state; },
+    focus() {},
+  } as unknown as EditorView;
+  const element = tables(state)[0].widget.toDOM(view);
+  dom.window.document.body.append(element);
+  const click = (root: HTMLElement) => root.querySelector('a')!.dispatchEvent(new dom.window.MouseEvent('click', {
+    bubbles: true, cancelable: true, button: 0, ctrlKey: true,
+  }));
+  try {
+    composing = true;
+    click(element);
+    assert.deepEqual(opened, []);
+    composing = false;
+    state = state.update({ changes: { from: source.indexOf('First.md'), to: source.indexOf('First.md') + 8, insert: 'Second.md' } }).state;
+    click(element);
+    assert.deepEqual(opened, [], 'A stale widget cannot open the old reference destination.');
+    element.remove();
+    const refreshed = tables(state)[0].widget.toDOM(view);
+    dom.window.document.body.append(refreshed);
+    click(refreshed);
+    assert.deepEqual(opened, ['Second.md']);
+    refreshed.remove();
+    click(refreshed);
+    assert.deepEqual(opened, ['Second.md']);
+  } finally {
+    element.remove();
+  }
 });
 
 test('math in table cells renders once and multiline equations retain ownership of table-looking text', () => {
