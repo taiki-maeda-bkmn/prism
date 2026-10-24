@@ -7,7 +7,7 @@ The brief asks for a mode where typing `# Title` formats the heading in the edit
 - Add **Live** beside Source, Split, and Read. Remember the selected mode. Keep existing shortcuts; Ctrl/⌘+4 opens Live.
 - Use the existing CodeMirror document and undo history. Render formatting with decorations rather than converting edited HTML back into Markdown.
 - Style headings, bold, italic, strikethrough, inline code, and block quotes as the user types. Hide their formatting markers on inactive lines; reveal markers on every line touched by the cursor or a selection.
-- Initially keep unsupported block syntax as editable Markdown, then add the code/checklist, link, and table follow-ups below. Ordinary list markers and raw HTML retain their source syntax. Inline formatting inside list items receives the supported text treatment.
+- Initially keep unsupported block syntax as editable Markdown, then add the code/checklist, link, list, and table follow-ups below. Raw HTML retains its source syntax. Inline formatting inside list items receives the supported text treatment.
 - Preserve selection and undo when switching modes, including Read. Maintain snippets, search, theme colors, text size, and background transparency.
 - Navigate the Live outline to Markdown headings in the editor, including headings outside the current viewport. Raw HTML headings remain available in the reading outline.
 - Verify literal Markdown saves, LF/CRLF/BOM preservation, mouse caret placement, selection of literal Markdown, composition-event handling, large notes, and startup preferences. Native IME candidate-window behavior still needs manual platform testing.
@@ -26,9 +26,13 @@ The brief asks for a mode where typing `# Title` formats the heading in the edit
 - Ordinary clicks reveal the source. Caret and selection lines retain every character and remain Ctrl-clickable. Multiline links preserve line breaks and use clickable source text. Rendered link labels support keyboard focus and Enter.
 - Keep code, images, escaped examples, and equations out of link handling. Respect IME composition and current source offsets after edits. The document, newline convention, drafts, and undo history remain unchanged by rendering or navigation.
 
-## Stage 2: list presentation
+## Stage 2: list presentation (implemented)
 
-Add readable list markers while retaining access to their Markdown source. Define behavior for selection, keyboard navigation, nested formatting, and incomplete syntax before hiding additional markers.
+- Render parsed `-`, `+`, and `*` list markers as bullets on inactive lines, with distinct bullets for nesting. Number ordered lists from their first source number and advance once per item, matching the reading view even when every later source marker is `1.`. Each nested list and delimiter change starts its own sequence.
+- Replace only the marker. Preserve source indentation, spaces, tabs, continuation lines, and the existing wrapping layout. Task items retain their interactive checkboxes without an additional bullet. Formatting, links, and inline math in list text keep their existing behavior.
+- Click a bullet or number to edit its exact Markdown. Moving the caret or a selection onto a line also exposes the source. Arrow navigation, Enter continuation, selection/copy, snippets, and undo use the existing editor document. Empty markers stay literal until text is present on the marker line.
+- Leave code, HTML, equations, escaped examples, and table-owned source protected. Defer presentation changes during IME composition and resolve the current source offset when a marker is clicked.
+- Verify numbering, nesting, task/link interaction, source reveal, selection/copy, undo across mode changes, wrapped Japanese text at larger sizes, and exact BOM/CRLF saves. Hanging-indent reflow and structural list editing controls are separate enhancements.
 
 ## Stage 3: tables (first increment implemented)
 

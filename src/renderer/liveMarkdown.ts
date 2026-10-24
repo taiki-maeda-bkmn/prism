@@ -2,6 +2,7 @@ import { type ChangeSpec, type EditorState, type Range, Transaction } from '@cod
 import { isolateHistory } from '@codemirror/commands';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view';
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
+import type { SyntaxNode, Tree } from '@lezer/common';
 import { getLiveMathRanges, isWithinLiveMath } from './liveMath';
 import { getLiveTableRanges } from './liveTables';
 import { isWithinMarkdownTable } from './tables';
@@ -16,6 +17,54 @@ const inlineClasses: Readonly<Record<string, string>> = {
 };
 const markerNames = new Set(['HeaderMark', 'EmphasisMark', 'StrikethroughMark', 'CodeMark', 'QuoteMark']);
 const hiddenMarker = Decoration.replace({ inclusive: false, liveMarker: true });
+
+const listNumbers = new WeakMap<Tree, { lists: Set<number>; numbers: Map<number, number> }>();
+
+/** Number direct siblings once per parsed list, including off-screen items. */
+function orderedListNumber(state: EditorState, list: SyntaxNode, marker: SyntaxNode): number | undefined {
+  const tree = syntaxTree(state);
+  let cached = listNumbers.get(tree);
+  if (!cached) listNumbers.set(tree, cached = { lists: new Set(), numbers: new Map() });
+  if (!cached.lists.has(list.from)) {
+    let number: number | undefined;
+    for (let child = list.firstChild; child; child = child.nextSibling) {
+      if (child.name !== 'ListItem') continue;
+      const mark = child.getChild('ListMark');
+      if (!mark) continue;
+      number ??= Number.parseInt(state.sliceDoc(mark.from, mark.to), 10);
+      cached.numbers.set(mark.from, number++);
+    }
+    cached.lists.add(list.from);
+  }
+  return cached.numbers.get(marker.from);
+}
+
+class ListMarkerWidget extends WidgetType {
+  constructor(readonly label: string, readonly kind: 'bullet' | 'ordered', readonly raw: string) { super(); }
+  eq(other: ListMarkerWidget) { return this.label === other.label && this.kind === other.kind && this.raw === other.raw; }
+  toDOM(view: EditorView) {
+    const marker = view.dom.ownerDocument.createElement('span');
+    marker.className = 'cm-live-list-marker';
+    marker.dataset.listKind = this.kind;
+    marker.textContent = this.label;
+    marker.contentEditable = 'false';
+    marker.title = 'Click to edit list marker';
+    marker.addEventListener('mousedown', event => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      if (!marker.isConnected || view.compositionStarted || view.composing) return;
+      // Resolve the current source location: preceding edits can move a reused
+      // widget. A stale composition decoration must never move the wrong caret.
+      const position = view.posAtDOM(marker);
+      const node = ensureSyntaxTree(view.state, position + this.raw.length, 20)?.resolveInner(position, 1);
+      if (node?.name !== 'ListMark' || node.from !== position || view.state.sliceDoc(node.from, node.to) !== this.raw) return;
+      view.dispatch({ selection: { anchor: position }, scrollIntoView: true });
+      view.focus();
+    });
+    return marker;
+  }
+  ignoreEvent() { return true; }
+}
 
 /** Toggle only a parsed task marker, never a lookalike inside code or HTML. */
 export function liveTaskChange(state: EditorState, position: number, checked: boolean): ChangeSpec | null {
@@ -93,6 +142,7 @@ class CodeLanguageWidget extends WidgetType {
 export function buildLiveDecorations(state: EditorState, visibleRanges: readonly VisibleRange[]): DecorationSet {
   const decorations: Range<Decoration>[] = [];
   const markers: { from: number; to: number }[] = [];
+  const lists: { from: number; to: number; widget: ListMarkerWidget }[] = [];
   const protectedBlocks: VisibleRange[] = [];
   const seenNodes = new Set<string>();
   const seenLines = new Set<string>();
@@ -190,6 +240,28 @@ export function buildLiveDecorations(state: EditorState, visibleRanges: readonly
         const key = `${node.name}:${node.from}:${node.to}:${from}:${to}`;
         if (seenNodes.has(key)) return;
         seenNodes.add(key);
+        if (node.name === 'ListMark' && node.from >= from && node.to <= to) {
+          const line = state.doc.lineAt(node.from);
+          const item = node.parent;
+          const list = item?.parent;
+          // Empty items remain literal until there is text on the marker line.
+          // A task owns its list marker and checkbox as one replacement.
+          const task = item?.getChild('Task')?.getChild('TaskMarker');
+          if (item?.name === 'ListItem' && list && /^(Bullet|Ordered)List$/.test(list.name)
+            && !lineIsActive(line.from, line.to) && state.sliceDoc(node.to, line.to).trim()
+            && !(task && task.from <= line.to)) {
+            let depth = 0;
+            for (let ancestor = list.parent; ancestor; ancestor = ancestor.parent) {
+              if (ancestor.name === 'BulletList' || ancestor.name === 'OrderedList') depth++;
+            }
+            const kind = list.name === 'OrderedList' ? 'ordered' : 'bullet';
+            const number = kind === 'ordered' ? orderedListNumber(state, list, node) : undefined;
+            const label = kind === 'ordered' ? `${number}.` : ['•', '◦', '▪'][depth % 3];
+            if (kind !== 'ordered' || number !== undefined) lists.push({
+              from: node.from, to: node.to, widget: new ListMarkerWidget(label, kind, state.sliceDoc(node.from, node.to)),
+            });
+          }
+        }
         if (node.name === 'TaskMarker' && node.from >= from && node.to <= to) {
           const line = state.doc.lineAt(node.from);
           const active = lineIsActive(line.from, line.to);
@@ -242,6 +314,18 @@ export function buildLiveDecorations(state: EditorState, visibleRanges: readonly
     });
   }
 
+  const seenLists = new Set<string>();
+  for (const list of lists) {
+    const line = state.doc.lineAt(list.from);
+    // A list can start with a fence, HTML block, or table on the same line.
+    // Keep its container source intact alongside those protected blocks.
+    if (protectedBlocks.some(block => block.from <= line.to && block.to >= line.from)) continue;
+    const key = `${list.from}:${list.to}`;
+    if (!seenLists.has(key)) decorations.push(Decoration.replace({
+      widget: list.widget, inclusive: false, liveMarker: true, liveList: true,
+    }).range(list.from, list.to));
+    seenLists.add(key);
+  }
   const seenMarkers = new Set<string>();
   for (const marker of markers) {
     const line = state.doc.lineAt(marker.from);
