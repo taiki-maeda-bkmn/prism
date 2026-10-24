@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { PrismAPI, WindowState } from '../shared/types';
+import { createPDFAPI } from '../../pdf-manager/src/main/pdf-api';
 
 const api: PrismAPI = {
   loadWorkspace: () => ipcRenderer.invoke('prism:load'),
@@ -26,3 +27,4 @@ const api: PrismAPI = {
 };
 
 contextBridge.exposeInMainWorld('prism', Object.freeze(api));
+contextBridge.exposeInMainWorld('prismPdf', Object.freeze(createPDFAPI('prism:window')));

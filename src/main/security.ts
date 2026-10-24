@@ -41,9 +41,19 @@ export function validateExternalURL(value: unknown): string {
 }
 
 /** Notebook content cannot make the renderer read arbitrary files or fetch remote assets. */
-export async function isRendererResource(value: string, rendererRoot: string): Promise<boolean> {
+export async function isRendererResource(value: string, rendererRoot: string, resourceType?: string): Promise<boolean> {
   try {
     const url = new URL(value);
+    // PDF.js uses an in-memory module wrapper for its bundled worker on the
+    // opaque file origin, plus decoded fonts/images. No navigation or fetch
+    // request can use this exception to access an arbitrary blob or data URL.
+    if (url.protocol === 'blob:') {
+      return value.startsWith('blob:null/') && ['script', 'other', 'font', 'image'].includes(resourceType ?? '');
+    }
+    if (url.protocol === 'data:') {
+      return (resourceType === 'image' && /^data:image\//i.test(value))
+        || (resourceType === 'font' && /^data:(?:font\/|application\/(?:font-|x-font-))/i.test(value));
+    }
     if (url.protocol !== 'file:' || (url.hostname && url.hostname !== 'localhost')) return false;
     const [absolute, canonicalRoot] = await Promise.all([
       fs.realpath(fileURLToPath(url)),

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { ArrowDownUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clock3, FileText, FolderOpen, Grid2X2, HardDrive, Library, List, LoaderCircle, Maximize2, Minus, MoreHorizontal, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tag, Trash2, X } from 'lucide-react';
 import type { PDFDocument } from '../shared/types';
 import { PdfReader, PdfThumbnail } from './PdfReader';
+import './styles.css';
 
 type Filter = 'all' | 'recent' | 'favorites' | `tag:${string}`;
 type Patch = Partial<Pick<PDFDocument, 'title' | 'tags' | 'favorite' | 'lastPage' | 'pageCount'>>;
@@ -15,16 +16,27 @@ function savedAppearance() {
   } catch { return { transparent: false, opacity: 85 }; }
 }
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+function Modal({ title, onClose, children, active }: { title: string; onClose: () => void; children: ReactNode; active: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => { ref.current?.showModal(); }, []);
+  useEffect(() => {
+    if (active) ref.current?.showModal(); else ref.current?.close();
+  }, [active]);
   return <dialog ref={ref} className="modal" aria-labelledby="modal-title" onCancel={event => { event.preventDefault(); onClose(); }}>
     <header><h2 id="modal-title">{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={18} /></button></header>
     {children}
   </dialog>;
 }
 
-export function App() {
+export function App() { return <LibraryWorkspace />; }
+
+export interface LibraryWorkspaceProps {
+  workspaceActive?: boolean;
+  onAppearance?: () => void;
+}
+
+/** Mounted once per workspace visit session so filters and password sessions survive hiding. */
+export function LibraryWorkspace({ workspaceActive = true, onAppearance }: LibraryWorkspaceProps) {
+  const integrated = !!onAppearance;
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -53,7 +65,7 @@ export function App() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { try { localStorage.setItem('prism-pdf-appearance', JSON.stringify(appearance)); } catch { /* Appearance can still be used for this session. */ } }, [appearance]);
+  useEffect(() => { if (integrated) return; try { localStorage.setItem('prism-pdf-appearance', JSON.stringify(appearance)); } catch { /* Appearance can still be used for this session. */ } }, [appearance, integrated]);
 
   const importFiles = useCallback(async () => {
     if (importing || loading || loadError) return;
@@ -86,13 +98,13 @@ export function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (editingId) return;
+      if (!workspaceActive || editingId || document.querySelector('dialog[open]') || event.defaultPrevented) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') { event.preventDefault(); void importFiles(); }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); searchRef.current?.focus(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [importFiles, editingId]);
+  }, [importFiles, editingId, workspaceActive]);
 
   const tagCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -152,9 +164,9 @@ export function App() {
     {icon}<span>{label}</span><span className="nav-count">{count}</span>
   </button>;
 
-  return <div className="app-shell" data-transparent={appearance.transparent} style={{ '--surface-alpha': appearance.transparent ? appearance.opacity / 100 : 1 } as CSSProperties}>
+  return <div className={`pdf-workspace ${integrated ? 'pdf-integrated' : 'pdf-standalone app-shell'}`} data-transparent={integrated ? undefined : appearance.transparent} style={integrated ? undefined : { '--surface-alpha': appearance.transparent ? appearance.opacity / 100 : 1 } as CSSProperties}>
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark"><Library size={23} strokeWidth={1.7} /></span><span>prism<span className="brand-pdf">PDF</span></span></div>
+      {!integrated && <div className="brand"><span className="brand-mark"><Library size={23} strokeWidth={1.7} /></span><span>prism<span className="brand-pdf">PDF</span></span></div>}
       <div className="workspace-label"><span className="workspace-avatar">P</span><div>Personal library<small>Your space for documents</small></div></div>
       <nav className="library-nav" aria-label="Library">
         <p className="section-label">LIBRARY</p>
@@ -164,20 +176,20 @@ export function App() {
         <div className="tags-heading"><p className="section-label">YOUR TAGS</p><Tag size={13} /></div>
         {tagCounts.length ? tagCounts.map(([tag, count], index) => <button key={tag} className={`nav-item tag-item ${filter === `tag:${tag}` && !active ? 'selected' : ''}`} onClick={() => selectFilter(`tag:${tag}`)} aria-label={`Tag ${tag}`}><span className={`tag-dot tone-${index % 4}`} /><span className="truncate">{tag}</span><span className="nav-count">{count}</span></button>) : <p className="tag-hint">Add tags in document details<br />to keep things organized.</p>}
       </nav>
-      <button className="appearance-button" onClick={() => setAppearanceOpen(value => !value)} aria-expanded={appearanceOpen}><SlidersHorizontal size={15} />Appearance</button>
-      {appearanceOpen && <div className="appearance-panel"><label><span>Transparent window</span><input type="checkbox" role="switch" checked={appearance.transparent} onChange={event => setAppearance(current => ({ ...current, transparent: event.target.checked }))} /></label><label className="opacity-label">Background opacity<span>{appearance.opacity}%</span><input type="range" min="25" max="100" step="1" value={appearance.opacity} disabled={!appearance.transparent} onChange={event => setAppearance(current => ({ ...current, opacity: Number(event.target.value) }))} /></label></div>}
+      <button className="appearance-button" onClick={() => onAppearance ? onAppearance() : setAppearanceOpen(value => !value)} aria-expanded={integrated ? undefined : appearanceOpen}><SlidersHorizontal size={15} />Appearance</button>
+      {!integrated && appearanceOpen && <div className="appearance-panel"><label><span>Transparent window</span><input type="checkbox" role="switch" checked={appearance.transparent} onChange={event => setAppearance(current => ({ ...current, transparent: event.target.checked }))} /></label><label className="opacity-label">Background opacity<span>{appearance.opacity}%</span><input type="range" min="25" max="100" step="1" value={appearance.opacity} disabled={!appearance.transparent} onChange={event => setAppearance(current => ({ ...current, opacity: Number(event.target.value) }))} /></label></div>}
       <div className="local-card"><HardDrive size={18} /><div>Made for your desktop<small>Private. Local. All yours.</small></div><span className="online-dot" /></div>
       <div className="sidebar-footer"><span>{documents.length} documents</span><span>{documents.length ? formatSize(documents.reduce((sum, document) => sum + document.size, 0)) : '0 KB'}</span></div>
     </aside>
     <div className="workspace">
-      <header className="titlebar">
+      <header className={integrated ? "pdf-library-heading" : "titlebar"}>
         <div className="breadcrumb"><span>Workspace</span><ChevronRight size={13} /><strong>{active ? active.title : 'My library'}</strong></div>
         <label className="search-box"><Search size={16} /><input ref={searchRef} aria-label="Search library" placeholder="Search your library…" value={query} onChange={event => { setQuery(event.target.value); setActiveId(null); }} /><kbd>{window.prismPdf.platform === 'darwin' ? '⌘' : 'Ctrl'} K</kbd></label>
-        <div className="window-controls"><button aria-label="Minimize window" onClick={() => window.prismPdf.windowControl('minimize')}><Minus size={14} /></button><button aria-label="Maximize or restore window" onClick={() => window.prismPdf.windowControl('maximize')}><Maximize2 size={13} /></button><button aria-label="Close window" onClick={() => window.prismPdf.windowControl('close')}><X size={16} /></button></div>
+        {!integrated && <div className="window-controls"><button aria-label="Minimize window" onClick={() => window.prismPdf.windowControl('minimize')}><Minus size={14} /></button><button aria-label="Maximize or restore window" onClick={() => window.prismPdf.windowControl('maximize')}><Maximize2 size={13} /></button><button aria-label="Close window" onClick={() => window.prismPdf.windowControl('close')}><X size={16} /></button></div>}
       </header>
       {notice && <div className={`notice ${notice.error ? 'notice-error' : ''}`} role={notice.error ? 'alert' : 'status'}><span>{notice.text}</span><button aria-label="Dismiss notification" onClick={() => setNotice(null)}><X size={16} /></button></div>}
       {warnings.length > 0 && <details className="warnings"><summary>{warnings.length} library warning{warnings.length === 1 ? '' : 's'}</summary>{warnings.map((warning, index) => <p key={index}>{warning}</p>)}</details>}
-      {active ? <PdfReader key={active.id} document={active} onUpdate={readingUpdate} onClose={() => setActiveId(null)} /> : <main className="library-content">
+      {active ? <PdfReader key={active.id} workspaceActive={workspaceActive} document={active} onUpdate={readingUpdate} onClose={() => setActiveId(null)} /> : <main className="library-content">
         <div className="page-heading"><div><div className="eyebrow">A LITTLE ORDER. A LOT OF CLARITY.</div><h1>{heading}</h1><p>{filter === 'all' ? 'Everything you need, all in one place.' : filter === 'favorites' ? 'The documents you come back to.' : filter === 'recent' ? 'Pick up right where you left off.' : 'A collection of things that belong together.'}</p></div><button className="primary-button" onClick={() => void importFiles()} disabled={importing || loading || !!loadError}>{importing ? <LoaderCircle className="spin" size={17} /> : <Plus size={19} />}{importing ? 'Importing…' : 'Import PDFs'}</button></div>
         <div className="library-toolbar"><div className="result-label"><FileText size={16} /><strong>{query ? 'Search results' : 'PDF documents'}</strong><span className="count-badge">{filtered.length}</span></div><div className="view-options"><ArrowDownUp size={14} /><select aria-label="Sort documents" value={sort} onChange={event => setSort(event.target.value)}><option value="newest">{filter === 'recent' ? 'Last opened' : 'Date added'}</option><option value="name">Name</option><option value="size">File size</option></select><span className="toolbar-divider" /><div className="layout-buttons"><button className={layout === 'grid' ? 'active' : ''} aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><Grid2X2 size={16} /></button><button className={layout === 'list' ? 'active' : ''} aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={18} /></button></div></div></div>
         {loading ? <div className="empty-state" role="status"><LoaderCircle className="spin" size={30} /><h2>Opening your library…</h2></div> : loadError ? <div className="empty-state" role="alert"><FolderOpen size={36} /><h2>Your library couldn’t be opened</h2><p>{loadError}</p><button className="secondary-button" onClick={() => void load()}>Try again</button></div> : !documents.length ? <div className="empty-state welcome-state"><div className="paper-stack" aria-hidden="true"><div className="paper-back" /><div className="paper-front"><span className="pdf-badge">PDF</span><FileText size={45} strokeWidth={1} /><div className="paper-lines" /></div><span className="paper-spark"><Sparkles size={22} /></span></div><h2>A home for your PDFs.</h2><p>Bring your research, reading, and everyday documents<br />together in a space that stays yours.</p><button className="primary-button" onClick={() => void importFiles()} disabled={importing}><Plus size={18} />Import your first PDF</button><span className="privacy-note"><ShieldCheck size={14} />Stored on this device. No account needed.</span></div> : !filtered.length ? <div className="empty-state"><Search size={34} /><h2>{query ? 'No matching documents' : 'Nothing here just yet'}</h2><p>{query ? 'Try another title, filename, or tag.' : filter === 'favorites' ? 'Star a document to keep it close at hand.' : filter === 'recent' ? 'Open a PDF and find it here next time.' : 'Add this tag to a document to see it here.'}</p>{query && <button className="secondary-button" onClick={() => setQuery('')}>Clear search</button>}</div> : <div className={`documents documents-${layout}`} aria-label="Documents">
@@ -191,9 +203,9 @@ export function App() {
         {!loading && !loadError && documents.length > 0 && <footer className="library-footer"><span>Showing {filtered.length} of {documents.length} documents</span><span><ShieldCheck size={13} />Your library stays on this device</span></footer>}
       </main>}
     </div>
-    {editing && <Modal title={removing ? 'Remove from library?' : 'Edit document'} onClose={closeModal}>
+    {editing && <Modal title={removing ? 'Remove from library?' : 'Edit document'} onClose={closeModal} active={workspaceActive}>
       {removing ? <><p className="modal-description">Remove <strong>{editing.title}</strong> from the library? Your original PDF and stored copy will be kept. This removes its tags, favorite, and reading position from the catalog.</p>{modalError && <p className="form-error" role="alert">{modalError}</p>}<div className="modal-actions"><button className="secondary-button" disabled={saving} onClick={() => setRemoving(false)}>Keep document</button><button className="danger-button" disabled={saving} onClick={() => void remove()}>{saving ? 'Removing…' : 'Remove document'}</button></div></> : <form onSubmit={saveDetails}>
-        <label className="field-label">Document title<input autoFocus required maxLength={200} value={title} onChange={event => setTitle(event.target.value)} /></label>
+        <label className="field-label">Document title<input autoFocus={workspaceActive} required maxLength={200} value={title} onChange={event => setTitle(event.target.value)} /></label>
         <label className="field-label">Tags (comma-separated)<input placeholder="Research, Reading, Work" maxLength={800} value={tags} onChange={event => setTags(event.target.value)} /></label>
         <div className="file-facts"><span>Original filename<strong>{editing.filename}</strong></span><span>Added<strong>{dateLabel(editing.importedAt)}</strong></span><span>File size<strong>{formatSize(editing.size)}</strong></span></div>
         <div className="native-actions"><button type="button" onClick={() => void nativeAction('open', editing.id)}><ArrowUpRight size={15} />Open in default app</button><button type="button" onClick={() => void nativeAction('reveal', editing.id)}><FolderOpen size={15} />Show library copy</button></div>

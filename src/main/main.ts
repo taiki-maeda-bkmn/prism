@@ -7,6 +7,9 @@ import type { WindowState, Workspace } from '../shared/types';
 import { ensureStarterNotebook, WorkspaceStore } from './workspace';
 import { isRendererResource, validateExternalURL } from './security';
 import { installWslgWindowRecovery } from './window-recovery';
+import { PDFLibraryService } from '../../pdf-manager/src/main/library-service';
+import { resolvePDFProfileDirectory } from '../../pdf-manager/src/main/library-location';
+import { registerPDFLibraryIPC } from '../../pdf-manager/src/main/library-ipc';
 
 app.setName('Prism');
 if (!app.isPackaged && process.env.PRISM_USER_DATA) app.setPath('userData', path.resolve(process.env.PRISM_USER_DATA));
@@ -20,6 +23,13 @@ let pendingClose = false;
 let closingIntent: 'close' | 'quit' = 'close';
 let workspace: WorkspaceStore | undefined;
 let operations: Promise<unknown> = Promise.resolve();
+// Constructing the service does not open or lock the library. The first PDF
+// request uses the existing PDF profile, independently of the Notes profile.
+const pdfLibrary = new PDFLibraryService(path.join(resolvePDFProfileDirectory({
+  appData: app.getPath('appData'), isPackaged: app.isPackaged, override: process.env.PRISM_PDF_USER_DATA,
+}), 'library'));
+let quitting = false;
+let quitReady = false;
 
 function serialize<T>(operation: () => Promise<T>): Promise<T> {
   const result = operations.then(operation);
@@ -28,6 +38,7 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 function validateSender(event: IpcMainEvent | IpcMainInvokeEvent): void {
+  if (quitting) throw new Error('Prism is closing. Reopen it before continuing.');
   if (!window || window.isDestroyed() || event.sender !== window.webContents
     || event.senderFrame !== window.webContents.mainFrame || event.senderFrame.url !== rendererURL) {
     throw new Error('This request did not come from the Prism window.');
@@ -93,11 +104,12 @@ function windowState(): WindowState {
 async function restrictRendererResources(): Promise<void> {
   const rendererRoot = await fs.realpath(path.dirname(rendererPath));
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
-    void isRendererResource(details.url, rendererRoot).then((allowed) => callback({ cancel: !allowed }));
+    void isRendererResource(details.url, rendererRoot, details.resourceType).then((allowed) => callback({ cancel: !allowed }));
   });
 }
 
 function registerIPC(): void {
+  registerPDFLibraryIPC({ service: pdfLibrary, validateSender, getWindow: () => window });
   ipcMain.handle('prism:load', (event) => {
     validateSender(event);
     return serialize(async () => {
@@ -189,6 +201,7 @@ async function createWindow(): Promise<void> {
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event) => event.preventDefault());
+  window.webContents.on('will-frame-navigate', (event) => event.preventDefault());
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
   const publishWindowState = () => window?.webContents.send('prism:window-state', windowState());
   window.on('maximize', publishWindowState);
@@ -210,19 +223,32 @@ async function createWindow(): Promise<void> {
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', () => { if (window?.isMinimized()) window.restore(); window?.focus(); });
+  app.on('second-instance', () => { if (quitting) return; if (window?.isMinimized()) window.restore(); window?.focus(); });
   app.on('before-quit', (event) => {
-    if (dirty && !allowClose && window) { event.preventDefault(); requestClose('quit'); }
+    if (quitReady) return;
+    event.preventDefault();
+    if (quitting) return;
+    // A cancelled draft prompt must leave the PDF session open and usable.
+    if (dirty && !allowClose && window) { requestClose('quit'); return; }
+    quitting = true;
+    void Promise.all([operations, pdfLibrary.close()]).then(() => {
+      quitReady = true;
+      app.quit();
+    }).catch((error: unknown) => {
+      dialog.showErrorBox('Prism could not close', error instanceof Error ? error.message : 'An unexpected error occurred.');
+      app.exit(1);
+    });
   });
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null);
     session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
+    session.defaultSession.on('will-download', event => event.preventDefault());
     await restrictRendererResources();
     registerIPC();
     await createWindow();
-    app.on('activate', () => { if (!window) void createWindow(); });
+    app.on('activate', () => { if (!quitting && !window) void createWindow(); });
   }).catch((error: unknown) => {
     dialog.showErrorBox('Prism could not start', error instanceof Error ? error.message : 'An unexpected error occurred.');
     app.exit(1);

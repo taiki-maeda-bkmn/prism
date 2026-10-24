@@ -1,6 +1,6 @@
 # Prism PDF
 
-Prism PDF is a separate local desktop PDF library and reader in this repository. The Markdown workspace continues to run with `npm start`; launch this app with `npm run start:pdf`.
+Prism PDF is the standalone launcher for the local PDF library and reader in this repository. You can also open the same library from **PDFs** in the main Prism app (`npm start`). Launch the standalone app with `npm run start:pdf`; close the owning app before opening the library in the other launcher.
 
 ![Prism PDF library with a real document thumbnail, tags, and favorites](docs/library.png)
 
@@ -58,4 +58,4 @@ On Linux without a display, run the desktop suite with `xvfb-run --auto-servernu
 
 Source code is in `pdf-manager/src/`; generated output is in `pdf-manager/dist/`. Dependencies and their pinned versions are managed by the repository-root package manifest and lockfile.
 
-The [integration plan](../docs/pdf-stage-1.md) starts with a shared `PDFLibraryService`, profile resolver, and reusable IPC handlers. The standalone app uses these boundaries now; Notes/PDFs navigation inside the Markdown app is the next increment. The library uses bundled Node SQLite only as an ownership lock; the existing JSON catalogue and PDF files remain unchanged.
+The [integration plan](../docs/pdf-stage-1.md) uses a shared `PDFLibraryService`, profile resolver, and reusable IPC handlers in both launchers. Prism's Notes/PDFs navigation keeps note drafts and reader sessions intact, with shared appearance settings. The library uses bundled Node SQLite only as an ownership lock; the existing JSON catalogue and PDF files remain unchanged.
