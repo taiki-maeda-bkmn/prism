@@ -129,6 +129,7 @@ function restoreMath(fragment: DocumentFragment, formulas: Map<string, MathRange
 }
 
 export interface MarkdownHeading { title: string; level: number; index: number }
+export interface MarkdownAnchorHeading extends MarkdownHeading { id: string }
 
 /** Match the reading renderer's document-global definitions, including containers. */
 export function getMarkdownReferences(content: string): Links {
@@ -136,10 +137,11 @@ export function getMarkdownReferences(content: string): Links {
 }
 
 /** Keep editable heading metadata separate from user-supplied HTML attributes. */
-export function renderMarkdownDocument(content: string, references?: Links): { html: string; headings: MarkdownHeading[] } {
+export function renderMarkdownDocument(content: string, references?: Links): { html: string; headings: MarkdownHeading[]; allHeadings: MarkdownAnchorHeading[] } {
   const prepared = prepareMath(content);
   const headingIds = new Set<string>();
   const headings: MarkdownHeading[] = [];
+  const allHeadings: MarkdownAnchorHeading[] = [];
   const renderer = new Renderer();
   renderer.heading = function ({ tokens, depth, text }) {
     const base = prepared.headingText(text).toLocaleLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, '').trim().replace(/\s+/g, '-') || 'heading';
@@ -148,11 +150,9 @@ export function renderMarkdownDocument(content: string, references?: Links): { h
     while (headingIds.has(id)) id = `${base}-${suffix++}`;
     headingIds.add(id);
     const inline = this.parser.parseInline(tokens);
-    if (depth <= 3) headings.push({
-      title: mathPlainText(getPurifier().sanitize(inline, { RETURN_DOM_FRAGMENT: true }), prepared.formulas),
-      level: depth,
-      index: headings.length,
-    });
+    const title = mathPlainText(getPurifier().sanitize(inline, { RETURN_DOM_FRAGMENT: true }), prepared.formulas);
+    allHeadings.push({ id, title, level: depth, index: allHeadings.length });
+    if (depth <= 3) headings.push({ title, level: depth, index: headings.length });
     return `<h${depth} id="${escapeHTML(id)}">${inline}</h${depth}>\n`;
   };
   let html: string;
@@ -174,7 +174,7 @@ export function renderMarkdownDocument(content: string, references?: Links): { h
   restoreMath(fragment, prepared.formulas);
   const container = window.document.createElement('div');
   container.append(fragment);
-  return { html: container.innerHTML, headings };
+  return { html: container.innerHTML, headings, allHeadings };
 }
 
 /** Markdown is user content: sanitize after rendering, including raw HTML. */

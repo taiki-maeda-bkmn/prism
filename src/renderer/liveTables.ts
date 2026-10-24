@@ -1,6 +1,7 @@
 import { Annotation, EditorState, type Extension, type Range, StateField } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import { renderMarkdown } from './markdown';
+import { isLiveLinkHref, isLiveLinkOpenGesture, liveLinkNavigation } from './liveLinks';
 import { type MarkdownTableRange, scanMarkdownTables, tableCellPosition } from './tables';
 
 const composingTable = Annotation.define<boolean>();
@@ -25,13 +26,34 @@ class TableWidget extends WidgetType {
     content.className = 'cm-live-table-content';
     const template = document.createElement('template');
     template.innerHTML = renderMarkdown(this.table.raw, this.table.references);
-    // This surface opens source for editing. Keep note content from creating
-    // competing focus targets or navigating away from the editor.
+    // Keep supported links available to Prism's navigation router. Ordinary
+    // clicks still reveal the cell source; no anchor navigates the renderer.
     for (const link of template.content.querySelectorAll('a')) {
-      const label = document.createElement('span');
-      label.className = 'cm-live-table-link';
-      label.append(...link.childNodes);
-      link.replaceWith(label);
+      const href = link.getAttribute('href');
+      if (href === null || !isLiveLinkHref(href)) {
+        const label = document.createElement('span');
+        label.className = 'cm-live-table-link';
+        label.append(...link.childNodes);
+        link.replaceWith(label);
+        continue;
+      }
+      link.classList.add('cm-live-link', 'cm-live-table-link');
+      link.title = `${link.title ? `${link.title}\n` : ''}Ctrl+click to open (⌘+click on Mac)`;
+      link.addEventListener('mousedown', event => {
+        if (!isLiveLinkOpenGesture(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+      });
+      link.addEventListener('click', event => {
+        event.preventDefault();
+        if (!isLiveLinkOpenGesture(event)) return;
+        event.stopPropagation();
+        if (currentTable()) view.state.facet(liveLinkNavigation)(href);
+      });
+      link.addEventListener('auxclick', event => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
     }
     for (const image of template.content.querySelectorAll('img')) image.replaceWith(document.createTextNode(image.alt));
     for (const control of template.content.querySelectorAll('select, textarea, button, audio, video, details, summary')) {
@@ -45,10 +67,15 @@ class TableWidget extends WidgetType {
     content.append(template.content);
     element.append(button, content);
 
-    const reveal = (row = 0, column = 0) => {
-      if (view.compositionStarted || view.composing || !element.isConnected) return;
+    const currentTable = () => {
+      if (view.compositionStarted || view.composing || !element.isConnected
+        || view.state.field(liveTableState, false)?.pending) return;
       const position = view.posAtDOM(element);
-      const current = getLiveTableRanges(view.state).find(table => table.from === position && table.raw === this.table.raw);
+      return getLiveTableRanges(view.state).find(table => table.from === position
+        && table.raw === this.table.raw && table.referenceKey === this.table.referenceKey);
+    };
+    const reveal = (row = 0, column = 0) => {
+      const current = currentTable();
       if (!current) return;
       view.dispatch({ selection: { anchor: tableCellPosition(current, row, column) }, scrollIntoView: true });
       view.focus();
