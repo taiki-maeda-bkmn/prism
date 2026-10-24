@@ -9,7 +9,7 @@ import {
 } from '@codemirror/autocomplete';
 
 import { snippetCatalog, type MarkdownSnippet } from './snippetDefinitions';
-import { MAX_MATH_LENGTH, matchMathAt } from './math';
+import { findSnippetMathContext } from './snippetMath';
 export { snippetCatalog, type MarkdownSnippet } from './snippetDefinitions';
 
 interface SnippetContext {
@@ -17,6 +17,8 @@ interface SnippetContext {
   to: number;
   query: string;
   allowBlock: boolean;
+  inMath: boolean;
+  exactOnly: boolean;
 }
 
 const dismissContext = StateEffect.define<SnippetContext>();
@@ -35,6 +37,7 @@ const excludedNodes = new Set([
   'FencedCode', 'CodeBlock', 'InlineCode', 'HTMLBlock', 'HTMLTag', 'CommentBlock',
   'Link', 'Image', 'Autolink', 'URL', 'LinkTitle', 'LinkReference',
 ]);
+const mathLinkNodes = new Set(['Link', 'Image', 'Autolink', 'URL', 'LinkTitle', 'LinkReference']);
 const inlineFormatting = new Set(['Emphasis', 'StrongEmphasis', 'Strikethrough', 'Table', 'TableHeader', 'TableRow', 'TableCell']);
 const japaneseCharacter = /[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}]/u;
 
@@ -116,9 +119,11 @@ export function findSnippetContext(state: EditorState, pos = state.selection.mai
   const line = state.doc.lineAt(pos);
   const before = state.sliceDoc(line.from, pos);
   const match = /\/[a-z0-9_-]*$/.exec(before);
-  if (!match || !atProseBoundary(before, match.index)) return null;
+  if (!match) return null;
+  let escapes = 0;
+  for (let index = match.index - 1; index >= 0 && before[index] === '\\'; index--) escapes++;
+  if (escapes % 2) return null;
   const after = state.sliceDoc(pos, line.to);
-  if (/^[\p{L}\p{N}_/\-]/u.test(after) && !japaneseCharacter.test(String.fromCodePoint(after.codePointAt(0)!))) return null;
   const from = line.from + match.index;
   const dismissed = state.field(dismissedContext, false);
   if (dismissed?.from === from && dismissed.to === pos && dismissed.query === match[0]) return null;
@@ -126,52 +131,34 @@ export function findSnippetContext(state: EditorState, pos = state.selection.mai
   // Fail closed if a large document has not yet been parsed to the caret.
   const tree = ensureSyntaxTree(state, pos, 50);
   if (!tree) return null;
+  const math = findSnippetMathContext(state, from, pos, tree);
+  if (!math && (!atProseBoundary(before, match.index)
+    || /^[\p{L}\p{N}_/\-]/u.test(after) && !japaneseCharacter.test(String.fromCodePoint(after.codePointAt(0)!)))) return null;
   let inlineFrom = line.from;
-  let allowBlock = true;
+  let allowBlock = !math;
   for (const position of [from, pos]) {
     for (let node = tree.resolveInner(position, -1); node; node = node.parent!) {
-      if (excludedNodes.has(node.name)) return null;
+      if (excludedNodes.has(node.name) && (!math || node.from < math.contentFrom
+        || !mathLinkNodes.has(node.name) && !(math.display && node.name === 'CodeBlock'))) return null;
       if (inlineFormatting.has(node.name)) allowBlock = false;
       if (node.name === 'Paragraph' || node.name.startsWith('ATXHeading') || node.name.startsWith('SetextHeading')) {
         inlineFrom = Math.min(inlineFrom, node.from);
       }
     }
   }
-  if (insideUnfinishedMarkup(state.sliceDoc(inlineFrom, from))) return null;
-  // Cursor templates can fill inline formatting or equations. A separate
-  // Markdown block would split the surrounding delimiters across paragraphs.
-  if (allowBlock) {
-    // Search only nearby delimiters, using the document's existing syntax tree
-    // to exclude code/HTML. Reparsing a sliced document can misread a closing
-    // fence at the slice's start as an opening fence and hide the real equation.
-    const mathStart = Math.max(0, from - MAX_MATH_LENGTH - 2);
-    const mathSource = state.sliceDoc(mathStart, Math.min(state.doc.length, pos + MAX_MATH_LENGTH + 2));
-    const hasClosingParenthesis = mathSource.includes('\\)');
-    const hasClosingBracket = mathSource.includes('\\]');
-    let mathEnd = 0;
-    for (const opening of mathSource.slice(0, from - mathStart).matchAll(/\$|\\[([]/g)) {
-      if (opening.index < mathEnd || opening[0] === '\\(' && !hasClosingParenthesis || opening[0] === '\\[' && !hasClosingBracket) continue;
-      let protectedOpening = false;
-      for (let node = tree.resolveInner(mathStart + opening.index, 1); node; node = node.parent!) {
-        if (excludedNodes.has(node.name)) { protectedOpening = true; break; }
-      }
-      if (protectedOpening) continue;
-      const math = matchMathAt(mathSource, opening.index);
-      if (math) mathEnd = math.to;
-      if (math && from - mathStart >= math.contentFrom && pos - mathStart <= math.contentTo) { allowBlock = false; break; }
-    }
-  }
+  if (!math && insideUnfinishedMarkup(state.sliceDoc(inlineFrom, from))) return null;
   return {
     from, to: pos, query: match[0],
-    allowBlock,
+    allowBlock, inMath: Boolean(math), exactOnly: Boolean(math && /^[a-zA-Z0-9_-]/.test(after)),
   };
 }
 
-function matches(definition: MarkdownSnippet, context: SnippetContext): boolean {
-  return definition.trigger.startsWith(context.query) && (!definition.block || context.allowBlock);
+function matches(definition: MarkdownSnippet, context: SnippetContext, custom: boolean): boolean {
+  return definition.trigger.startsWith(context.query) && (!context.exactOnly || definition.trigger === context.query)
+    && (!definition.block || context.allowBlock || custom && context.inMath);
 }
 
-function createCompletion(definition: MarkdownSnippet): Completion {
+function createCompletion(definition: MarkdownSnippet, custom: boolean): Completion {
   const insert = snippet(definition.template);
   return {
     label: definition.trigger,
@@ -182,10 +169,11 @@ function createCompletion(definition: MarkdownSnippet): Completion {
       const context = findSnippetContext(view.state);
       if (!view.state.facet(customSnippetConfiguration).some(entry => entry.completion === completion)
         || composing(view) || !context || context.from !== from || context.to !== to
-        || !matches(definition, context)) return;
+        || !matches(definition, context, custom)) return;
       const line = view.state.doc.lineAt(from);
-      const prefix = definition.block && /\S/.test(view.state.sliceDoc(line.from, from)) ? '\n\n' : '';
-      const suffix = definition.block && /\S/.test(view.state.sliceDoc(to, line.to)) ? '\n\n' : '';
+      const separateBlock = definition.block && !context.inMath;
+      const prefix = separateBlock && /\S/.test(view.state.sliceDoc(line.from, from)) ? '\n\n' : '';
+      const suffix = separateBlock && /\S/.test(view.state.sliceDoc(to, line.to)) ? '\n\n' : '';
       // One snippet transaction keeps the surrounding prose, placeholder
       // positions, and undo together, including when a block splits a line.
       const apply = prefix || suffix ? snippet(prefix + definition.template + suffix) : insert;
@@ -196,8 +184,11 @@ function createCompletion(definition: MarkdownSnippet): Completion {
 
 // Reconfigure this facet to change templates without replacing the editor or
 // its undo history. Compile templates only when the catalog changes.
-export const customSnippetConfiguration = Facet.define<readonly MarkdownSnippet[], readonly { definition: MarkdownSnippet; completion: Completion }[]>({
-  combine: inputs => [...snippetCatalog, ...inputs.flat()].map(definition => ({ definition, completion: createCompletion(definition) })),
+export const customSnippetConfiguration = Facet.define<readonly MarkdownSnippet[], readonly { definition: MarkdownSnippet; completion: Completion; custom: boolean }[]>({
+  combine: inputs => [
+    ...snippetCatalog.map(definition => ({ definition, custom: false })),
+    ...inputs.flat().map(definition => ({ definition, custom: true })),
+  ].map(({ definition, custom }) => ({ definition, custom, completion: createCompletion(definition, custom) })),
 });
 
 export function snippetCompletionSource(context: CompletionContext): CompletionResult | null {
@@ -205,7 +196,7 @@ export function snippetCompletionSource(context: CompletionContext): CompletionR
   const match = findSnippetContext(context.state, context.pos);
   if (!match) return null;
   const options = context.state.facet(customSnippetConfiguration)
-    .filter(({ definition }) => matches(definition, match))
+    .filter(({ definition, custom }) => matches(definition, match, custom))
     .map(({ completion }) => completion);
   if (!options.length) return null;
   return {
@@ -226,10 +217,10 @@ export function expandSnippet(view: EditorView): boolean {
   if (!context) return false;
   const selected = selectedCompletion(view.state);
   const catalog = view.state.facet(customSnippetConfiguration);
-  const selectedDefinition = catalog.find(({ completion }) => completion === selected)?.definition;
-  if (selectedDefinition && matches(selectedDefinition, context) && acceptCompletion(view)) return true;
+  const selectedEntry = catalog.find(({ completion }) => completion === selected);
+  if (selectedEntry && matches(selectedEntry.definition, context, selectedEntry.custom) && acceptCompletion(view)) return true;
   // A complete trigger works even before the asynchronous popup has opened.
-  const completion = catalog.find(({ definition }) => definition.trigger === context.query && matches(definition, context))?.completion;
+  const completion = catalog.find(({ definition, custom }) => definition.trigger === context.query && matches(definition, context, custom))?.completion;
   if (!completion) return false;
   if (typeof completion.apply !== 'function') return false;
   completion.apply(view, completion, context.from, context.to);
@@ -240,7 +231,7 @@ export function expandSnippet(view: EditorView): boolean {
 export function dismissSnippets(view: EditorView): boolean {
   if (composing(view)) return false;
   const context = findSnippetContext(view.state);
-  const hasOptions = context && view.state.facet(customSnippetConfiguration).some(({ definition }) => matches(definition, context));
+  const hasOptions = context && view.state.facet(customSnippetConfiguration).some(({ definition, custom }) => matches(definition, context, custom));
   const cleared = clearSnippet(view);
   const closed = closeCompletion(view);
   if (hasOptions) view.dispatch({ effects: dismissContext.of(context) });

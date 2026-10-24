@@ -174,13 +174,13 @@ test('keeps separate blocks outside inline formatting and equations', () => {
   assert.ok(completions(stateAt('\\(x + /link¦\\)')));
 });
 
-test('math context uses real document syntax when the nearby window starts inside code', () => {
+test('math context follows real document syntax across long code blocks and notes', () => {
   const prefix = '```text\n' + 'a'.repeat(21_000) + '\n```\n\n';
   assert.equal(completions(stateAt(prefix + '$x + /task¦$')), null);
   assert.ok(completions(stateAt(prefix + 'After code /task¦')));
   const large = stateAt('/task¦\n\n' + 'An ordinary paragraph.\n\n'.repeat(75_000) + '$x$');
   assert.ok(completions(large), 'Distant equations do not affect a shortcut at the beginning of a large note.');
-  assert.ok(completions(stateAt('\\(a '.repeat(4_900) + ' /task¦')));
+  assert.equal(completions(stateAt('\\(a '.repeat(4_900) + ' /task¦')), null, 'Unfinished equations allow cursor templates, not Markdown blocks.');
 });
 
 test('never replaces selected text or expands at multiple cursors', () => {
