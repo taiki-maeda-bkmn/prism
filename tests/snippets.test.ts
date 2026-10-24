@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CompletionContext, nextSnippetField, prevSnippetField, snippet } from '@codemirror/autocomplete';
-import { markdown } from '@codemirror/lang-markdown';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { history, undo } from '@codemirror/commands';
 import { EditorSelection, EditorState, type Transaction } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
@@ -14,7 +14,7 @@ function stateAt(marked: string) {
   return EditorState.create({
     doc: marked.replace('¦', ''),
     selection: { anchor },
-    extensions: [markdown(), markdownSnippets, history(), EditorState.allowMultipleSelections.of(true)],
+    extensions: [markdown({ base: markdownLanguage }), markdownSnippets, history(), EditorState.allowMultipleSelections.of(true)],
   });
 }
 
@@ -112,6 +112,34 @@ test('does not interpret snippets inside code, links, HTML, escaped text, or wor
 test('recognizes punctuation and Japanese boundaries on either side of a shortcut', () => {
   for (const input of ['Text (/link¦).', '日本語/link¦続き', 'カタカナ/link¦ひらがな', '文章。/link¦です', '「/wiki¦」']) {
     assert.ok(completions(stateAt(input)), input);
+  }
+});
+
+test('prose boundaries stay responsive after a long run of text', () => {
+  for (const suffix of [' 日本語', '.']) {
+    const state = stateAt('a'.repeat(100_000) + suffix + '/task¦');
+    const started = performance.now();
+    assert.ok(completions(state));
+    assert.ok(performance.now() - started < 1_500, 'Completion must not freeze on a supported long line.');
+  }
+});
+
+test('table cells accept cursor snippets without offering blocks that split the row', () => {
+  for (const row of [0, 2]) {
+    const lines = ['| Header | Other |', '| --- | --- |', '| Value | Other |'];
+    for (const trigger of ['/task', '/h1', '/code', '/table', '/quote']) {
+      const doc = [...lines];
+      doc[row] = `| Value ${trigger}¦ | Other |`;
+      assert.equal(completions(stateAt(doc.join('\n'))), null, `${row}:${trigger}`);
+    }
+    lines[row] = '| Value /link¦ | Other |';
+    let state = stateAt(lines.join('\n'));
+    const completion = completions(state)!.options[0];
+    const context = findSnippetContext(state)!;
+    const editor = { get state() { return state; }, dispatch(transaction: Transaction) { state = transaction.state; } } as unknown as EditorView;
+    if (typeof completion.apply === 'function') completion.apply(editor, completion, context.from, context.to);
+    assert.equal(state.doc.lines, 3);
+    assert.equal(marked.lexer(state.doc.toString()).filter(token => token.type === 'table').length, 1);
   }
 });
 

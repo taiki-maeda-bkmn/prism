@@ -35,7 +35,7 @@ const excludedNodes = new Set([
   'FencedCode', 'CodeBlock', 'InlineCode', 'HTMLBlock', 'HTMLTag', 'CommentBlock',
   'Link', 'Image', 'Autolink', 'URL', 'LinkTitle', 'LinkReference',
 ]);
-const inlineFormatting = new Set(['Emphasis', 'StrongEmphasis', 'Strikethrough']);
+const inlineFormatting = new Set(['Emphasis', 'StrongEmphasis', 'Strikethrough', 'Table', 'TableHeader', 'TableRow', 'TableCell']);
 const japaneseCharacter = /[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}]/u;
 
 function atProseBoundary(before: string, from: number): boolean {
@@ -46,8 +46,10 @@ function atProseBoundary(before: string, from: number): boolean {
   // Japanese words have no separating spaces. Punctuation is also a useful
   // boundary, but slashes in paths, URLs, and escaped literals are not triggers.
   if (!japaneseCharacter.test(previous) && !/[\p{P}\p{S}]/u.test(previous)) return false;
-  const token = /\S*$/.exec(prefix)![0];
-  return !/[\\/]|[\w+.-]+:/.test(token) && previous !== '_';
+  let tokenStart = prefix.length;
+  while (tokenStart > 0 && !/\s/.test(prefix[tokenStart - 1])) tokenStart--;
+  const token = prefix.slice(tokenStart);
+  return !/[\\/]|[\w+.-]:/.test(token) && previous !== '_';
 }
 
 function composing(view: EditorView | undefined): boolean {
