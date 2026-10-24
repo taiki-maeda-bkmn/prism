@@ -40,7 +40,7 @@ interface Props {
   customSnippets: readonly MarkdownSnippet[];
   theme: ThemeId;
   live?: boolean;
-  headingTarget?: { index: number; request: number; allLevels?: boolean };
+  headingTarget?: { index: number; request: number; allLevels?: boolean; top?: boolean };
   onOpenLink: (href: string) => void;
   onChange: (value: string) => void;
   onCursor: (line: number, column: number) => void;
@@ -180,7 +180,7 @@ export function Editor({ path, content, textScale, customSnippets, theme, live =
     let timer: ReturnType<typeof setTimeout> | undefined;
     const navigate = () => {
       if (cancelled || view.current !== editor || editor.state.doc !== requestedDocument) return;
-      const position = findLiveHeading(editor.state, headingTarget.index, 15, headingTarget.allLevels ? 6 : 3);
+      const position = headingTarget.top ? 0 : findLiveHeading(editor.state, headingTarget.index, 15, headingTarget.allLevels ? 6 : 3);
       if (position !== null) {
         editor.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'start', yMargin: 24 }) });
         editor.focus();

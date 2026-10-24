@@ -15,7 +15,7 @@ const initial = '# Link practice\n\n'
   + '[Mail author](mailto:author@example.com?subject=Hello%20Prism)\n\n'
   + '[Protocol site](//example.com/relative)\n\n'
   + '[guide]: Linked%20note.md#target-heading "Referenced target"\n\n'
-  + paragraphs + '## Local section\n\nThe same-note destination.\n';
+  + paragraphs + '## Local section\n\nThe same-note destination.\n\n[Back to top](#)\n';
 const linked = '# Linked note\n\n' + paragraphs + '## Target heading\n\nThe linked destination.\n';
 const diskText = (content: string) => '\ufeff' + content.replace(/\n/g, '\r\n');
 let temporary: string;
@@ -117,6 +117,9 @@ test('renders Markdown, reference, wiki, and table links and follows Ctrl-clicks
     await link('Same-note section').click({ modifiers: ['Control'] });
     await expect(page.locator('.note-heading h1')).toHaveText('Link practice');
     await expectHeading('Local section');
+    await link('Back to top').click({ modifiers: ['Control'] });
+    await expect(editor().locator('.cm-live-heading-1')).toBeInViewport();
+    await expect.poll(() => page.locator('.editor-host .cm-scroller').evaluate(element => element.scrollTop)).toBeLessThan(40);
     await showLinks();
   }
   await expect(page.locator('.statusbar')).toContainText('All changes saved');

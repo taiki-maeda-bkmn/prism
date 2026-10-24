@@ -88,7 +88,7 @@ export function App() {
   const [notice, setNotice] = useState('');
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
   const [previewNavigation, setPreviewNavigation] = useState<{ path: string; fragment?: string } | null>(null);
-  const [headingTarget, setHeadingTarget] = useState<{ path: string; index: number; request: number; allLevels?: boolean }>();
+  const [headingTarget, setHeadingTarget] = useState<{ path: string; index: number; request: number; allLevels?: boolean; top?: boolean }>();
   const headingRequest = useRef(0);
   const preview = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
@@ -200,6 +200,10 @@ export function App() {
         const heading = rendered.allHeadings.find(item => item.id === fragment)
           ?? rendered.allHeadings.find(item => item.title.trim().toLocaleLowerCase() === fragment.trim().toLocaleLowerCase());
         if (heading) setHeadingTarget({ path: active.path, index: heading.index, request: ++headingRequest.current, allLevels: true });
+      } else if (fragment === '') {
+        // An empty fragment points to the document's beginning, even when this
+        // note is already open and its editor retains a lower scroll position.
+        setHeadingTarget({ path: active.path, index: 0, request: ++headingRequest.current, top: true });
       }
       setPreviewNavigation(null);
       return;
