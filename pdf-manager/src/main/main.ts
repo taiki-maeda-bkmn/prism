@@ -1,31 +1,24 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session } from 'electron';
 import type { IpcMainEvent, IpcMainInvokeEvent, Rectangle } from 'electron';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { LibraryStore } from './library';
+import { PDFLibraryService } from './library-service';
+import { registerPDFLibraryIPC } from './library-ipc';
+import { resolvePDFProfileDirectory } from './library-location';
 
 app.setName('Prism PDF');
-app.setPath('userData', !app.isPackaged && process.env.PRISM_PDF_USER_DATA
-  ? path.resolve(process.env.PRISM_PDF_USER_DATA)
-  : path.join(app.getPath('appData'), 'prism-pdf'));
+app.setPath('userData', resolvePDFProfileDirectory({
+  appData: app.getPath('appData'), isPackaged: app.isPackaged, override: process.env.PRISM_PDF_USER_DATA,
+}));
 
 const rendererPath = path.join(__dirname, 'renderer', 'index.html');
 const rendererURL = pathToFileURL(rendererPath).href;
 let window: BrowserWindow | null = null;
 let restoreBounds: Rectangle | null = null;
-let library: Promise<LibraryStore> | undefined;
-let importing = false;
-
-function getLibrary(): Promise<LibraryStore> {
-  if (!library) {
-    library = LibraryStore.open(path.join(app.getPath('userData'), 'library')).catch(error => {
-      library = undefined;
-      throw error;
-    });
-  }
-  return library;
-}
+const library = new PDFLibraryService(path.join(app.getPath('userData'), 'library'));
+let quitting = false;
+let quitReady = false;
 
 function validateSender(event: IpcMainEvent | IpcMainInvokeEvent): void {
   if (!window || window.isDestroyed() || event.sender !== window.webContents
@@ -50,47 +43,7 @@ async function allowedResource(value: string, root: string, resourceType: string
 }
 
 function registerIPC(): void {
-  ipcMain.handle('prism-pdf:load', async event => {
-    validateSender(event);
-    return (await getLibrary()).load();
-  });
-  ipcMain.handle('prism-pdf:import', async event => {
-    validateSender(event);
-    if (importing) throw new Error('Finish the current import before starting another.');
-    importing = true;
-    try {
-      const store = await getLibrary();
-      if (!window) throw new Error('The Prism PDF window is unavailable.');
-      const result = await dialog.showOpenDialog(window, {
-        title: 'Add PDFs to your library', buttonLabel: 'Import PDFs',
-        properties: ['openFile', 'multiSelections'], filters: [{ name: 'PDF documents', extensions: ['pdf'] }],
-      });
-      return await store.import(result.canceled ? [] : result.filePaths);
-    } finally { importing = false; }
-  });
-  ipcMain.handle('prism-pdf:read', async (event, id: unknown) => {
-    validateSender(event);
-    return (await getLibrary()).read(id);
-  });
-  ipcMain.handle('prism-pdf:update', async (event, id: unknown, patch: unknown) => {
-    validateSender(event);
-    return (await getLibrary()).update(id, patch);
-  });
-  ipcMain.handle('prism-pdf:open', async (event, id: unknown) => {
-    validateSender(event);
-    await (await getLibrary()).withDocumentPath(id, async filename => {
-      const error = await shell.openPath(filename);
-      if (error) throw new Error('The PDF could not be opened: ' + error);
-    });
-  });
-  ipcMain.handle('prism-pdf:reveal', async (event, id: unknown) => {
-    validateSender(event);
-    await (await getLibrary()).withDocumentPath(id, filename => shell.showItemInFolder(filename));
-  });
-  ipcMain.handle('prism-pdf:remove', async (event, id: unknown) => {
-    validateSender(event);
-    return (await getLibrary()).remove(id);
-  });
+  registerPDFLibraryIPC({ service: library, validateSender, getWindow: () => window });
   ipcMain.on('prism-pdf:window', (event, action: unknown) => {
     try {
       validateSender(event);
@@ -130,6 +83,7 @@ async function createWindow(): Promise<void> {
 }
 
 async function showOrCreateWindow(): Promise<void> {
+  if (quitting) return;
   if (!window) { await createWindow(); return; }
   if (window.isMinimized()) window.restore();
   window.show();
@@ -143,6 +97,16 @@ function handleStartupError(error: unknown): void {
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
+  app.on('before-quit', event => {
+    if (quitReady) return;
+    event.preventDefault();
+    if (quitting) return;
+    quitting = true;
+    void library.close().then(() => {
+      quitReady = true;
+      app.quit();
+    }).catch(handleStartupError);
+  });
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(process.platform === 'darwin'

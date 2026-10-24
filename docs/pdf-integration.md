@@ -1,6 +1,6 @@
 # PDF integration into Prism
 
-Status: planned. This document records the agreed direction; the integration is not implemented yet. Deliver one increment at a time, starting with stage 1.
+Status: stage 1 has started with the shared library foundation. Notes/PDFs navigation is the next increment; it is not implemented yet. Follow the smaller steps in [the stage 1 breakdown](pdf-stage-1.md).
 
 ## Product direction
 
@@ -103,4 +103,4 @@ Do not copy the sibling project's full application shell or catalogue into Prism
 
 Use a separate branch and PR for each increment. Keep this plan and [the implementation checklist](../IMPLEMENTATION.md) current as work is completed. Commit and push automatically, request Copilot review, address actionable findings, run appropriate local checks, and verify the Codex review on the final commit. Per the user's instruction, do not check or wait for GitHub CI. Leave PRs unmerged for user review.
 
-For the current planning change, validate the document and its links. Runtime implementation and its tests begin with stage 1 in a separate change.
+The first stage is split into shared library ownership, workspace integration, and compatibility/launch checks in [the stage 1 breakdown](pdf-stage-1.md).
