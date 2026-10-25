@@ -1,6 +1,8 @@
 # Prism PDF
 
-Prism PDF is the standalone launcher for the local PDF library and reader in this repository. You can also open the same library from **PDFs** in the main Prism app (`npm start`). Launch the standalone app with `npm run start:pdf`; close the owning app before opening the library in the other launcher.
+Use **Prism → PDFs** for the local PDF library and reader alongside your Markdown notes. Install the main **Prism** desktop shortcut with `npm run install:desktop`, or run `npm start`. Your existing Prism PDF library opens directly without re-importing or moving it.
+
+Prism PDF remains the standalone launcher during the transition. Launch it with `npm run start:pdf`; close the owning app before opening the library in the other launcher. See the [transition and backup guidance](../README.md#moving-from-prism-pdf). AI assistance and OpenAI API integration are outside Prism's scope.
 
 ![Prism PDF library with a real document thumbnail, tags, and favorites](docs/library.png)
 

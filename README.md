@@ -1,6 +1,6 @@
 # Prism
 
-A local Markdown notebook with live preview, connected notes, and a transparent desktop window. Built with Electron, React, TypeScript, and CodeMirror.
+A local Markdown notebook and PDF library with live preview, connected notes, and a transparent desktop window. Built with Electron, React, TypeScript, and CodeMirror.
 
 Prism includes **Notes** and **PDFs** workspaces in the same window. Use the buttons in the title bar to switch between writing and the local PDF library and reader.
 
@@ -30,12 +30,20 @@ This is a desktop application; opening the HTML file in a browser does not provi
 On Linux or Windows with WSLg, install the launcher once after installing dependencies:
 
 ```sh
-npm run install:markdown
+npm run install:desktop
 ```
 
 On Windows, double-click **Prism** on your desktop or search for **Prism** in the Start menu. On Linux, choose **Prism** from your applications menu. The green prism icon opens Prism with Notes and PDFs; **Prism PDF** still opens the standalone reader. Launching needs no terminal and does not rebuild the app.
 
-Keep this repository in place: the shortcuts use its installed Electron and built app. Run `npm run install:markdown` again after moving the repository or updating the app. Your notebook and preferences remain in their existing locations. To remove the launchers, delete the Windows shortcuts and the Linux `io.github.beautysamurai.Prism.desktop` file from `${XDG_DATA_HOME:-~/.local/share}/applications`.
+Keep this repository in place: the shortcuts use its installed Electron and built app. Run `npm run install:desktop` again after moving the repository or updating the app. The previous `npm run install:markdown` command remains an alias for the same launcher. Your notebook and preferences remain in their existing locations. To remove the launchers, delete the Windows shortcuts and the Linux `io.github.beautysamurai.Prism.desktop` file from `${XDG_DATA_HOME:-~/.local/share}/applications`.
+
+### Moving from Prism PDF
+
+Use **Prism → PDFs** as the main entry point. Close the standalone **Prism PDF** app before opening its library in Prism; if the library is busy, close its owner and choose **Try again**. No re-import or catalog migration is needed: both launchers use the same OS account's `prism-pdf/library` directory, preserving tags, favorites, titles, document IDs, and reading positions. Back up that entire directory with both apps closed. A Windows library and a Linux/WSL library are separate; Prism does not combine them automatically.
+
+The separate sibling `pdfmanager` project remains independent. Its documents need an explicit import into Prism; selecting its manifest as Prism's catalog is unsupported. The standalone Prism PDF launcher remains available during the transition.
+
+Prism's planned reading and writing workflow is local. AI assistance and OpenAI API integration are out of scope; no API key is required.
 
 ## Write, read, connect
 
