@@ -76,7 +76,13 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   }, []);
 
   useEffect(() => {
-    if (workspaceActive && passwordPrompt && !window.document.querySelector('dialog[open]')) passwordRef.current?.focus();
+    if (!workspaceActive || !passwordPrompt || window.document.querySelector('dialog[open]')) return;
+    const focused = window.document.activeElement;
+    // A visible reader can become active while the user clicks library search
+    // or another control. A pending password must not steal that input focus.
+    if (focused && focused !== window.document.body && focused !== viewportRef.current
+      && !(focused instanceof HTMLElement && focused.matches('.pdf-panel, .pdf-workspace'))) return;
+    passwordRef.current?.focus();
   }, [workspaceActive, passwordPrompt]);
 
   useEffect(() => {
@@ -131,7 +137,8 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
     let canvas: HTMLCanvasElement | undefined;
     setRendering(true);
     setError('');
-    paperRef.current?.replaceChildren();
+    // Retain the previous surface while resizing renders its replacement.
+    // Emptying the paper here collapses scroll height and loses reader scroll.
     void (async () => {
       try {
         const page = await pdf.getPage(pageNumber);
@@ -173,7 +180,10 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
           viewportRef.current?.scrollTo({ top: 0, left: 0 });
         }
       } catch (failure) {
-        if (active && !cancelled(failure)) setError(describeError(failure));
+        if (active && !cancelled(failure)) {
+          paperRef.current?.replaceChildren();
+          setError(describeError(failure));
+        }
       } finally {
         if (active) setRendering(false);
       }

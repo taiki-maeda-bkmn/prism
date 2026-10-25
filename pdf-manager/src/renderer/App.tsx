@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { ArrowDownUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clock3, FileText, FolderOpen, Grid2X2, HardDrive, Library, List, LoaderCircle, Maximize2, Minus, MoreHorizontal, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tag, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { ArrowDownUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clock3, FileText, FolderOpen, Grid2X2, HardDrive, Library, List, LoaderCircle, Maximize2, Minus, MoreHorizontal, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tag, Trash2, X } from 'lucide-react';
 import type { PDFDocument } from '../shared/types';
 import { PdfReader, PdfThumbnail } from './PdfReader';
 import './styles.css';
@@ -57,6 +57,43 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance }: Libra
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [appearance, setAppearance] = useState(savedAppearance);
   const searchRef = useRef<HTMLInputElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const navigationRef = useRef<HTMLElement>(null);
+  const navigationToggle = useRef<HTMLButtonElement>(null);
+  const [compact, setCompact] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+
+  useLayoutEffect(() => {
+    const element = workspaceRef.current;
+    if (!integrated || !element) return;
+    const measure = () => {
+      const width = element.getBoundingClientRect().width;
+      // Hidden workspaces retain their last layout and reader session.
+      if (width > 0) setCompact(width <= 900);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [integrated]);
+
+  useLayoutEffect(() => {
+    setNavigationOpen(false);
+    if (compact && navigationRef.current?.contains(document.activeElement)) navigationToggle.current?.focus();
+  }, [compact]);
+
+  const closeNavigation = useCallback((restoreFocus = false) => {
+    setNavigationOpen(false);
+    if (restoreFocus) navigationToggle.current?.focus({ preventScroll: true });
+  }, []);
+
+  useEffect(() => {
+    if (!compact || !navigationOpen) return;
+    const frame = requestAnimationFrame(() => {
+      if (workspaceRef.current?.contains(document.activeElement)) navigationRef.current?.querySelector<HTMLButtonElement>('nav button')?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [compact, navigationOpen]);
 
   const load = useCallback(async () => {
     setLoading(true); setLoadError('');
@@ -69,6 +106,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance }: Libra
 
   const importFiles = useCallback(async () => {
     if (importing || loading || loadError) return;
+    closeNavigation();
     setImporting(true);
     try {
       const result = await window.prismPdf.importDocuments();
@@ -83,7 +121,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance }: Libra
       if (result.importedIds.length) { setFilter('all'); setQuery(''); setActiveId(null); }
     } catch (error) { setNotice({ text: message(error), error: true }); }
     finally { setImporting(false); }
-  }, [importing, loading, loadError]);
+  }, [importing, loading, loadError, closeNavigation]);
 
   const update = useCallback(async (id: string, patch: Patch) => {
     const updated = await window.prismPdf.updateDocument(id, patch);
@@ -100,11 +138,11 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance }: Libra
     const onKey = (event: KeyboardEvent) => {
       if (!workspaceActive || editingId || document.querySelector('dialog[open]') || event.defaultPrevented) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') { event.preventDefault(); void importFiles(); }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); searchRef.current?.focus(); }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); closeNavigation(); searchRef.current?.focus(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [importFiles, editingId, workspaceActive]);
+  }, [importFiles, editingId, workspaceActive, closeNavigation]);
 
   const tagCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -130,7 +168,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance }: Libra
   }, [documents, filter, query, sort]);
 
   const heading = filter === 'all' ? 'All documents' : filter === 'recent' ? 'Recently opened' : filter === 'favorites' ? 'Favorites' : filter.slice(4);
-  const selectFilter = (value: Filter) => { setFilter(value); setActiveId(null); setQuery(''); };
+  const selectFilter = (value: Filter) => { setFilter(value); setActiveId(null); setQuery(''); closeNavigation(compact && navigationOpen); };
   const edit = (document: PDFDocument) => { setEditingId(document.id); setTitle(document.title); setTags(document.tags.join(', ')); setRemoving(false); setModalError(''); };
   const closeModal = () => { if (!saving) { setEditingId(null); setRemoving(false); } };
   const favorite = async (document: PDFDocument) => {
@@ -164,8 +202,11 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance }: Libra
     {icon}<span>{label}</span><span className="nav-count">{count}</span>
   </button>;
 
-  return <div className={`pdf-workspace ${integrated ? 'pdf-integrated' : 'pdf-standalone app-shell'}`} data-transparent={integrated ? undefined : appearance.transparent} style={integrated ? undefined : { '--surface-alpha': appearance.transparent ? appearance.opacity / 100 : 1 } as CSSProperties}>
-    <aside className="sidebar">
+  return <div ref={workspaceRef} className={`pdf-workspace ${integrated ? 'pdf-integrated' : 'pdf-standalone app-shell'}`} data-compact={compact} data-transparent={integrated ? undefined : appearance.transparent} style={integrated ? undefined : { '--surface-alpha': appearance.transparent ? appearance.opacity / 100 : 1 } as CSSProperties}
+    onKeyDownCapture={event => { if (compact && navigationOpen && event.key === 'Escape' && !document.querySelector('dialog[open]')) { event.preventDefault(); event.stopPropagation(); closeNavigation(true); } }}>
+    {compact && navigationOpen && <button className="pdf-navigation-dismiss" aria-label="Dismiss library navigation" tabIndex={-1} onClick={() => closeNavigation(true)} />}
+    <aside id="pdf-library-navigation" ref={navigationRef} className="sidebar" hidden={compact && !navigationOpen} inert={compact && !navigationOpen}>
+      {compact && <button className="pdf-navigation-close" aria-label="Close library navigation" onClick={() => closeNavigation(true)}><X size={17} />Close</button>}
       {!integrated && <div className="brand"><span className="brand-mark"><Library size={23} strokeWidth={1.7} /></span><span>prism<span className="brand-pdf">PDF</span></span></div>}
       <div className="workspace-label"><span className="workspace-avatar">P</span><div>Personal library<small>Your space for documents</small></div></div>
       <nav className="library-nav" aria-label="Library">
@@ -183,6 +224,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance }: Libra
     </aside>
     <div className="workspace">
       <header className={integrated ? "pdf-library-heading" : "titlebar"}>
+        {compact && <button ref={navigationToggle} className="pdf-library-toggle" aria-label="Library navigation" aria-controls="pdf-library-navigation" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(value => !value)}><PanelLeft size={17} /><span>Library</span></button>}
         <div className="breadcrumb"><span>Workspace</span><ChevronRight size={13} /><strong>{active ? active.title : 'My library'}</strong></div>
         <label className="search-box"><Search size={16} /><input ref={searchRef} aria-label="Search library" placeholder="Search your library…" value={query} onChange={event => { setQuery(event.target.value); setActiveId(null); }} /><kbd>{window.prismPdf.platform === 'darwin' ? '⌘' : 'Ctrl'} K</kbd></label>
         {!integrated && <div className="window-controls"><button aria-label="Minimize window" onClick={() => window.prismPdf.windowControl('minimize')}><Minus size={14} /></button><button aria-label="Maximize or restore window" onClick={() => window.prismPdf.windowControl('maximize')}><Maximize2 size={13} /></button><button aria-label="Close window" onClick={() => window.prismPdf.windowControl('close')}><X size={16} /></button></div>}
