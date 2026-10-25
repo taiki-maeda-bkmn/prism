@@ -2,6 +2,8 @@
 
 Use **Prism → PDFs** for the local PDF library and reader alongside your Markdown notes. Install the main **Prism** desktop shortcut with `npm run install:desktop`, or run `npm start`. Your existing Prism PDF library opens directly without re-importing or moving it.
 
+In the combined app, choose **Read & write** to keep a note beside the library or reader. Resize the divider and scroll each pane independently. In a narrow PDF pane, **Library** opens tags and filters. Clicking a pane directs keyboard shortcuts to it, and switching layouts retains the current page, zoom, and password session.
+
 Prism PDF remains the standalone launcher during the transition. Launch it with `npm run start:pdf`; close the owning app before opening the library in the other launcher. See the [transition and backup guidance](../README.md#moving-from-prism-pdf). AI assistance and OpenAI API integration are outside Prism's scope.
 
 ![Prism PDF library with a real document thumbnail, tags, and favorites](docs/library.png)

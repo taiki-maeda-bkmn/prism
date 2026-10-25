@@ -2,9 +2,9 @@
 
 A local Markdown notebook and PDF library with live preview, connected notes, and a transparent desktop window. Built with Electron, React, TypeScript, and CodeMirror.
 
-Prism includes **Notes** and **PDFs** workspaces in the same window. Use the buttons in the title bar to switch between writing and the local PDF library and reader.
+Prism includes **Notes** and **PDFs** workspaces in the same window. Use the buttons in the title bar to switch between them, or choose **Read & write** to keep a note and PDF visible together.
 
-The **[Prism PDF](pdf-manager/README.md)** standalone launcher remains available with `npm run start:pdf`. Both launchers use the same existing PDF library for your OS account; close the app that owns it before opening it in the other launcher. See the [integration plan](docs/pdf-integration.md) for later side-by-side writing and PDF page links.
+The **[Prism PDF](pdf-manager/README.md)** standalone launcher remains available with `npm run start:pdf`. Both launchers use the same existing PDF library for your OS account; close the app that owns it before opening it in the other launcher. See the [integration plan](docs/pdf-integration.md) for later PDF page links and graph connections.
 
 ![Prism showing source editing, live preview, and connected notes](docs/prism-desktop.png)
 
@@ -48,6 +48,7 @@ Prism's planned reading and writing workflow is local. AI assistance and OpenAI 
 ## Write, read, connect
 
 - **Notes and PDFs:** import, organize, and read PDFs without opening a second app. Switching workspaces keeps the note's draft, cursor, selection, mode, and undo history, as well as the reader's current page and password session. Library filters stay in place when returning from a document. PDFs use the same Appearance settings; document pages stay opaque. PDF resources load locally on your first visit.
+- **Read & write:** show your note and PDF beside each other, with independent scrolling. Click a pane to direct its shortcuts there, or use the **Notes** and **PDFs** buttons to focus it. Drag the divider to resize; focus it and use Left/Right arrows (Shift for larger steps), Home or double-click to reset, and Escape to cancel a drag. The divider position is remembered. **Show notes** opens note navigation; **Library navigation** opens PDF tags and filters in a narrow pane. Turning **Read & write** off shows the focused workspace. A narrow window temporarily shows one workspace and restores both when widened. Prism starts in the single-workspace layout; saved notes and reading positions remain available when reopened.
 - **Source, Split, Live, and Read:** choose Markdown source, side-by-side preview, direct formatted editing, or a reading view. Mode changes retain your cursor and undo history.
 - **Room to write:** Live and Read use the available pane width in every theme, with modest side padding that adapts to the window size.
 - **Arrange your graph:** drag individual notes to reshape the full graph, or focus a note and use the arrow keys (hold Shift for larger steps). Click or press Enter/Space to open a note. Positions stay in place while navigating, editing, and refreshing the current notebook; they reset when you switch notebooks or restart Prism. **Reset layout** restores the automatic arrangement; the percentage button resets only pan and zoom.
@@ -69,7 +70,7 @@ Prism's planned reading and writing workflow is local. AI assistance and OpenAI 
 
 Saving is explicit. Unsaved drafts survive switching between notes within the current session. Closing Prism, refreshing the notebook, or opening another folder asks you to save or discard those drafts. Drafts are kept in memory until saved, so save before terminating the process or shutting down the computer.
 
-In **PDFs**, **Ctrl+O / ⌘O** imports documents and **Ctrl+K / ⌘K** focuses library search. In **Notes**, **Ctrl+O / ⌘O** opens a notebook. Note editing shortcuts apply only in Notes. Closing from either workspace still asks about unsaved notes. PDFs remain in the existing managed library, separate from your Markdown notebook; see [library storage and backup](pdf-manager/README.md#your-library). Switching workspaces neither saves nor discards a draft, and PDF passwords are never persisted.
+In **PDFs**, **Ctrl+O / ⌘O** imports documents and **Ctrl+K / ⌘K** focuses library search. In **Notes**, **Ctrl+O / ⌘O** opens a notebook. In **Read & write**, these shortcuts follow the pane you last focused; **Ctrl+S / ⌘S** saves while Notes is focused. Closing from either workspace still asks about unsaved notes. PDFs remain in the existing managed library, separate from your Markdown notebook; see [library storage and backup](pdf-manager/README.md#your-library). Switching workspaces neither saves nor discards a draft, and PDF passwords are never persisted. All four note modes remain available; the note's own Split preview stacks vertically when its pane is narrow.
 
 Built-in snippets insert ordinary Markdown:
 

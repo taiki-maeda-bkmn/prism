@@ -13,6 +13,7 @@ import { snippetCatalog, type MarkdownSnippet } from './snippetDefinitions';
 import { readCustomSnippets, saveCustomSnippets } from './customSnippets';
 import { SnippetSettings } from './SnippetSettings';
 import { PDFWorkspaceLoader } from './PDFWorkspaceLoader';
+import { useWorkspaceSplit } from './useWorkspaceSplit';
 
 type Intent = 'open' | 'refresh' | 'close';
 
@@ -60,14 +61,20 @@ function NoteTree({ notes, activePath, drafts, query, onOpen }: { notes: Note[];
 
 export function App() {
   const [activeWorkspace, setActiveWorkspace] = useState<'notes' | 'pdfs'>('notes');
+  const activeWorkspaceRef = useRef(activeWorkspace);
+  activeWorkspaceRef.current = activeWorkspace;
   const [pdfVisited, setPdfVisited] = useState(false);
+  const split = useWorkspaceSplit();
+  const [notesNavigation, setNotesNavigation] = useState(false);
+  const [focusRequest, setFocusRequest] = useState(0);
   const notesPanel = useRef<HTMLDivElement>(null);
   const pdfPanel = useRef<HTMLDivElement>(null);
+  const notesNavigationButton = useRef<HTMLButtonElement>(null);
   const workspaceFocus = useRef<{ notes: HTMLElement | null; pdfs: HTMLElement | null }>({ notes: null, pdfs: null });
   const switchWorkspace = (next: 'notes' | 'pdfs') => {
-    if (next === activeWorkspace) return;
     if (next === 'pdfs') setPdfVisited(true);
     setActiveWorkspace(next);
+    setFocusRequest(previous => previous + 1);
   };
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
@@ -114,23 +121,49 @@ export function App() {
   useEffect(() => {
     if (busy) return;
     const frame = requestAnimationFrame(() => {
-      if (focusBeforeIO.current?.isConnected && !focusBeforeIO.current.closest('[hidden], [inert]')
-        && !document.querySelector('dialog[open]')) focusBeforeIO.current.focus({ preventScroll: true });
+      const previous = focusBeforeIO.current;
+      const focused = document.activeElement;
+      // A completed picker/save may leave focus on the document body after its
+      // pane was inert. Restore that focus, but never override a new user target.
+      if (previous?.isConnected && !previous.closest('[hidden], [inert]')
+        && (!focused || focused === document.body || focused === previous)
+        && !document.querySelector('dialog[open]')) previous.focus({ preventScroll: true });
       focusBeforeIO.current = null;
     });
     return () => cancelAnimationFrame(frame);
   }, [busy]);
 
+  const restoreWorkspaceFocus = useCallback((next: 'notes' | 'pdfs') => {
+    if (document.querySelector('dialog[open]')) return;
+    const remembered = workspaceFocus.current[next];
+    const panel = next === 'notes' ? notesPanel.current : pdfPanel.current;
+    if (remembered?.isConnected && !remembered.closest('[hidden], [inert]') && remembered.getClientRects().length) remembered.focus({ preventScroll: true });
+    else panel?.focus({ preventScroll: true });
+  }, []);
+
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      if (document.querySelector('dialog[open]')) return;
-      const remembered = workspaceFocus.current[activeWorkspace];
-      const panel = activeWorkspace === 'notes' ? notesPanel.current : pdfPanel.current;
-      if (remembered?.isConnected && !remembered.closest('[hidden], [inert]')) remembered.focus({ preventScroll: true });
-      else panel?.focus({ preventScroll: true });
+      // A click in the other pane after the layout/navigation request is newer
+      // than this scheduled restoration and must keep its focus ownership.
+      if (activeWorkspaceRef.current === activeWorkspace) restoreWorkspaceFocus(activeWorkspace);
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeWorkspace]);
+    // Ordinary focus/pointer changes update shortcut ownership only. Restoring
+    // remembered focus here is reserved for explicit navigation and layouts.
+  }, [focusRequest, split.visible, restoreWorkspaceFocus]);
+
+  useEffect(() => {
+    if (!split.visible || !notesNavigation) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || document.querySelector('dialog[open]')
+        || !(event.target instanceof Node) || !notesPanel.current?.contains(event.target)) return;
+      event.preventDefault();
+      setNotesNavigation(false);
+      notesNavigationButton.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [split.visible, notesNavigation]);
 
   const acceptWorkspace = useCallback((next: Workspace) => {
     const sameNotebook = latest.current.workspace?.path === next.path;
@@ -147,6 +180,7 @@ export function App() {
     setActivePath(next.notes.some(note => note.path === latest.current.activePath) ? latest.current.activePath : (welcome || next.notes[0])?.path || '');
     setDrafts({});
     setQuery('');
+    setNotesNavigation(false);
     setView('note');
     setPreviewNavigation(null);
     setHeadingTarget(undefined);
@@ -205,7 +239,12 @@ export function App() {
     setCursor({ line: 1, column: 1 });
     setPreviewNavigation({ path, fragment });
     setHeadingTarget(undefined);
-  }, []);
+    setNotesNavigation(false);
+    if (split.visible && notesNavigation) requestAnimationFrame(() => {
+      const editor = notesPanel.current?.querySelector<HTMLElement>('.source-pane:not([hidden]) .cm-content');
+      (editor ?? notesPanel.current)?.focus({ preventScroll: true });
+    });
+  }, [split.visible, notesNavigation]);
   const chooseMode = useCallback((mode: Mode) => {
     setHeadingTarget(undefined);
     setView('note');
@@ -311,13 +350,13 @@ export function App() {
       if (key === 's') { event.preventDefault(); void save(event.shiftKey); }
       if (key === 'n' && latest.current.workspace) { event.preventDefault(); setNewName(''); setCreating(true); }
       if (key === 'o') { event.preventDefault(); requestIntent('open'); }
-      if (key === 'p') { event.preventDefault(); setFocus(false); requestAnimationFrame(() => search.current?.focus()); }
+      if (key === 'p') { event.preventDefault(); if (split.visible) setNotesNavigation(true); else setFocus(false); requestAnimationFrame(() => search.current?.focus()); }
       if (key === 'g' && event.shiftKey) { event.preventDefault(); setView(previous => previous === 'note' ? 'graph' : 'note'); }
       if (['1', '2', '3', '4'].includes(key)) { event.preventDefault(); chooseMode((['source', 'split', 'preview', 'live'] as Mode[])[Number(key) - 1]); }
     };
     window.addEventListener('keydown', keyboard, true);
     return () => window.removeEventListener('keydown', keyboard, true);
-  }, [save, requestIntent, chooseMode, activeWorkspace]);
+  }, [save, requestIntent, chooseMode, activeWorkspace, split.visible]);
 
   const create = async () => {
     if (operation.current || !newName.trim()) return;
@@ -355,23 +394,37 @@ export function App() {
   };
 
   const appStyle = appearanceStyle(preferences);
+  const toggleNotesSidebar = () => {
+    if (!split.visible) { setFocus(previous => !previous); return; }
+    setNotesNavigation(previous => !previous);
+    if (!notesNavigation) requestAnimationFrame(() => {
+      if (document.activeElement === notesNavigationButton.current) search.current?.focus({ preventScroll: true });
+    });
+  };
 
-  return <div className={`app-shell ${focus ? 'focus-mode' : ''}`} style={appStyle} data-transparent={preferences.transparent} data-theme={preferences.theme} data-maximized={maximized} data-workspace={activeWorkspace}>
+  return <div className={`app-shell ${focus ? 'focus-mode' : ''}`} style={appStyle} data-transparent={preferences.transparent} data-theme={preferences.theme} data-maximized={maximized} data-workspace={activeWorkspace} data-layout={split.visible ? 'split' : 'single'}>
     <header className="titlebar">
       <div className="titlebar-brand"><PrismMark small /><strong>prism</strong><span className="titlebar-divider" /><span>A little space for big ideas.</span></div>
       <nav className="workspace-navigation" aria-label="Workspaces">
         <button aria-label="Notes" aria-pressed={activeWorkspace === 'notes'} disabled={busy} onClick={() => switchWorkspace('notes')}><FileText size={15} />Notes{dirtyCount > 0 && <span className="workspace-unsaved" title={`${dirtyCount} unsaved notes`} />}</button>
         <button aria-label="PDFs" aria-pressed={activeWorkspace === 'pdfs'} disabled={busy} onClick={() => switchWorkspace('pdfs')}><BookOpen size={15} />PDFs</button>
+        <button className="workspace-layout-toggle" aria-label="Read & write" aria-pressed={split.requested} disabled={busy || (!split.available && !split.requested)}
+          title={!split.available ? 'Widen the window to show Notes and PDFs side by side.' : split.requested ? 'Return to one workspace' : 'Show Notes and PDFs side by side'}
+          onClick={() => { setPdfVisited(true); split.setRequested(previous => !previous); }}><Columns2 size={15} />Read &amp; write</button>
       </nav>
       <div className="window-controls"><button aria-label="Minimize window" title="Minimize window" onClick={() => window.prism?.windowControl('minimize')}><Minus size={15} /></button><button aria-label={maximized ? 'Restore window' : 'Maximize window'} title={maximized ? 'Restore window' : 'Maximize window'} onClick={() => window.prism?.windowControl('maximize')}>{maximized ? <Copy size={13} /> : <Square size={13} />}</button><button className="close-window" aria-label="Close window" title="Close window" onClick={() => requestIntent('close')}><X size={17} /></button></div>
     </header>
 
-    <div className="app-body" ref={notesPanel} tabIndex={-1} aria-label="Notes workspace" hidden={activeWorkspace !== 'notes'} inert={busy || activeWorkspace !== 'notes'} aria-busy={busy}
-      onFocusCapture={event => { workspaceFocus.current.notes = event.target as HTMLElement; }}>
-      {!focus && <aside className="sidebar">
+    <div className="workspace-area" ref={split.area} style={split.style} data-layout={split.visible ? 'split' : 'single'} data-resizing={split.resizing}>
+    <div className="app-body" id="notes-workspace" ref={notesPanel} tabIndex={-1} aria-label="Notes workspace" hidden={!split.visible && activeWorkspace !== 'notes'} inert={busy || (!split.visible && activeWorkspace !== 'notes')} aria-busy={busy} data-active={activeWorkspace === 'notes'} data-notes-open={notesNavigation}
+      onPointerDownCapture={() => setActiveWorkspace('notes')}
+      onFocusCapture={event => { workspaceFocus.current.notes = event.target as HTMLElement; setActiveWorkspace('notes'); }}>
+      {split.visible && notesNavigation && <button className="notes-navigation-dismiss" aria-label="Dismiss notes navigation" tabIndex={-1} onClick={() => { setNotesNavigation(false); notesNavigationButton.current?.focus({ preventScroll: true }); }} />}
+      {(split.visible || !focus) && <aside id="notes-navigation" className="sidebar" hidden={split.visible && !notesNavigation} inert={split.visible && !notesNavigation}>
+        {split.visible && <button className="notes-navigation-close" aria-label="Close notes navigation" onClick={() => { setNotesNavigation(false); notesNavigationButton.current?.focus({ preventScroll: true }); }}><X size={17} />Close</button>}
         <button className="workspace-switch" onClick={() => requestIntent('open')} title="Open a notebook folder (Ctrl+O)"><span className="workspace-icon"><BookOpen size={19} /></span><span><strong>{workspace?.name || 'Your notebook'}</strong><small>LOCAL NOTEBOOK</small></span><ChevronDown size={15} /></button>
         <div className="search-field"><Search size={15} /><input ref={search} value={query} onChange={event => setQuery(event.target.value)} placeholder="Find a note…" aria-label="Search notes" /><kbd>⌘ / Ctrl P</kbd></div>
-        <button className={`graph-nav ${view === 'graph' ? 'selected' : ''}`} onClick={() => setView(previous => previous === 'graph' ? 'note' : 'graph')}><GitFork size={17} /><span>Graph view</span><ArrowUpRight size={14} /></button>
+        <button className={`graph-nav ${view === 'graph' ? 'selected' : ''}`} onClick={() => { setView(previous => previous === 'graph' ? 'note' : 'graph'); if (split.visible) { setNotesNavigation(false); notesNavigationButton.current?.focus({ preventScroll: true }); } }}><GitFork size={17} /><span>Graph view</span><ArrowUpRight size={14} /></button>
         <div className="sidebar-section-label"><span>YOUR NOTES</span><div><button className="icon-button" title="Refresh from disk" aria-label="Refresh notebook" disabled={busy || !workspace} onClick={() => requestIntent('refresh')}><RefreshCw size={14} /></button><button className="icon-button" title="New note (Ctrl+N)" aria-label="New note" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><Plus size={17} /></button></div></div>
         <div className="note-list-scroll">{filtered.length ? <NoteTree notes={filtered} activePath={view === 'note' ? activePath : ''} drafts={drafts} query={query} onOpen={openNote} /> : <div className="no-notes">{query ? 'No notes match your search.' : workspace ? 'A blank page is a good beginning.' : 'Opening your notebook…'}</div>}</div>
         <button className="new-note-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><Plus size={16} />New note<span>⌘ / Ctrl N</span></button>
@@ -381,7 +434,7 @@ export function App() {
 
       <main className="workspace-main">
         <div className="document-toolbar">
-          <div className="document-location"><button className="icon-button" onClick={() => setFocus(previous => !previous)} aria-label={focus ? 'Show sidebars' : 'Focus mode'} title={focus ? 'Show sidebars' : 'Focus mode'}>{focus ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button><span className="toolbar-separator" />{view === 'graph' ? <><GitFork size={16} /><span>Connected thoughts</span></> : <><FileText size={16} /><span title={activePath}>{activePath.replace(/\.md$/i, '') || 'Your notebook'}</span>{Object.hasOwn(drafts, activePath) && <span className="unsaved-badge">Edited</span>}</>}</div>
+          <div className="document-location"><button ref={notesNavigationButton} className="icon-button" onClick={toggleNotesSidebar} aria-label={split.visible ? notesNavigation ? 'Hide notes' : 'Show notes' : focus ? 'Show sidebars' : 'Focus mode'} aria-controls={split.visible ? 'notes-navigation' : undefined} aria-expanded={split.visible ? notesNavigation : undefined} title={split.visible ? notesNavigation ? 'Hide notes' : 'Show notes' : focus ? 'Show sidebars' : 'Focus mode'}>{(split.visible ? !notesNavigation : focus) ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button><span className="toolbar-separator" />{view === 'graph' ? <><GitFork size={16} /><span>Connected thoughts</span></> : <><FileText size={16} /><span title={activePath}>{activePath.replace(/\.md$/i, '') || 'Your notebook'}</span>{Object.hasOwn(drafts, activePath) && <span className="unsaved-badge">Edited</span>}</>}</div>
           <div className="toolbar-actions"><button className={`transparency-shortcut ${preferences.transparent ? 'enabled' : ''}`} onClick={() => setSettings(true)} title="Window appearance" aria-label="Window appearance"><Layers3 size={16} /><span>{preferences.transparent ? `${preferences.opacity}%` : 'Appearance'}</span></button><button className="save-button" disabled={busy || !Object.hasOwn(drafts, activePath)} onClick={() => void save()} title="Save note (Ctrl+S)">{busy ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}<span>Save</span></button></div>
         </div>
 
@@ -397,7 +450,7 @@ export function App() {
         </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><FilePlus2 size={17} />Create your first note</button></div>}
       </main>
 
-      {!focus && view === 'note' && active && <ResizableInspector width={preferences.inspectorWidth} onWidthChange={inspectorWidth => setPreferences(previous => ({ ...previous, inspectorWidth }))}>
+      {!split.visible && !focus && view === 'note' && active && <ResizableInspector width={preferences.inspectorWidth} onWidthChange={inspectorWidth => setPreferences(previous => ({ ...previous, inspectorWidth }))}>
         <div className="inspector-title"><Sparkles size={16} /><span>IN THIS NOTE</span></div>
         <section className="outline-section"><div className="inspector-section-heading">Outline <span>{outline.length}</span></div><nav aria-label="Note outline">{outline.length ? outline.map(item => <button key={item.index} className={`outline-link level-${item.level}`} onClick={() => { if (previewNote?.path !== active.path || previewNote.content !== active.content) return; if (preferences.mode === 'live') { setHeadingTarget({ path: active.path, index: item.index, request: ++headingRequest.current }); return; } if (preferences.mode === 'source') chooseMode('split'); requestAnimationFrame(() => document.querySelectorAll('.markdown-body h1,.markdown-body h2,.markdown-body h3')[item.index]?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }}><span />{item.title}</button>) : <p className="inspector-empty">Add a heading with # to give your ideas a little structure.</p>}</nav></section>
         <section className="connections-section"><div className="inspector-section-heading">Connections <button className="icon-button" aria-label="Expand graph" onClick={() => setView('graph')}><ArrowUpRight size={15} /></button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} compact /><button className="text-button" onClick={() => setView('graph')}>Explore your graph <ArrowUpRight size={13} /></button></section>
@@ -406,10 +459,17 @@ export function App() {
       </ResizableInspector>}
     </div>
 
-    {pdfVisited && <div className="pdf-panel" ref={pdfPanel} tabIndex={-1} aria-label="PDFs workspace" hidden={activeWorkspace !== 'pdfs'} inert={busy || activeWorkspace !== 'pdfs'} aria-busy={busy}
-      onFocusCapture={event => { workspaceFocus.current.pdfs = event.target as HTMLElement; }}>
-      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs'} onAppearance={() => setSettings(true)} />
+    <div className="workspace-divider" role="separator" tabIndex={split.visible && !busy ? 0 : -1} hidden={!split.visible} inert={busy || !split.visible}
+      aria-label="Resize note and PDF panes" aria-orientation="vertical" aria-controls="notes-workspace pdfs-workspace"
+      title="Drag to resize. Left/Right arrows adjust width; Home or double-click resets."
+      {...split.dividerProps} />
+
+    {pdfVisited && <div className="pdf-panel" id="pdfs-workspace" ref={pdfPanel} tabIndex={-1} aria-label="PDFs workspace" hidden={!split.visible && activeWorkspace !== 'pdfs'} inert={busy || (!split.visible && activeWorkspace !== 'pdfs')} aria-busy={busy} data-active={activeWorkspace === 'pdfs'}
+      onPointerDownCapture={() => setActiveWorkspace('pdfs')}
+      onFocusCapture={event => { workspaceFocus.current.pdfs = event.target as HTMLElement; setActiveWorkspace('pdfs'); }}>
+      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} onAppearance={() => setSettings(true)} />
     </div>}
+    </div>
 
     <footer className="statusbar"><div><span className={`status-dot ${dirtyCount ? 'unsaved' : ''}`} /><span>{busy ? 'Working…' : dirtyCount ? `${dirtyCount} unsaved ${dirtyCount === 1 ? 'note' : 'notes'}` : 'All changes saved'}</span><span className="status-divider" /><span>{notes.length} notes</span></div><div>{activeWorkspace === 'notes' && active && view === 'note' && <><span>Ln {cursor.line}, Col {cursor.column}</span><span className="status-divider" /><span>UTF-8</span><span>Markdown</span></>}<button onClick={() => setSettings(true)}><Layers3 size={12} />{preferences.transparent ? 'Transparent' : 'Opaque'}</button></div></footer>
 
