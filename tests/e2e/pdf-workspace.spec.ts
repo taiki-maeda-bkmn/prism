@@ -1,63 +1,11 @@
 import { electronLaunchArguments } from '../../scripts/electron-launch.mjs';
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { fixturePdf } from '../fixtures/pdf';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-
-const passwordPadding = Buffer.from('28bf4e5e4e758a4164004e56fffa01082e2e00b6d0683e802f0ca9fe6453697a', 'hex');
-const md5 = (value: Uint8Array) => createHash('md5').update(value).digest();
-function paddedPassword(value: string) { return Buffer.concat([Buffer.from(value, 'latin1'), passwordPadding]).subarray(0, 32); }
-function rc4(key: Uint8Array, value: Uint8Array) {
-  const state = Array.from({ length: 256 }, (_, index) => index);
-  let j = 0;
-  for (let i = 0; i < 256; i++) { j = (j + state[i] + key[i % key.length]) & 255; [state[i], state[j]] = [state[j], state[i]]; }
-  const output = Buffer.alloc(value.length);
-  let i = 0; j = 0;
-  for (let offset = 0; offset < value.length; offset++) {
-    i = (i + 1) & 255; j = (j + state[i]) & 255; [state[i], state[j]] = [state[j], state[i]];
-    output[offset] = value[offset] ^ state[(state[i] + state[j]) & 255];
-  }
-  return output;
-}
-
-// A complete, reproducible two-page PDF, with a standard revision-2 encrypted
-// variant. Tests exercise the actual parser/worker/canvas, never a mocked reader.
-function fixturePdf(password?: string): Buffer {
-  const fileId = md5(Buffer.from(`prism-pdf-desktop-fixture-${password ?? 'plain'}`));
-  const owner = password ? rc4(md5(paddedPassword('owner-secret')).subarray(0, 5), paddedPassword(password)) : null;
-  const permissions = Buffer.alloc(4); permissions.writeInt32LE(-4);
-  const key = password && owner ? md5(Buffer.concat([paddedPassword(password), owner, permissions, fileId])).subarray(0, 5) : null;
-  const stream = (object: number, content: string) => {
-    let bytes = Buffer.from(content, 'ascii');
-    if (key) {
-      const objectId = Buffer.alloc(5); objectId.writeUIntLE(object, 0, 3);
-      bytes = rc4(md5(Buffer.concat([key, objectId])).subarray(0, 10), bytes);
-    }
-    return Buffer.concat([Buffer.from(`<< /Length ${bytes.length} >>\nstream\n`), bytes, Buffer.from('\nendstream')]);
-  };
-  const objects: Buffer[] = [
-    Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'),
-    Buffer.from('<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>'),
-    Buffer.from('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 4 0 R >>'),
-    stream(4, '0.9 0.42 0.25 rg 48 520 516 180 re f\n0.13 0.18 0.15 rg BT /F1 30 Tf 48 460 Td (Prism PDF field notes) Tj ET\nBT /F1 16 Tf 48 420 Td (A real local document, page one.) Tj ET\n'),
-    Buffer.from('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 6 0 R >>'),
-    stream(6, '0.25 0.48 0.4 rg 48 520 516 180 re f\n0.13 0.18 0.15 rg BT /F1 30 Tf 48 460 Td (The next chapter) Tj ET\nBT /F1 16 Tf 48 420 Td (Your reading position is remembered.) Tj ET\n'),
-    Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'),
-  ];
-  if (key && owner) objects.push(Buffer.from(`<< /Filter /Standard /V 1 /R 2 /O <${owner.toString('hex')}> /U <${rc4(key, passwordPadding).toString('hex')}> /P -4 >>`));
-  const pieces: Buffer[] = [Buffer.from('%PDF-1.4\n%\x80\x81\x82\x83\n', 'latin1')];
-  const offsets = [0];
-  for (let index = 0; index < objects.length; index++) {
-    offsets.push(pieces.reduce((sum, piece) => sum + piece.length, 0));
-    pieces.push(Buffer.from(`${index + 1} 0 obj\n`), objects[index], Buffer.from('\nendobj\n'));
-  }
-  const startXref = pieces.reduce((sum, piece) => sum + piece.length, 0);
-  pieces.push(Buffer.from(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R${key ? ` /Encrypt 8 0 R /ID [<${fileId.toString('hex')}> <${fileId.toString('hex')}>]` : ''} >>\nstartxref\n${startXref}\n%%EOF\n`));
-  return Buffer.concat(pieces);
-}
 
 const welcome = '# Working note\n\nA note alongside a PDF.\n';
 let temporary: string;
@@ -369,4 +317,65 @@ test('retains an unlocked reader across switches and inherits Prism appearance w
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('read-secret');
   expect(pageErrors).toEqual([]);
   expect(remoteRequests).toEqual([]);
+});
+
+test('keeps keyboard navigation, native minimize/maximize/restore and a draft usable in both workspaces', async () => {
+  // WSLg's Xwayland window manager does not report the X11 hidden state.
+  // Its Windows host controls are covered by the opt-in host-window suite;
+  // run this generic native-state journey under Xvfb/Openbox on WSL instead.
+  test.skip(process.platform === 'linux' && Boolean(process.env.WSL_INTEROP)
+    && /^(?:unix)?:0(?:\.0)?$/.test(process.env.DISPLAY ?? ''),
+  'WSLg requires host-window checks; run this journey under Xvfb with a window manager.');
+  const draft = await addDraft('Still editable after native window changes.');
+  await workspaceButton('PDFs').focus();
+  await page.keyboard.press('Enter');
+  await expect(pdfWorkspace()).toBeVisible();
+  await importPDF('Window controls');
+  await pdfWorkspace().getByRole('button', { name: 'Open Window controls', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await renderedPage(1);
+  const viewport = pdfWorkspace().getByLabel('PDF page viewport', { exact: true });
+  await viewport.focus();
+  await page.keyboard.press('PageDown');
+  await renderedPage(2);
+
+  const nativeState = () => desktop!.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    return { minimized: window.isMinimized(), maximized: window.isMaximized(), fullscreen: window.isFullScreen(), bounds: window.getBounds() };
+  });
+  await expect.poll(() => desktop!.evaluate(({ BrowserWindow, screen }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    const bounds = window.getBounds();
+    const workArea = screen.getDisplayMatching(bounds).workArea;
+    return window.isVisible() && bounds.x >= workArea.x && bounds.y >= workArea.y;
+  })).toBe(true);
+  const original = await nativeState();
+  for (const workspace of ['PDFs', 'Notes'] as const) {
+    await workspaceButton(workspace).focus();
+    await page.keyboard.press('Space');
+    await expect(workspaceButton(workspace)).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Minimize window', exact: true }).click();
+    await expect.poll(async () => (await nativeState()).minimized).toBe(true);
+    await desktop!.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      window.restore(); window.show(); window.focus();
+    });
+    await expect.poll(async () => (await nativeState()).minimized).toBe(false);
+    await page.getByRole('button', { name: 'Maximize window', exact: true }).click();
+    await expect.poll(async () => (await nativeState()).maximized).toBe(true);
+    expect((await nativeState()).fullscreen).toBe(false);
+    await page.getByRole('button', { name: 'Restore window', exact: true }).click();
+    await expect.poll(async () => (await nativeState()).maximized).toBe(false);
+    await expect.poll(async () => (await nativeState()).bounds).toEqual(original.bounds);
+  }
+  await expect(editor()).toContainText(draft);
+  await editor().focus();
+  await editor().press('ControlOrMeta+z');
+  await expect(editor()).not.toContainText(draft);
+  await expect(page.locator('.statusbar')).toContainText('All changes saved');
+  await workspaceButton('PDFs').focus();
+  await page.keyboard.press('Enter');
+  await renderedPage(2);
+  expect(await readFile(noteFile(), 'utf8')).toBe(welcome);
+  expect(pageErrors).toEqual([]);
 });

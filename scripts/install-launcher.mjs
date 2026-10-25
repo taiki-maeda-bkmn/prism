@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url';
 
 const applications = {
   markdown: {
-    name: 'Prism', comment: 'Write Markdown, preview live, and connect your notes',
+    name: 'Prism', comment: 'Write connected Markdown notes and organize and read PDFs',
     directory: '', launcher: 'launch-markdown.sh', icon: 'assets/prism',
     desktopId: 'io.github.beautysamurai.Prism', marker: 'X-Prism-Launcher=true',
-    categories: 'Office;TextEditor;', windowClass: 'prism',
+    categories: 'Office;TextEditor;Viewer;', windowClass: 'prism',
   },
   pdf: {
     name: 'Prism PDF', comment: 'Your local PDF library and reader',

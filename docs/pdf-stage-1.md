@@ -4,7 +4,7 @@ Stage 1 of [PDF integration](pdf-integration.md) brings the existing Prism PDF l
 
 - [x] Shared library foundation in the standalone app.
 - [x] Notes and PDFs in one window.
-- [ ] Integrated compatibility checks and launch transition.
+- [x] Integrated compatibility checks and launch transition.
 
 ## 1. Shared library foundation
 
@@ -39,5 +39,13 @@ Acceptance: import/read offline in Prism, return to an unsaved note with its sel
 - Verify notebook replacement and refresh while a reader is open, including all save/discard/cancel paths.
 - Verify native minimize/maximize/restore, transparency, and keyboard access in both workspaces.
 - Update desktop launch instructions after the integrated route passes the stage 1 acceptance list. Retain the standalone launcher during the transition.
+
+Implemented with three compatibility journeys in `tests/e2e/pdf-compatibility.spec.ts`, four notebook lifecycle journeys in `tests/e2e/pdf-notebook-lifecycle.spec.ts`, and native window/keyboard coverage in `tests/e2e/pdf-workspace.spec.ts`. These use synthetic existing-format catalogs, real PDF.js rendering, and disposable profiles. They check byte-for-byte catalog preservation on open and duplicate import, document identities and PDF hashes, tags/favorites/titles, normal-quit restart, fresh password prompts, retained pages, missing-copy retry, damaged documents, and removal without deleting either PDF copy. Notebook tests cover Cancel, Save, and Discard with an unlocked reader retained, plus undo isolation after refresh or switching notebooks.
+
+The combined app's primary installer is `npm run install:desktop`; `install:markdown` remains a compatible alias and existing shortcut paths stay valid. Use **Prism → PDFs** for the existing library. The standalone launcher and the sibling project remain available. No automatic Windows/WSL library merging or user-data migration is part of installation.
+
+Native minimize/maximize/restore checks require a conventional window manager (Xvfb/Openbox on WSL). WSLg's X11 manager does not expose the hidden state to Electron, so the generic controls journey skips on its host display; the existing opt-in host suite checks Windows surface behavior. Physical Windows/macOS compositor checks and the known WSLg repeated-maximize clipping issue remain outside this increment.
+
+AI assistance, OpenAI calls, API-key controls, and AI dependencies are excluded from this and later planned increments.
 
 Side-by-side notes, PDF page links, graphs, annotations, full-text search, and features from the separate `pdfmanager` repository remain later stages.

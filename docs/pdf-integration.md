@@ -1,6 +1,6 @@
 # PDF integration into Prism
 
-Status: the shared library foundation and Notes/PDFs navigation are implemented. The next increment completes broader compatibility and launch-transition checks. Follow the smaller steps in [the stage 1 breakdown](pdf-stage-1.md).
+Status: stage 1 is complete, including shared library ownership, Notes/PDFs navigation, compatibility checks, and desktop launch guidance. The next increment is local side-by-side reading and writing in stage 2. See [stage 1 evidence and platform limits](pdf-stage-1.md).
 
 ## Product direction
 
@@ -9,6 +9,8 @@ Make Prism one desktop application with **Notes** and **PDFs** workspaces. Keep 
 Use the existing **Prism PDF** implementation in this repository's `pdf-manager/` directory as the foundation. The sibling checkout at `../pdfmanager` (`/home/kabes/repository/pdfmanager` in the current environment) is a separate project with a broader research workflow. Keep it available during the transition; consider its features individually in later stages. Integrating Prism PDF does not merge that repository or import its catalogue.
 
 Prism should remain useful as a focused Markdown writer. Load the PDF renderer and its document resources when needed, and keep PDF-specific controls in the PDF workspace. A separate reader window can be considered later for multiple monitors.
+
+AI assistance and OpenAI API integration are out of scope, per the user's direction. Do not add model calls, API-key settings, or AI service dependencies. Continue with local reading, writing, and organization features.
 
 ## Existing foundation
 
@@ -57,20 +59,24 @@ Goal: launch Prism once and switch between writing notes and managing or reading
 
 ### Acceptance checks
 
-- [ ] A fresh Prism profile can import and read a PDF offline, then return to the same Markdown draft and undo history.
-- [ ] A disposable copy of an existing Prism PDF library opens with matching document IDs, tags, favorites, stored positions, and file hashes. Opening it alone performs no migration.
-- [ ] Imports, duplicate handling, metadata updates, removal, restart, passwords, and damaged-PDF handling retain existing behavior.
-- [ ] The reader resumes at the expected page after switching workspaces and restarting; passwords are not persisted.
-- [ ] Close, notebook replacement, and refresh preserve existing save/discard/cancel behavior, including when the PDFs workspace is active.
-- [ ] Theme, text-size, transparency, keyboard focus, minimize, maximize, and restore work in both workspaces.
-- [ ] Missing/corrupt library data and competing app instances produce recoverable behavior without discarding files, catalogue changes, or note drafts.
-- [ ] Build/type checks, filesystem/library tests, and the affected native desktop journeys pass. Use temporary profiles and libraries for automated checks.
+- [x] A fresh Prism profile can import and read a PDF offline, then return to the same Markdown draft and undo history.
+- [x] A disposable copy of an existing Prism PDF library opens with matching document IDs, tags, favorites, stored positions, and file hashes. Opening it alone performs no migration.
+- [x] Imports, duplicate handling, metadata updates, removal, restart, passwords, and damaged-PDF handling retain existing behavior.
+- [x] The reader resumes at the expected page after switching workspaces and restarting; passwords are not persisted.
+- [x] Close, notebook replacement, and refresh preserve existing save/discard/cancel behavior. Close protection works while PDFs is active; notebook actions are accessed from Notes while the reader session remains mounted.
+- [x] Theme, text-size, transparency, keyboard focus, minimize, maximize, and restore are covered in both workspaces. Native window-state checks use a conventional window manager; WSLg and physical-platform limits remain documented below.
+- [x] Missing/corrupt library data and competing app instances produce recoverable behavior without discarding files, catalogue changes, or note drafts.
+- [x] Build/type checks, filesystem/library tests, and the affected native desktop journeys pass with temporary profiles and libraries.
+
+Native tests verify Linux desktop behavior. Windows/macOS compositor behavior still needs physical testing; the previously documented intermittent WSLg repeated-maximize clipping issue remains open. The generic minimize-state journey runs under Xvfb/Openbox on WSL because WSLg's X11 manager does not report the hidden state; its Windows host behavior has separate opt-in checks. Stage 1 does not claim to resolve that host limitation.
 
 Stage 1 ends with these workspace and compatibility checks. Side-by-side editing, PDF page links, graph changes, and features from the sibling project belong to later stages.
 
 ## Stage 2 — Read and write side by side
 
 Goal: work on a Markdown note while a PDF remains visible.
+
+Deliver this in the smaller [stage 2 increments](pdf-stage-2.md): the layout first, then a documented page-link format and navigation, followed by combined workflow checks.
 
 - Add a resizable PDF/Markdown split with independent scrolling and predictable keyboard focus. Preserve the existing Markdown Source, Split, Live, and Read modes.
 - Add an action to insert a link to the current PDF page into the active note.
@@ -94,7 +100,7 @@ Evaluate these separately after the core reading/writing workflow works:
 
 - Text selection/copy, document text search, and annotations.
 - Optional separate reader windows for multiple monitors.
-- Useful capabilities from the sibling `pdfmanager` project, such as arXiv import, companion research notes, or AI assistance. Each needs its own scope, data compatibility review, and acceptance checks.
+- Useful capabilities from the sibling `pdfmanager` project, such as arXiv import or companion research notes. Each needs its own scope, data compatibility review, and acceptance checks. AI/API features are excluded.
 - Jupyter integration, OCR, sync, and a unified file-storage migration only as explicit future requirements.
 
 Do not copy the sibling project's full application shell or catalogue into Prism as part of the first increment. Its feature set and data model need independent decisions.
