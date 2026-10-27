@@ -1,7 +1,8 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowLeft, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Code2, Columns2, Copy, FilePlus2, FileText, Folder, FolderOpen, GitFork, Layers3, Link2, LoaderCircle, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Square, X } from 'lucide-react';
 import type { Note, Workspace } from '../shared/types';
-import { Editor } from './Editor';
+import { Editor, type EditorHandle } from './Editor';
+import { formatPDFPageLink, isPDFPageLink, parsePDFPageLink, type PDFPageLinkRequest, type PDFPageReference } from '../shared/pdfLinks';
 import { Graph, type GraphPoint } from './Graph';
 import { getBacklinks, getTitle, renderMarkdownDocument, resolveNoteLink } from './markdown';
 import { mathTextContent } from './math';
@@ -64,6 +65,9 @@ export function App() {
   const activeWorkspaceRef = useRef(activeWorkspace);
   activeWorkspaceRef.current = activeWorkspace;
   const [pdfVisited, setPdfVisited] = useState(false);
+  const [pageLinkRequest, setPageLinkRequest] = useState<PDFPageLinkRequest | null>(null);
+  const nextPageLinkRequest = useRef(0);
+  const editor = useRef<EditorHandle>(null);
   const split = useWorkspaceSplit();
   const [notesNavigation, setNotesNavigation] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
@@ -376,6 +380,20 @@ export function App() {
   };
 
   const openHref = (href: string, fromPath: string) => {
+    if (isPDFPageLink(href)) {
+      const destination = parsePDFPageLink(href);
+      if (!destination) {
+        setError('This PDF page link has an invalid destination or an unsupported version. Edit the link, or open its PDF and insert a new page link.');
+        return;
+      }
+      if (operation.current) return;
+      setError('');
+      setPreviewNavigation(null);
+      setHeadingTarget(undefined);
+      setPageLinkRequest({ ...destination, request: ++nextPageLinkRequest.current });
+      switchWorkspace('pdfs');
+      return;
+    }
     const externalHref = href.startsWith('//') ? `https:${href}` : href;
     if (/^https?:\/\//i.test(externalHref) || /^mailto:/i.test(externalHref)) {
       void window.prism.openExternal(externalHref).catch(cause => setError(message(cause)));
@@ -384,6 +402,26 @@ export function App() {
     const target = resolveNoteLink(href, fromPath, notes);
     if (target) openNote(target.note.path, target.fragment ?? (preferences.mode === 'live' ? '' : undefined));
     else setNotice('That linked note is not in this notebook yet. Create it with New note.');
+  };
+
+  const insertPageLink = (reference: PDFPageReference) => {
+    // The reader can remain mounted while notebook operations replace its note.
+    // Use only the current retained editor, never a cached cursor or draft.
+    if (!active || view !== 'note' || operation.current || busy || document.querySelector('dialog[open]')) return;
+    if (!editor.current?.insertText(formatPDFPageLink(reference))) {
+      setError('Finish entering text in your note, then insert the page link again.');
+      switchWorkspace('notes');
+      return;
+    }
+    setError('');
+    setHeadingTarget(undefined);
+    setPreviewNavigation(null);
+    setNotesNavigation(false);
+    if (preferences.mode === 'preview') chooseMode('source');
+    // Restore editor focus only after Notes (and Source in Read mode) is visible.
+    // The existing focus request guard respects a newer click in the other pane.
+    workspaceFocus.current.notes = notesPanel.current?.querySelector<HTMLElement>('.cm-content') ?? null;
+    switchWorkspace('notes');
   };
 
   const clickPreview = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -444,7 +482,7 @@ export function App() {
         {view === 'graph' ? <section className="graph-page"><div className="graph-page-heading"><div><p className="eyebrow">SEE THE CONNECTIONS</p><h1>Your ideas, together.</h1><p>Every note is a starting point. Follow a connection to see where it leads.</p></div><button className="subtle-button" onClick={() => setView('note')}><ArrowLeft size={15} />Back to note</button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} manualPositions={graphPositions} onMoveNode={moveGraphNode} onResetLayout={resetGraphLayout} /><div className="graph-help"><span><i />Note</span><span><i className="active" />Current note</span><span>Drag background to pan · Scroll to zoom · Click to open · Arrow keys move a focused note</span></div></section> : active ? <>
           <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source', 1], ['split', Columns2, 'Split', 2], ['live', Sparkles, 'Live', 4], ['preview', BookOpen, 'Read', 3]] as const).map(([mode, Icon, label, shortcut]) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl/⌘+${shortcut})`} onClick={() => chooseMode(mode)}><Icon size={15} /><span>{label}</span></button>)}</div></div>
           <div className={`editor-layout mode-${preferences.mode}`}>
-            <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit. Ctrl+click links to open.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} customSnippets={customSnippets} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onOpenLink={href => openHref(href, active.path)} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
+            <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit. Ctrl+click links to open.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor ref={editor} key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} customSnippets={customSnippets} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onOpenLink={href => openHref(href, active.path)} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
             {(preferences.mode === 'split' || preferences.mode === 'preview') && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
           </div>
         </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><FilePlus2 size={17} />Create your first note</button></div>}
@@ -467,7 +505,7 @@ export function App() {
     {pdfVisited && <div className="pdf-panel" id="pdfs-workspace" ref={pdfPanel} tabIndex={-1} aria-label="PDFs workspace" hidden={!split.visible && activeWorkspace !== 'pdfs'} inert={busy || (!split.visible && activeWorkspace !== 'pdfs')} aria-busy={busy} data-active={activeWorkspace === 'pdfs'}
       onPointerDownCapture={() => setActiveWorkspace('pdfs')}
       onFocusCapture={event => { workspaceFocus.current.pdfs = event.target as HTMLElement; setActiveWorkspace('pdfs'); }}>
-      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} onAppearance={() => setSettings(true)} />
+      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} onAppearance={() => setSettings(true)} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} />
     </div>}
     </div>
 

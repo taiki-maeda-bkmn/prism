@@ -1,6 +1,6 @@
 # PDF integration into Prism
 
-Status: stage 1 and stage 2's side-by-side layout are implemented. The next increment defines stable PDF page links and connects them to note insertion/navigation. See [stage 2 progress](pdf-stage-2.md) and [stage 1 evidence and platform limits](pdf-stage-1.md).
+Status: stage 1 and stage 2's side-by-side layout and stable PDF page links are implemented. The next increment verifies the combined offline read/write/link workflow. See [stage 2 progress](pdf-stage-2.md), the [page-link format](pdf-page-links.md), and [stage 1 evidence and platform limits](pdf-stage-1.md).
 
 ## Product direction
 
@@ -76,7 +76,7 @@ Stage 1 ends with these workspace and compatibility checks. Side-by-side editing
 
 Goal: work on a Markdown note while a PDF remains visible.
 
-Follow the smaller [stage 2 increments](pdf-stage-2.md). The **Read & write** layout is implemented; a documented page-link format and navigation come next, followed by combined linking workflow checks.
+Follow the smaller [stage 2 increments](pdf-stage-2.md). The **Read & write** layout and [stable PDF page links](pdf-page-links.md) are implemented. Combined linking workflow checks come next.
 
 - Add a resizable PDF/Markdown split with independent scrolling and predictable keyboard focus. Preserve the existing Markdown Source, Split, Live, and Read modes.
 - Add an action to insert a link to the current PDF page into the active note.

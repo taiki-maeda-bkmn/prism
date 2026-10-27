@@ -1,4 +1,5 @@
 import { Component, lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
+import type { PDFPageLinkRequest, PDFPageReference } from '../shared/pdfLinks';
 
 class LoadBoundary extends Component<{ children: ReactNode; retry: () => void }, { failed: boolean }> {
   state = { failed: false };
@@ -12,13 +13,21 @@ class LoadBoundary extends Component<{ children: ReactNode; retry: () => void },
   }
 }
 
+interface PDFWorkspaceLoaderProps {
+  active: boolean;
+  onAppearance: () => void;
+  pageLinkRequest?: PDFPageLinkRequest | null;
+  onInsertPageLink?: (reference: PDFPageReference) => void;
+  canInsertPageLink?: boolean;
+}
+
 /** Load PDF.js on the first PDF visit; the parent retains this tree afterward. */
-export function PDFWorkspaceLoader({ active, onAppearance }: { active: boolean; onAppearance: () => void }) {
+export function PDFWorkspaceLoader(props: PDFWorkspaceLoaderProps) {
   const [attempt, setAttempt] = useState(0);
   const Workspace = useMemo(() => lazy(() => import('../../pdf-manager/src/renderer/PDFWorkspace')), [attempt]);
   return <LoadBoundary key={attempt} retry={() => setAttempt(previous => previous + 1)}>
     <Suspense fallback={<div className="workspace-loading" role="status">Opening PDFs…</div>}>
-      <Workspace active={active} onAppearance={onAppearance} />
+      <Workspace {...props} />
     </Suspense>
   </LoadBoundary>;
 }

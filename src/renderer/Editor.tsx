@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
-import { Compartment, EditorState } from '@codemirror/state';
+import { useEffect, useImperativeHandle, useRef, type Ref } from 'react';
+import { Compartment, EditorState, Transaction } from '@codemirror/state';
 import { closeCompletion } from '@codemirror/autocomplete';
+import { isolateHistory } from '@codemirror/commands';
 import { EditorView, keymap } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
@@ -33,7 +34,13 @@ const markdownHighlight = HighlightStyle.define([
   { tag: tags.invalid, color: 'var(--danger)' },
 ]);
 
+export interface EditorHandle {
+  /** Insert into the retained main selection without replacing editor history. */
+  insertText: (text: string) => boolean;
+}
+
 interface Props {
+  ref?: Ref<EditorHandle>;
   path: string;
   content: string;
   textScale: number;
@@ -50,7 +57,7 @@ function detectLineEnding(content: string, fallback = '\n'): string {
   return /\r\n|\r|\n/.exec(content)?.[0] ?? fallback;
 }
 
-export function Editor({ path, content, textScale, customSnippets, theme, live = false, headingTarget, onOpenLink, onChange, onCursor }: Props) {
+export function Editor({ ref, path, content, textScale, customSnippets, theme, live = false, headingTarget, onOpenLink, onChange, onCursor }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const textSize = useRef(new Compartment());
@@ -61,6 +68,23 @@ export function Editor({ path, content, textScale, customSnippets, theme, live =
   const synchronizing = useRef(false);
   const handlers = useRef({ onChange, onCursor, onOpenLink });
   handlers.current = { onChange, onCursor, onOpenLink };
+
+  useImperativeHandle(ref, () => ({
+    insertText(text) {
+      const editor = view.current;
+      if (!editor || editor.composing || editor.compositionStarted || editor.state.readOnly) return false;
+      closeCompletion(editor);
+      const { from, to } = editor.state.selection.main;
+      const insertion = editor.state.toText(text);
+      editor.dispatch({
+        changes: { from, to, insert: insertion },
+        selection: { anchor: from + insertion.length },
+        annotations: [Transaction.userEvent.of('input'), isolateHistory.of('full')],
+        scrollIntoView: true,
+      });
+      return true;
+    },
+  }), []);
 
   useEffect(() => {
     if (!host.current) return;

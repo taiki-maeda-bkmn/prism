@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, FileText, LoaderCircle, LockKeyhole, RotateCw, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, FileText, Link2, LoaderCircle, LockKeyhole, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { getDocument, GlobalWorkerOptions, PasswordResponses, type PDFDocumentLoadingTask, type PDFDocumentProxy, type RenderTask } from 'pdfjs-dist';
 import type { PDFDocument } from '../shared/types';
+import type { PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
 import './reader.css';
 
 GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.mjs', import.meta.url).href;
@@ -37,16 +38,22 @@ interface PdfReaderProps {
   document: PDFDocument;
   onUpdate: (patch: { lastPage?: number; pageCount?: number }) => void;
   onClose: () => void;
+  pageLinkRequest?: PDFPageLinkRequest | null;
+  onInsertPageLink?: (reference: PDFPageReference) => void;
+  canInsertPageLink?: boolean;
 }
 
 /** PDF files never become executable documents: only PDF.js canvas output is mounted. */
-export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive = true }: PdfReaderProps) {
+export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive = true, pageLinkRequest, onInsertPageLink, canInsertPageLink = false }: PdfReaderProps) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [pageNumber, setPageNumber] = useState(Math.max(1, entry.lastPage || 1));
   const [pageInput, setPageInput] = useState(String(Math.max(1, entry.lastPage || 1)));
   const [loading, setLoading] = useState(true);
   const [rendering, setRendering] = useState(false);
   const [error, setError] = useState('');
+  const [pageLinkError, setPageLinkError] = useState('');
+  const [renderedPage, setRenderedPage] = useState<number | null>(null);
+  const [completedLink, setCompletedLink] = useState<number | null>(null);
   const [zoom, setZoom] = useState<number | 'fit'>('fit');
   const [actualZoom, setActualZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
@@ -61,8 +68,26 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   const updateRef = useRef(onUpdate);
   const startingPageRef = useRef(entry.lastPage || 1);
   const lastSavedPage = useRef<number | null>(null);
+  const handledLink = useRef<number | null>(null);
+  const latestLink = useRef(pageLinkRequest);
+  const currentPage = useRef(pageNumber);
   updateRef.current = onUpdate;
   startingPageRef.current = entry.lastPage || 1;
+  latestLink.current = pageLinkRequest;
+  currentPage.current = pageNumber;
+
+  function linkedPage(loaded: PDFDocumentProxy, fallback: number): number {
+    const request = latestLink.current;
+    if (!request || request.documentId !== entry.id || request.request === handledLink.current) return fallback;
+    handledLink.current = request.request;
+    setCompletedLink(request.request);
+    if (!Number.isSafeInteger(request.page) || request.page < 1 || request.page > loaded.numPages) {
+      setPageLinkError(`Page ${request.page} is not available in this PDF (${loaded.numPages} pages). Choose a valid page and insert a replacement link.`);
+      return fallback;
+    }
+    setPageLinkError('');
+    return request.page;
+  }
 
   useEffect(() => {
     const container = viewportRef.current;
@@ -91,6 +116,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
     setPdf(null);
     setLoading(true);
     setError('');
+    setRenderedPage(null);
     setPassword('');
     setPasswordPrompt(null);
     setRotation(0);
@@ -110,7 +136,10 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         };
         const loaded = await task.promise;
         if (!active) return;
-        const start = Math.max(1, Math.min(loaded.numPages, startingPageRef.current));
+        // Read the latest request after loading/unlocking, never the request
+        // captured when the asynchronous document load began.
+        const fallback = Math.max(1, Math.min(loaded.numPages, retry ? currentPage.current : startingPageRef.current));
+        const start = linkedPage(loaded, fallback);
         setPageNumber(start);
         setPageInput(String(start));
         setPdf(loaded);
@@ -129,6 +158,16 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
       void task?.destroy().catch(() => {});
     };
   }, [entry.id, retry]);
+
+  useEffect(() => {
+    if (!pageLinkRequest) { setPageLinkError(''); return; }
+    if (!pdf || pageLinkRequest.documentId !== entry.id || handledLink.current === pageLinkRequest.request) return;
+    const next = linkedPage(pdf, pageNumber);
+    setPageNumber(next);
+    setPageInput(String(next));
+    // A link to the page already on screen still takes the reader to its top.
+    if (next === pageLinkRequest.page) viewportRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [pageLinkRequest, pdf, entry.id]);
 
   useEffect(() => {
     if (!pdf) return;
@@ -173,6 +212,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         await renderTask.promise;
         if (!active) return;
         paperRef.current?.replaceChildren(canvas);
+        setRenderedPage(pageNumber);
         setActualZoom(scale);
         if (lastSavedPage.current !== pageNumber) {
           lastSavedPage.current = pageNumber;
@@ -182,6 +222,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
       } catch (failure) {
         if (active && !cancelled(failure)) {
           paperRef.current?.replaceChildren();
+          setRenderedPage(null);
           setError(describeError(failure));
         }
       } finally {
@@ -203,6 +244,10 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
     setPageNumber(valid);
     setPageInput(String(valid));
   }
+
+  const linkPending = !!pageLinkRequest && pageLinkRequest.request !== completedLink;
+  const canLinkCurrentPage = canInsertPageLink && !!pdf && !loading && !rendering && !error
+    && renderedPage === pageNumber && !linkPending;
 
   function submitPassword(event: FormEvent) {
     event.preventDefault();
@@ -241,7 +286,11 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         <button aria-label="Rotate page clockwise" title="Rotate page clockwise" disabled={!pdf} onClick={() => setRotation(value => (value + 90) % 360)}><RotateCw size={18} /></button>
       </div>
       <span className="pdf-reader-progress" aria-live="polite">{pdf ? `${Math.round(pageNumber / pdf.numPages * 100)}% through` : 'Opening document'}</span>
+      {onInsertPageLink && <button className="pdf-insert-page-link" disabled={!canLinkCurrentPage}
+        title={!canInsertPageLink ? 'Open a note to insert this page link.' : 'Insert this PDF page at the note’s cursor.'}
+        onClick={() => { if (canLinkCurrentPage) onInsertPageLink({ documentId: entry.id, page: pageNumber, title: entry.title }); }}><Link2 size={16} />Insert page link</button>}
     </div>
+    {pageLinkError && <div className="notice notice-error pdf-page-link-error" role="alert" aria-label="PDF page link error"><span>{pageLinkError}</span><button aria-label="Dismiss page link error" onClick={() => setPageLinkError('')}><X size={16} /></button></div>}
     <div className="pdf-reader-viewport" ref={viewportRef} tabIndex={0} aria-label="PDF page viewport" onKeyDown={event => {
       if (event.target !== event.currentTarget || !pdf) return;
       if (event.key === 'ArrowRight' || event.key === 'PageDown') { event.preventDefault(); goToPage(pageNumber + 1); }

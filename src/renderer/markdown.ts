@@ -47,6 +47,10 @@ let purifier: ReturnType<typeof createDOMPurify> | undefined;
 function getPurifier(): ReturnType<typeof createDOMPurify> {
   if (purifier) return purifier;
   purifier = createDOMPurify(window);
+  purifier.addHook('uponSanitizeAttribute', (node, data) => {
+    // Page links are internal navigation, never image/media resource addresses.
+    if (/^\s*prism-pdf:/i.test(data.attrValue) && (node.nodeName !== 'A' || data.attrName !== 'href')) data.keepAttr = false;
+  });
   purifier.addHook('uponSanitizeElement', (node, data) => {
     if (data.tagName !== 'input') return;
     const input = node as HTMLInputElement;
@@ -167,7 +171,7 @@ export function renderMarkdownDocument(content: string, references?: Links): { h
   }
   const fragment = getPurifier().sanitize(html, {
     RETURN_DOM_FRAGMENT: true,
-    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|prism-note):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|prism-note|prism-pdf):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
     FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form', 'button'],
     FORBID_ATTR: ['style'],
   });

@@ -3,7 +3,7 @@
 Stage 1 provides one Prism window with Notes and PDFs. Stage 2 makes reading and writing possible at the same time. Follow [the integration plan](pdf-integration.md); deliver each increment on its own branch and PR. Keep AI assistance and OpenAI API integration out of scope.
 
 - [x] Side-by-side layout and focus.
-- [ ] Stable PDF page links.
+- [x] Stable PDF page links.
 - [ ] Combined linking workflow checks.
 
 ## 1. Side-by-side reading and writing
@@ -30,6 +30,10 @@ Before changing link handling, document a versioned format using the managed doc
 Then add an action to insert the current PDF page link at the note's cursor, with ordinary Markdown source, one undo step, and no implicit save. Following the link opens the document/page while retaining the note draft and selection.
 
 Acceptance: insert/follow/save/reopen round trips, renamed and duplicate titles, Japanese filenames, missing documents, invalid destinations, and recovery without losing the note.
+
+Implemented with the documented [version 1 page-link format](pdf-page-links.md). **Insert page link** in the integrated reader inserts ordinary Markdown at the current note selection, in one undo step, without saving. Read mode switches to Source to show the insertion; Source, Split, and Live retain their modes. The action is unavailable without an open note, in Graph view, or until the page has rendered.
+
+Read/Split preview and Live links (including tables) open the managed document ID and page. Renaming and duplicate titles do not affect resolution. The reader validates pages against the loaded PDF, retains the unlocked session/zoom/rotation for same-document links, and follows the newest pending destination after loading or unlocking. Missing documents, unsupported/malformed links, library failures, and invalid pages provide recovery without altering the note. Backup and removal/re-import behavior are defined in the format document.
 
 ## 3. Combined workflow checks
 

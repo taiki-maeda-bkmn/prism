@@ -150,6 +150,13 @@
   min-width: 83px;
   text-align: right;
 }
+.pdf-workspace .pdf-reader .pdf-insert-page-link {
+  padding: 7px 10px;
+  font-size: calc(12px * var(--pdf-text-scale, 1));
+  border-color: var(--border);
+  flex: none;
+}
+.pdf-workspace .pdf-page-link-error { flex: none; }
 .pdf-workspace .pdf-reader-viewport {
   position: relative;
   flex: 1;

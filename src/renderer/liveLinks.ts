@@ -19,7 +19,7 @@ export function isLiveLinkOpenGesture(event: MouseEvent): boolean {
 /** Native URL validation remains the final authority for external destinations. */
 export function isLiveLinkHref(href: string): boolean {
   if (href.trim() !== href || /[\u0000-\u001f\u007f-\u009f]/.test(href)) return false;
-  return !/^[a-z][a-z\d+.-]*:/i.test(href) || /^(?:https?:\/\/|mailto:|prism-note:)/i.test(href);
+  return !/^[a-z][a-z\d+.-]*:/i.test(href) || /^(?:https?:\/\/|mailto:|prism-note:|prism-pdf:)/i.test(href);
 }
 
 const excluded = new Set(['FencedCode', 'CodeBlock', 'HTMLBlock', 'CommentBlock', 'ProcessingInstructionBlock', 'HTMLTag', 'InlineCode', 'Image', 'LinkReference']);
