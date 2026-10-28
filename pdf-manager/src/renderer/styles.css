@@ -1271,6 +1271,10 @@
 .pdf-workspace.pdf-integrated .notice { color: var(--text); background: var(--tint); border-color: var(--border); }
 .pdf-workspace.pdf-integrated :is(.notice-error, .form-error, .remove-link) { color: var(--danger); }
 .pdf-workspace.pdf-integrated .notice-error { background: var(--danger-tint); }
+.pdf-workspace .pdf-link-notice { flex-wrap: wrap; }
+.pdf-workspace .pdf-link-notice > span { flex-basis: 100%; }
+.pdf-workspace .pdf-link-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.pdf-workspace .pdf-link-actions button { border: 1px solid currentColor; border-radius: 5px; padding: 5px 8px; }
 .pdf-workspace.pdf-integrated .warnings { color: var(--warning); background: var(--warning-tint); }
 .pdf-workspace.pdf-integrated .modal { color: var(--text); background: var(--background); border-color: var(--border-strong); }
 .pdf-workspace.pdf-integrated .modal::backdrop { background: rgba(var(--titlebar-rgb), .5); }

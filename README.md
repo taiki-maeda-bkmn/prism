@@ -4,7 +4,7 @@ A local Markdown notebook and PDF library with live preview, connected notes, an
 
 Prism includes **Notes** and **PDFs** workspaces in the same window. Use the buttons in the title bar to switch between them, or choose **Read & write** to keep a note and PDF visible together.
 
-The **[Prism PDF](pdf-manager/README.md)** standalone launcher remains available with `npm run start:pdf`. Both launchers use the same existing PDF library for your OS account; close the app that owns it before opening it in the other launcher. See the [integration plan](docs/pdf-integration.md) for later PDF page links and graph connections.
+The **[Prism PDF](pdf-manager/README.md)** standalone launcher remains available with `npm run start:pdf`. Both launchers use the same existing PDF library for your OS account; close the app that owns it before opening it in the other launcher. See the [integration plan](docs/pdf-integration.md) for progress and later PDF graph connections.
 
 ![Prism showing source editing, live preview, and connected notes](docs/prism-desktop.png)
 
@@ -47,6 +47,7 @@ Prism's planned reading and writing workflow is local. AI assistance and OpenAI 
 
 ## Write, read, connect
 
+- **PDF page links:** open a note and PDF, then click **Insert page link** in the reader. The current page becomes an ordinary Markdown link at your note selection; undo removes it in one step and saving remains explicit. Read mode switches to Source for insertion. Click the link in Read/Split, or Ctrl/Command-click in Live, to open that PDF page. Renaming a PDF keeps the link working. Links depend on its managed ID: back up the PDF library alongside the notebook, and replace links after removing and re-importing a PDF. See the [format and recovery guide](docs/pdf-page-links.md).
 - **Notes and PDFs:** import, organize, and read PDFs without opening a second app. Switching workspaces keeps the note's draft, cursor, selection, mode, and undo history, as well as the reader's current page and password session. Library filters stay in place when returning from a document. PDFs use the same Appearance settings; document pages stay opaque. PDF resources load locally on your first visit.
 - **Read & write:** show your note and PDF beside each other, with independent scrolling. Click a pane to direct its shortcuts there, or use the **Notes** and **PDFs** buttons to focus it. Drag the divider to resize; focus it and use Left/Right arrows (Shift for larger steps), Home or double-click to reset, and Escape to cancel a drag. The divider position is remembered. **Show notes** opens note navigation; **Library navigation** opens PDF tags and filters in a narrow pane. Turning **Read & write** off shows the focused workspace. A narrow window temporarily shows one workspace and restores both when widened. Prism starts in the single-workspace layout; saved notes and reading positions remain available when reopened.
 - **Source, Split, Live, and Read:** choose Markdown source, side-by-side preview, direct formatted editing, or a reading view. Mode changes retain your cursor and undo history.
