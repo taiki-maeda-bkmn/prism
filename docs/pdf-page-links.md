@@ -30,6 +30,6 @@ Back up both the notebook folder and the entire managed PDF library (catalogue a
 
 ## Validation
 
-Use disposable notebooks and libraries. Cover strict parsing and Markdown label escaping; Source/Live/Read insertion, isolated undo, Japanese BOM/CRLF saves, save/restart/follow, duplicate and renamed titles, same-document navigation and passwords, missing/removed/re-imported IDs, malformed/unsupported/out-of-range pages, loading races, and existing note/external-link behavior. Keep combined workflow validation and PDF graph work as later increments. Do not add AI/API integration or check GitHub CI.
+Use disposable notebooks and libraries. Cover strict parsing and Markdown label escaping; Source/Live/Read insertion, isolated undo, Japanese BOM/CRLF saves, save/restart/follow, duplicate and renamed titles, same-document navigation and passwords, missing/removed/re-imported IDs, malformed/unsupported/out-of-range pages, loading races, and existing note/external-link behavior. Combined workflow validation is now complete in [stage 2](pdf-stage-2.md); PDF graph work remains a later increment. Do not add AI/API integration or check GitHub CI.
 
 Implemented coverage is in `tests/pdf-links.test.ts` (five cases) and `tests/e2e/pdf-page-links.spec.ts` (four native journeys). The full main desktop suite passes with 68 regular journeys and two opt-in host skips; page-link tests verify actual PDF canvas output, exact saved bytes, retained editor/reader identities, and no external navigation or remote requests. Platform compositor limits from stage 1 still apply.

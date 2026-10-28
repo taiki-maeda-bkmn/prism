@@ -4,7 +4,7 @@ Stage 1 provides one Prism window with Notes and PDFs. Stage 2 makes reading and
 
 - [x] Side-by-side layout and focus.
 - [x] Stable PDF page links.
-- [ ] Combined linking workflow checks.
+- [x] Combined linking workflow checks.
 
 ## 1. Side-by-side reading and writing
 
@@ -38,5 +38,22 @@ Read/Split preview and Live links (including tables) open the managed document I
 ## 3. Combined workflow checks
 
 Verify a complete offline read/write/link/save/restart journey, independent keyboard focus, native window changes, remembered reading positions, and existing notebook/library error handling. Update desktop guidance for the combined layout.
+
+Verified in four new desktop journeys, using temporary notebooks and libraries:
+
+| Scenario | Evidence |
+| --- | --- |
+| Offline import → read → Japanese note → page link → save → normal quit/restart | `pdf-reading-workflow.spec.ts` disables network before the first PDF visit, checks actual rendered pixels, exact BOM/CRLF note bytes, unchanged source/managed PDFs, and preserved tags/favorites/identity. |
+| Remembered reading position versus an explicit reference | A link records page 1 while the reader finishes on page 2. After restart, opening from the library resumes page 2; activating the saved link from the keyboard opens page 1. |
+| Focus and native windows with a linked draft | The same suite verifies pane-scoped shortcuts and retained selection, undo/redo, editor/reader instances, page and zoom through native minimize/maximize/restore. |
+| Save conflict → canceled close/refresh → deliberate discard → another notebook | `pdf-linked-recovery.spec.ts` preserves the linked draft and unlocked reader while a concurrent disk edit blocks saving. Refresh loads the external text only after explicit discard; matching paths in another notebook inherit no old reference/history. |
+| Missing managed PDF → note edits during failure → retry at the linked page | The recovery suite restores only its missing fixture file, verifies the pending page destination and selected draft, and saves exact note bytes while retaining library identity and tags. |
+| Page-link action in a narrow pane with larger text | `pdf-side-by-side.spec.ts` now checks **Insert page link** at 420 pixels and 150% text size in Paper and Sci-fi, alongside the existing control-fit and transparency checks. |
+
+The [reading and writing guide](pdf-reading-workflow.md) covers the complete session, keyboard focus, what survives a restart, and recovery. Existing stage 1/stage 2 tests retain coverage for password sessions, invalid links, ownership conflicts, damaged catalogues, notebook replacement, layouts, and appearance. These checks required no production behavior changes.
+
+Local validation: all 72 regular main desktop journeys pass together, with two opt-in host checks skipped. The final recovery assertions also pass separately, including notebook switching with a PDF reference still in redo history. Main build/type/unit checks pass (252 unit passes, five platform skips).
+
+Native window assertions run under a conventional Linux window manager. WSLg's local X11 display uses the separate opt-in host checks; physical Windows/macOS compositor testing and the known WSLg repeated-maximize clipping issue remain outside this acceptance result.
 
 PDF backlinks and graph nodes are stage 3. Text selection, full-document search, annotations, OCR, separate reader windows, and sibling-project imports remain separate requirements.
