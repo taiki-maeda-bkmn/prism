@@ -392,7 +392,7 @@ test('resizes with mouse and keyboard, restores the split after narrow windows, 
         await expectInsidePane(page.locator('.app-body .save-button'), notesPanel());
       } else {
         await expect(pdf()).toHaveAttribute('data-compact', 'true');
-        for (const name of ['Previous page', 'Next page', 'Rotate page clockwise']) {
+        for (const name of ['Previous page', 'Next page', 'Rotate page clockwise', 'Insert page link']) {
           await expectInsidePane(pdf().getByRole('button', { name, exact: true }), pdfPanel());
         }
         await expectInsidePane(pdf().getByLabel('Page zoom', { exact: true }), pdfPanel());

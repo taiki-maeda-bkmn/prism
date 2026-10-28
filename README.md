@@ -4,6 +4,8 @@ A local Markdown notebook and PDF library with live preview, connected notes, an
 
 Prism includes **Notes** and **PDFs** workspaces in the same window. Use the buttons in the title bar to switch between them, or choose **Read & write** to keep a note and PDF visible together.
 
+Follow the [reading and writing guide](docs/pdf-reading-workflow.md) to import a PDF, add page references to a note, save, and resume later. It also covers keyboard focus and recovery when a note or PDF cannot be opened or saved.
+
 The **[Prism PDF](pdf-manager/README.md)** standalone launcher remains available with `npm run start:pdf`. Both launchers use the same existing PDF library for your OS account; close the app that owns it before opening it in the other launcher. See the [integration plan](docs/pdf-integration.md) for progress and later PDF graph connections.
 
 ![Prism showing source editing, live preview, and connected notes](docs/prism-desktop.png)

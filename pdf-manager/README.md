@@ -6,6 +6,8 @@ In the combined app, choose **Read & write** to keep a note beside the library o
 
 With a note open, **Insert page link** inserts a reference to the reader's current page at the note selection without saving it. Follow it in Read/Split or Ctrl/Command-click in Live. Links retain the managed document ID across title changes; removing and re-importing creates a new ID. Back up the library with the notebook. See [page links and recovery](../docs/pdf-page-links.md).
 
+The [reading and writing guide](../docs/pdf-reading-workflow.md) walks through a complete session, keyboard focus, saving, reopening at the remembered page, and recovery from notebook/library errors.
+
 Prism PDF remains the standalone launcher during the transition. Launch it with `npm run start:pdf`; close the owning app before opening the library in the other launcher. See the [transition and backup guidance](../README.md#moving-from-prism-pdf). AI assistance and OpenAI API integration are outside Prism's scope.
 
 ![Prism PDF library with a real document thumbnail, tags, and favorites](docs/library.png)
