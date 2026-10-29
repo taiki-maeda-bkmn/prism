@@ -1,6 +1,7 @@
 import createDOMPurify from 'dompurify';
 import { Marked, Renderer, type Links, type Token, type Tokens } from 'marked';
 import type { Note } from '../shared/types';
+import { parsePDFPageLink, type PDFPageTarget } from '../shared/pdfLinks';
 import { renderMath, scanMarkdownMath, type MathRange } from './math';
 
 interface WikiToken extends Tokens.Generic {
@@ -225,6 +226,43 @@ export function extractLinks(content: string): string[] {
   }
   visit(markdown.lexer(prepareMath(content).source));
   return [...links];
+}
+
+function pdfLinkTarget(token: Tokens.Link): PDFPageTarget | null {
+  if (!token.href.includes('&')) return parsePDFPageLink(token.href);
+  // Marked keeps character references in destinations until HTML parsing, and
+  // escapes them differently in autolinks. Reuse that exact rendering path
+  // without rendering the label (which could contain images or raw HTML).
+  const html = markdown.Parser.parseInline([{ ...token, text: '', tokens: [] }], markdown.defaults);
+  const fragment = getPurifier().sanitize(html, {
+    RETURN_DOM_FRAGMENT: true,
+    ALLOWED_URI_REGEXP: /^prism-pdf:/i,
+  });
+  const href = fragment.querySelector('a')?.getAttribute('href');
+  return href ? parsePDFPageLink(href) : null;
+}
+
+/** PDF citations use the same Markdown contexts as note links, but distinct IDs. */
+export function extractPDFPageLinks(content: string): PDFPageTarget[] {
+  const links = new Map<string, PDFPageTarget>();
+  function visit(tokens: Token[]) {
+    for (const token of tokens) {
+      if (['image', 'code', 'codespan', 'html', 'wikilink'].includes(token.type)) continue;
+      if (token.type === 'link') {
+        const target = pdfLinkTarget(token as Tokens.Link);
+        if (target) links.set(`${target.documentId}:${target.page}`, target);
+        continue;
+      }
+      if ('tokens' in token && Array.isArray(token.tokens)) visit(token.tokens);
+      if (token.type === 'list') for (const item of (token as Tokens.List).items) visit(item.tokens);
+      if (token.type === 'table') {
+        const table = token as Tokens.Table;
+        for (const cell of [...table.header, ...table.rows.flat()]) visit(cell.tokens);
+      }
+    }
+  }
+  visit(markdown.lexer(prepareMath(content).source));
+  return [...links.values()];
 }
 
 function normalize(path: string): string | undefined {

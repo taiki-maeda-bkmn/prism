@@ -19,6 +19,14 @@ Use the **Previous / Next** buttons below the page; they stay visible while a zo
 
 Click the PDF page to focus its keyboard controls. **Left / Right** and **Page Up / Page Down** turn pages directly; **Home / End** jump to the first/last page. **Space** scrolls down about one screen, then turns forward on the next press at the bottom. **Shift+Space** does the same backward. Search, page-number, password fields, and the note editor keep their usual typing behavior. Scrolling over the PDF while a note is focused does not move the typing cursor out of the note.
 
+## Find notes that cite a PDF
+
+Open **Linked notes** above the PDF page to see references from the current notebook, including unsaved edits. Each note appears once, with its relative path and cited pages. Click the note to open it; **Read & write** keeps the PDF beside it. Click a page button to read that citation. Neither action saves the note or changes its editor mode.
+
+The list updates as you insert, edit, or undo Markdown references, and when you refresh or change notebooks. Code/math examples, images, raw HTML, and unused reference definitions do not count. Duplicate PDF titles stay separate because references use document IDs. Removing and re-importing a PDF creates a new ID, so existing notes keep pointing to the original document.
+
+Cited pages become available after the PDF loads or is unlocked. Out-of-range pages remain marked **unavailable**; open the note and correct the reference. The panel scrolls independently and can be collapsed to leave more reading space. This notebook feature is available in the main Prism app.
+
 ## Focus and window controls
 
 Click inside a pane to send its shortcuts there. The title-bar **Notes** and **PDFs** buttons also select a pane and return focus to it; they can be reached with Tab and activated with Enter or Space.

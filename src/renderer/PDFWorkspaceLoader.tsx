@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
-import type { PDFPageLinkRequest, PDFPageReference } from '../shared/pdfLinks';
+import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../shared/pdfLinks';
 
 class LoadBoundary extends Component<{ children: ReactNode; retry: () => void }, { failed: boolean }> {
   state = { failed: false };
@@ -19,6 +19,8 @@ interface PDFWorkspaceLoaderProps {
   pageLinkRequest?: PDFPageLinkRequest | null;
   onInsertPageLink?: (reference: PDFPageReference) => void;
   canInsertPageLink?: boolean;
+  backlinks?: ReadonlyMap<string, readonly PDFNoteBacklink[]>;
+  onOpenNote?: (path: string) => void;
 }
 
 /** Load PDF.js on the first PDF visit; the parent retains this tree afterward. */
