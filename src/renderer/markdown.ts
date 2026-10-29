@@ -142,12 +142,16 @@ export function getMarkdownReferences(content: string): Links {
 }
 
 /** Keep editable heading metadata separate from user-supplied HTML attributes. */
-export function renderMarkdownDocument(content: string, references?: Links): { html: string; headings: MarkdownHeading[]; allHeadings: MarkdownAnchorHeading[] } {
+export function renderMarkdownDocument(content: string, references?: Links, options: { passive?: boolean } = {}): { html: string; headings: MarkdownHeading[]; allHeadings: MarkdownAnchorHeading[] } {
   const prepared = prepareMath(content);
   const headingIds = new Set<string>();
   const headings: MarkdownHeading[] = [];
   const allHeadings: MarkdownAnchorHeading[] = [];
   const renderer = new Renderer();
+  // Published research previews use separate source buttons. Remove resources
+  // and navigation before the sanitized fragment enters the active document,
+  // since parsing then removing an image can already start its network request.
+  if (options.passive) renderer.image = ({ text }) => escapeHTML(text);
   renderer.heading = function ({ tokens, depth, text }) {
     const base = prepared.headingText(text).toLocaleLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, '').trim().replace(/\s+/g, '-') || 'heading';
     let id = base;
@@ -173,8 +177,8 @@ export function renderMarkdownDocument(content: string, references?: Links): { h
   const fragment = getPurifier().sanitize(html, {
     RETURN_DOM_FRAGMENT: true,
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|prism-note|prism-pdf):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
-    FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form', 'button'],
-    FORBID_ATTR: ['style'],
+    FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form', 'button', ...(options.passive ? ['img', 'audio', 'video', 'source'] : [])],
+    FORBID_ATTR: ['style', ...(options.passive ? ['href', 'xlink:href', 'target', 'tabindex'] : [])],
   });
   restoreMath(fragment, prepared.formulas);
   const container = window.document.createElement('div');

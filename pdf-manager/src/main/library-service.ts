@@ -1,4 +1,4 @@
-import { LibraryStore, type LibraryWriteIO } from './library';
+import { LibraryStore, type ArxivImportMetadata, type LibraryWriteIO } from './library';
 import { LibraryLock } from './library-lock';
 
 interface OpenLibrary { store: LibraryStore; lock: LibraryLock }
@@ -41,6 +41,9 @@ export class PDFLibraryService {
 
   load() { return this.run(store => store.load()); }
   import(paths: readonly string[]) { return this.run(store => store.import(paths)); }
+  importArxiv(input: ArxivImportMetadata, download: () => Promise<Uint8Array>) {
+    return this.run(store => store.importArxiv(input, download));
+  }
   read(id: unknown) { return this.run(store => store.read(id)); }
   update(id: unknown, patch: unknown) { return this.run(store => store.update(id, patch)); }
   remove(id: unknown) { return this.run(store => store.remove(id)); }

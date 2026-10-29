@@ -23,6 +23,8 @@ interface PDFWorkspaceLoaderProps {
   backlinks?: ReadonlyMap<string, readonly PDFNoteBacklink[]>;
   onOpenNote?: (path: string) => void;
   onDocumentsChange?: (documents: readonly PDFGraphDocument[]) => void;
+  onResearch?: () => void;
+  libraryRevision?: number;
 }
 
 /** Load PDF.js on the first PDF visit; the parent retains this tree afterward. */

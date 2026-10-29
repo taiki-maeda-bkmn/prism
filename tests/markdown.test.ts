@@ -10,6 +10,22 @@ after(() => dom.window.close());
 
 const note = (path: string, content = ''): Note => ({ path, content, modified: 1 });
 
+test('passive published previews keep text and math without media or navigation', () => {
+  const content = '# Research\n\n![Chart caption](https://example.com/chart.png)\n\n'
+    + '[Published link](https://example.com) [[Local note]] $x^2$\n\n'
+    + '<img src="https://example.com/raw.png"><video poster="https://example.com/poster.png"><source src="https://example.com/movie.mp4"></video>'
+    + '<a href="prism-note:Other.md" tabindex="0" target="_blank">Raw link</a>';
+  const passive = JSDOM.fragment(renderMarkdownDocument(content, undefined, { passive: true }).html);
+  assert.equal(passive.querySelectorAll('img, audio, video, source, [href], [xlink\\:href], [target], [tabindex]').length, 0);
+  assert.match(passive.textContent || '', /Chart caption/);
+  assert.match(passive.textContent || '', /Published link/);
+  assert.equal(passive.querySelectorAll('.katex').length, 1);
+  // This mode must not remove navigation from ordinary saved-note rendering.
+  const ordinary = JSDOM.fragment(renderMarkdown(content));
+  assert.ok(ordinary.querySelector('a[href="https://example.com"]'));
+  assert.ok(ordinary.querySelector('img[src="https://example.com/chart.png"]'));
+});
+
 test('extracts wiki links, aliases, Markdown references, lists and tables', () => {
   const content = `# Connections
 [[Garden]] and [[Ideas/Slow mornings|A different title]].

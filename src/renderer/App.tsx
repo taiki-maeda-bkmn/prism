@@ -17,6 +17,8 @@ import { PDFWorkspaceLoader } from './PDFWorkspaceLoader';
 import { getPDFBacklinks } from './pdfBacklinks';
 import { usePDFGraphCatalog } from './usePDFGraphCatalog';
 import { useWorkspaceSplit } from './useWorkspaceSplit';
+import { ResearchBrowser } from './ResearchBrowser';
+import type { ResearchImportRequest } from '../shared/research';
 
 type Intent = 'open' | 'refresh' | 'close';
 
@@ -102,6 +104,8 @@ export function App() {
   const [focus, setFocus] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [researchOpen, setResearchOpen] = useState(false);
+  const [libraryRevision, setLibraryRevision] = useState(0);
   const [snippetHelp, setSnippetHelp] = useState(false);
   const [customSnippets, setCustomSnippets] = useState(readCustomSnippets);
   const changeCustomSnippets = useCallback((snippets: MarkdownSnippet[]): string | null => {
@@ -417,6 +421,23 @@ export function App() {
     finally { operation.current = false; setWorking(false); }
   };
 
+  const importResearch = async (request: ResearchImportRequest) => {
+    if (operation.current || !latest.current.workspace || request.notebookPath !== latest.current.workspace.path) throw new Error('The notebook changed. Reopen Rates & Execution before importing.');
+    operation.current = true;
+    setWorking(true);
+    try {
+      const result = await window.prismResearch.importPaper(request);
+      // Merge new notes without resetting drafts or replacing the original save
+      // snapshot of an existing note; external edits must still cause conflicts.
+      const importedNote = result.note;
+      if (importedNote) setWorkspace(previous => previous && previous.path === request.notebookPath
+        && !previous.notes.some(note => note.path === importedNote.path)
+        ? { ...previous, notes: [...previous.notes, importedNote] } : previous);
+      setLibraryRevision(previous => previous + 1);
+      return result;
+    } finally { operation.current = false; setWorking(false); }
+  };
+
   const openPDFPage = (destination: PDFPageTarget) => {
     if (operation.current || busy || document.querySelector('dialog[open]')) return;
     setError('');
@@ -578,13 +599,19 @@ export function App() {
     {pdfVisited && <div className="pdf-panel" id="pdfs-workspace" ref={pdfPanel} tabIndex={-1} aria-label="PDFs workspace" hidden={!split.visible && activeWorkspace !== 'pdfs'} inert={busy || (!split.visible && activeWorkspace !== 'pdfs')} aria-busy={busy} data-active={activeWorkspace === 'pdfs'}
       onPointerDownCapture={() => setActiveWorkspace('pdfs')}
       onFocusCapture={event => { workspaceFocus.current.pdfs = event.target as HTMLElement; setActiveWorkspace('pdfs'); }}>
-      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} onAppearance={() => setSettings(true)} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} onDocumentsChange={pdfGraph.updateDocuments} />
+      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} onAppearance={() => setSettings(true)} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} onDocumentsChange={pdfGraph.updateDocuments}
+        onResearch={workspace ? () => setResearchOpen(true) : undefined} libraryRevision={libraryRevision} />
     </div>}
     </div>
 
     <footer className="statusbar"><div><span className={`status-dot ${dirtyCount ? 'unsaved' : ''}`} /><span>{busy ? 'Working…' : dirtyCount ? `${dirtyCount} unsaved ${dirtyCount === 1 ? 'note' : 'notes'}` : 'All changes saved'}</span><span className="status-divider" /><span>{notes.length} notes</span></div><div>{activeWorkspace === 'notes' && active && view === 'note' && <><span>Ln {cursor.line}, Col {cursor.column}</span><span className="status-divider" /><span>UTF-8</span><span>Markdown</span></>}<button onClick={() => setSettings(true)}><Layers3 size={12} />{preferences.transparent ? 'Transparent' : 'Opaque'}</button></div></footer>
 
     {creating && <Modal title="A new place for an idea" onClose={() => !busy && setCreating(false)}><form onSubmit={event => { event.preventDefault(); void create(); }}><label className="field-label" htmlFor="new-note-name">Note name</label><input id="new-note-name" className="text-input" autoFocus value={newName} onChange={event => setNewName(event.target.value)} placeholder="An idea worth keeping" disabled={busy} maxLength={220} /><p className="field-help">Use a path like <code>Ideas/My note</code> to organize it in a folder. The .md extension is added for you.</p>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="subtle-button" disabled={busy} onClick={() => setCreating(false)}>Cancel</button><button className="primary-button" type="submit" disabled={busy || !newName.trim()}><Plus size={16} />{busy ? 'Creating…' : 'Create note'}</button></div></form></Modal>}
+
+    {researchOpen && workspace && (!pending || busy) && <ResearchBrowser notebookName={workspace.name} notebookPath={workspace.path}
+      onClose={() => { if (!operation.current) setResearchOpen(false); }} onImport={importResearch}
+      onOpenNote={path => { setResearchOpen(false); requestAnimationFrame(() => openPDFBacklink(path)); }}
+      onOpenPDF={documentId => { setResearchOpen(false); requestAnimationFrame(() => openPDFPage({ documentId, page: 1 })); }} />}
 
     {snippetHelp && <Modal title="Markdown snippets" onClose={() => setSnippetHelp(false)} className="snippet-help-modal">
       <p className="modal-description">In Source, Split, or Live mode, type <code>/</code> at the start of a line or within prose to see snippets. Use the arrow keys to choose one, then press <kbd>Tab</kbd> to insert it. You can also type a full shortcut, such as <code>/task</code>, and press <kbd>Tab</kbd>.</p>
@@ -613,7 +640,7 @@ export function App() {
       <div className="modal-actions"><button className="primary-button" onClick={() => setSettings(false)}><Check size={16} />Done</button></div>
     </Modal>}
 
-    {pending && <Modal title="Keep your latest thoughts?" onClose={() => !busy && setPending(null)}><p className="modal-description">You have changes in {dirtyCount} {dirtyCount === 1 ? 'note' : 'notes'}. Save them before {pending === 'close' ? 'closing Prism' : pending === 'open' ? 'opening another notebook' : 'reloading from disk'}.</p><ul className="unsaved-list">{Object.keys(drafts).map(path => <li key={path}><FileText size={14} />{path}</li>)}</ul>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button className="subtle-button discard-button" disabled={busy} onClick={() => { const intent = pending; setPending(null); void runIntent(intent); }}>Discard changes</button><button className="subtle-button" disabled={busy} onClick={() => setPending(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={async () => { const intent = pending; if (await save(true)) { setPending(null); await runIntent(intent); } }}>{busy ? 'Saving…' : 'Save & continue'}</button></div></Modal>}
+    {pending && (!researchOpen || !busy) && <Modal title="Keep your latest thoughts?" onClose={() => !busy && setPending(null)}><p className="modal-description">You have changes in {dirtyCount} {dirtyCount === 1 ? 'note' : 'notes'}. Save them before {pending === 'close' ? 'closing Prism' : pending === 'open' ? 'opening another notebook' : 'reloading from disk'}.</p><ul className="unsaved-list">{Object.keys(drafts).map(path => <li key={path}><FileText size={14} />{path}</li>)}</ul>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button className="subtle-button discard-button" disabled={busy} onClick={() => { const intent = pending; setPending(null); void runIntent(intent); }}>Discard changes</button><button className="subtle-button" disabled={busy} onClick={() => setPending(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={async () => { const intent = pending; if (await save(true)) { setPending(null); await runIntent(intent); } }}>{busy ? 'Saving…' : 'Save & continue'}</button></div></Modal>}
   </div>;
 }
 

@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import type { DocumentPatch, ImportResult, LibrarySnapshot, PDFDocument } from '../shared/types';
+import { baseArxivId, normalizeArxivId } from '../../../src/shared/arxiv';
 
 export const MAX_PDF_BYTES = 100 * 1024 * 1024;
 export const MAX_DOCUMENTS = 2_000;
@@ -13,6 +14,9 @@ const idPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0
 const hashPattern = /^[a-f0-9]{64}$/;
 const controls = /[\u0000-\u001f\u007f-\u009f]/;
 const documentKeys = ['id', 'title', 'filename', 'size', 'sha256', 'importedAt', 'updatedAt', 'tags', 'favorite', 'lastOpenedAt', 'lastPage', 'pageCount'];
+
+export interface ArxivImportMetadata { arxivId: string; title: string; tags: string[] }
+export interface ArxivImportResult { document: PDFDocument; duplicate: boolean; warning?: string }
 
 /** Narrow filesystem seam for deterministic write/publication failure tests. */
 export interface LibraryWriteIO {
@@ -42,7 +46,9 @@ function validTags(value: unknown): value is string[] {
     && new Set(value.map(tag => tag.toLowerCase())).size === value.length;
 }
 function validDocument(value: unknown): value is PDFDocument {
-  if (!object(value) || Object.keys(value).length !== documentKeys.length || !documentKeys.every(key => Object.hasOwn(value, key))) return false;
+  if (!object(value) || !documentKeys.every(key => Object.hasOwn(value, key))
+    || Object.keys(value).some(key => !documentKeys.includes(key) && key !== 'arxivId')
+    || (Object.hasOwn(value, 'arxivId') && (typeof value.arxivId !== 'string' || normalizeArxivId(value.arxivId) !== value.arxivId))) return false;
   return typeof value.id === 'string' && idPattern.test(value.id) && text(value.title, 200)
     && text(value.filename, 255) && !/[\\/]/.test(value.filename) && /\.pdf$/i.test(value.filename)
     && typeof value.size === 'number' && Number.isSafeInteger(value.size) && value.size >= 8 && value.size <= MAX_PDF_BYTES
@@ -82,8 +88,10 @@ function parseCatalog(bytes: Uint8Array): PDFDocument[] {
     if (!validDocument(document)) throw corrupt();
     documents.push(document);
   }
+  const sources = documents.filter(document => document.arxivId).map(document => baseArxivId(document.arxivId));
   if (new Set(documents.map(document => document.id)).size !== documents.length
-    || new Set(documents.map(document => document.sha256)).size !== documents.length) throw corrupt();
+    || new Set(documents.map(document => document.sha256)).size !== documents.length
+    || new Set(sources).size !== sources.length) throw corrupt();
   return documents;
 }
 
@@ -311,6 +319,77 @@ export class LibraryStore {
         } catch (error) { errors.push(`${filename}: ${message(error)}`); }
       }
       return { library: await this.snapshot(), importedIds, duplicateCount, errors };
+    });
+  }
+
+  /** Import a trusted downloader result while retaining ownership and write order. */
+  importArxiv(input: ArxivImportMetadata, download: () => Promise<Uint8Array>): Promise<ArxivImportResult> {
+    return this.serialize(async () => {
+      const arxivId = object(input) ? normalizeArxivId(input.arxivId) : null;
+      if (!arxivId || typeof download !== 'function') throw new Error('Choose a valid arXiv paper.');
+      if (typeof input.title !== 'string' || !text(input.title.trim(), 500)) throw new Error('The paper title is missing or invalid.');
+      if (!Array.isArray(input.tags) || input.tags.length > 30
+        || input.tags.some(tag => typeof tag !== 'string' || !text(tag.trim(), 100))) throw new Error('The paper topics are invalid.');
+      const title = input.title.trim().slice(0, 200).trim();
+      const requestedTags = input.tags.map(tag => tag.trim().slice(0, 40).trim())
+        .filter((tag, index, tags) => tags.findIndex(other => other.toLowerCase() === tag.toLowerCase()) === index);
+      const mergeTags = (existing: string[]) => {
+        const combined = [...existing];
+        for (const tag of requestedTags) if (!combined.some(other => other.toLowerCase() === tag.toLowerCase())) combined.push(tag);
+        return { tags: combined.slice(0, 12), truncated: combined.length > 12 };
+      };
+      const tagWarning = 'Only the first 12 tags fit in the PDF library; all published topics remain in the review note.';
+      const reuse = async (document: PDFDocument): Promise<ArxivImportResult> => {
+        try { await this.bytes(document); }
+        catch { throw new Error('The existing library copy is missing or changed. Remove its library entry, then import this paper again.'); }
+        await this.checkCatalog();
+        const { tags, truncated } = mergeTags(document.tags);
+        // A hash match can connect a previously local PDF to its source, but a
+        // different saved source or version must never be silently rewritten.
+        const source = document.arxivId ?? arxivId;
+        const changed = source !== document.arxivId || tags.length !== document.tags.length;
+        const updated = changed ? { ...document, arxivId: source, tags, updatedAt: new Date().toISOString() } : document;
+        if (changed) await this.commit(this.documents.map(candidate => candidate.id === document.id ? updated : candidate));
+        const warnings = [
+          ...(truncated ? [tagWarning] : []),
+          ...(source !== arxivId ? [`Reused the saved PDF for arXiv ${source}; its source and contents were preserved.`] : []),
+        ];
+        return { document: { ...updated, tags: [...updated.tags] }, duplicate: true,
+          ...(warnings.length ? { warning: warnings.join(' ') } : {}) };
+      };
+
+      await this.checkCatalog();
+      const existing = this.documents.find(document => document.arxivId && baseArxivId(document.arxivId) === baseArxivId(arxivId));
+      if (existing) return reuse(existing);
+      const downloaded = await download();
+      if (!(downloaded instanceof Uint8Array) || downloaded.byteLength < 8
+        || downloaded.byteLength > MAX_PDF_BYTES) throw new Error('The downloaded PDF must be between 8 bytes and 100 MB.');
+      const bytes = Buffer.from(downloaded);
+      if (!/^%PDF-\d\.\d/.test(bytes.subarray(0, 8).toString('ascii'))) throw new Error('The download does not have a valid PDF header.');
+      await this.checkCatalog();
+      const sha256 = digest(bytes);
+      const duplicate = this.documents.find(document => document.sha256 === sha256);
+      if (duplicate) return reuse(duplicate);
+      if (this.documents.length >= MAX_DOCUMENTS) throw new Error(`The library can contain up to ${MAX_DOCUMENTS.toLocaleString()} PDFs.`);
+      const id = randomUUID();
+      const filename = `arxiv-${arxivId.replace('/', '-')}.pdf`;
+      const destination = path.join(this.filesDirectory, `${id}.pdf`);
+      const output = await this.writeIO.createFile(destination);
+      const { tags, truncated } = mergeTags([]);
+      try {
+        await output.writeFile(bytes);
+        await output.sync();
+        const now = new Date().toISOString();
+        const document: PDFDocument = {
+          id, title, filename, arxivId, size: bytes.length, sha256, importedAt: now, updatedAt: now,
+          tags, favorite: false, lastOpenedAt: null, lastPage: 1, pageCount: null,
+        };
+        await this.commit([...this.documents, document]);
+        return { document: { ...document, tags: [...document.tags] }, duplicate: false,
+          ...(truncated ? { warning: tagWarning } : {}) };
+      } catch (error) {
+        throw await this.failedPublication(error, destination, output, bytes, id);
+      } finally { await output.close().catch(() => undefined); }
     });
   }
 
