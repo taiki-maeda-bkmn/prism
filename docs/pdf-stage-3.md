@@ -4,7 +4,7 @@ Stages 1 and 2 provide the shared library, side-by-side reading/writing, and sta
 
 - [x] PDF backlinks in the reader.
 - [x] Referenced PDFs in the full graph.
-- [ ] Compact graph and combined connection workflow checks.
+- [x] Compact graph and combined connection workflow checks.
 
 ## 1. Linked notes in the PDF reader
 
@@ -47,3 +47,18 @@ Four native desktop journeys verify metadata loading without the reader or PDF r
 Add PDF connections to the compact graph only after the full graph behavior is established. Define a small neighbor limit and an overflow affordance; keep nearby note connections readable in the inspector.
 
 Verify an offline note → PDF → linked note → graph journey with drafts, undo, page destinations, restart, and notebook replacement. Update the reading guide and stage status once the complete connection workflow passes. Text selection, annotations, OCR, and sibling-project features remain separate requirements.
+
+Implementation decisions for this increment:
+
+- The compact graph shows the current note and at most four direct neighbors. Reserve two places for notes and two for PDFs when both are present, then fill spare places from the remaining neighbors. Stable identities determine selection; title changes cannot reshuffle it. A **+N more connections** button opens the full graph with PDFs visible.
+- Compact PDFs come only from the current note, including its draft. Opening one uses that note's lowest cited page; the full graph continues to use the lowest page cited anywhere in the notebook. Incoming and outgoing note connections remain available, and citations in neighboring notes do not add unrelated PDFs to the compact graph.
+- **Load PDF titles** explicitly requests catalogue metadata without mounting the reader. Opening a note alone leaves library ownership untouched. Previously loaded titles from the reader or full graph are reused. **Refresh PDF titles** retries an error, and successful metadata is required before marking an ID missing.
+- Full-graph filtering and manual positions remain independent of the compact preview. Both the overflow action and the existing expand actions reveal PDF connections in the full graph.
+
+Implemented with distinct compact PDF nodes, bounded labels, a four-neighbor limit, keyboard-accessible overflow, and explicit title loading. Six additional model cases verify balanced selection/fill, unique overflow counts, active-note page scope, stable selection through title changes, draft/notebook replacement, and missing active notes or hidden PDFs.
+
+Three native journeys verify an offline compact note → PDF → linked note → full graph → save/restart workflow, same-note PDF undo/redo, draft retention across note/graph navigation, current-note versus notebook page destinations, explicit metadata-only loading, ownership retry, missing references, and dirty notebook replacement. Appearance checks cover all themes at 150% text, transparency, default and expanded inspector widths, and actual label clicks at the 198-pixel minimum. Entering another note or the full graph retains draft text but recreates editor history; per-note history retention is recorded separately in the implementation checklist.
+
+Main typecheck/build and 280 unit tests pass (five platform skips). All 86 regular main desktop journeys pass together (two opt-in host skips), including the existing full-graph, editor, reader, and notebook lifecycle checks. The standalone PDF code is unchanged in this increment.
+
+Stage 3's connection workflow is complete. Text selection/copy, search, annotations, OCR, separate reader windows, and selected sibling-project features remain later requirements; AI/API integration remains excluded.

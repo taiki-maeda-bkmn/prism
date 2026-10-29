@@ -40,17 +40,24 @@
 .graph-controls .graph-reset { min-width: 47px; font-size: calc(10px * var(--text-scale)); font-variant-numeric: tabular-nums; }
 .graph-empty { height: 100%; min-height: 250px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; font-size: calc(17px * var(--text-scale)); color: var(--text); }
 .graph-empty span { font-size: calc(12px * var(--text-scale)); color: var(--muted); }
-.graph-compact { min-height: 0; height: 190px; }
-.graph-compact .graph-canvas { min-height: 0; cursor: default; }
+.graph-compact { min-height: 0; height: auto; display: flex; flex-direction: column; }
+.graph-compact .graph-canvas { flex: none; height: 210px; min-height: 0; cursor: default; }
 .graph-compact .graph-node-label { font-size: calc(16px * var(--text-scale)); stroke-width: 3px; }
 .graph-compact .graph-node-dot { stroke-width: 1.5; }
+.graph-compact-label { color: var(--muted); font-family: inherit; font-size: calc(16px * var(--text-scale)); line-height: 1.4; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.graph-node-active .graph-compact-label { color: var(--text); font-weight: 600; }
+.graph-overflow { flex: none; align-self: center; max-width: 100%; padding: 5px 7px; margin: 0 2px 5px; border: 1px solid var(--border); border-radius: 5px; background: transparent; color: var(--link); font: inherit; font-size: calc(11px * var(--text-scale)); line-height: 1.5; cursor: pointer; overflow-wrap: anywhere; }
+.graph-overflow:hover { background: var(--hover); }
+.graph-overflow:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .graph-compact .graph-empty { min-height: 160px; font-size: calc(12px * var(--text-scale)); }
 .graph-compact .graph-empty span { display: none; }
 .app-shell[data-theme="paper"] .graph-controls { border-radius: 3px; box-shadow: none; }
 .app-shell[data-theme="paper"] .graph-controls button { border-radius: 1px; }
 .app-shell[data-theme="paper"] .graph-node-label { font-family: var(--font-serif); }
+.app-shell[data-theme="paper"] .graph-compact-label { font-family: var(--font-serif); }
 .app-shell[data-theme="paper"] .graph-grid { opacity: .09; }
 .app-shell[data-theme="scifi"] :is(.graph-caption, .graph-hint, .graph-node-label, .graph-controls) { font-family: var(--theme-mono); }
+.app-shell[data-theme="scifi"] :is(.graph-compact-label, .graph-overflow) { font-family: var(--theme-mono); }
 .app-shell[data-theme="scifi"] .graph-controls { border-radius: 2px; border-color: color-mix(in srgb, var(--accent) 40%, transparent); box-shadow: none; }
 .app-shell[data-theme="scifi"] .graph-controls button { border-radius: 1px; }
 .app-shell[data-theme="scifi"] .graph-grid { color: var(--accent); opacity: .17; }

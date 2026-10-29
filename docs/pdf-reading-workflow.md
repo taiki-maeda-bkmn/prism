@@ -31,9 +31,15 @@ Cited pages become available after the PDF loads or is unlocked. Out-of-range pa
 
 Choose **Graph view** in Notes. With **Show PDFs** checked, document-shaped nodes connect PDFs to the notes citing them, including unsaved references. Only PDFs cited by this notebook appear. Drag a PDF node or move it with the arrow keys, just like a note; filtering PDFs off and on retains manual positions.
 
-Click a PDF node, or press Enter/Space while it is focused, to open its lowest cited page. Use **Linked notes** in the reader for other cited pages and to return to a note. Hovering a node shows the full document ID and cited pages; duplicate titles remain separate documents. The compact Connections graph in the note inspector still shows notes only.
+Click a PDF node, or press Enter/Space while it is focused, to open its lowest cited page across the notebook. Use **Linked notes** in the reader for other cited pages and to return to a note. Hovering a node shows the full document ID and cited pages; duplicate titles remain separate documents.
 
 The graph loads library titles without opening PDF pages. This uses the same library ownership as the reader, so close the standalone Prism PDF app first if it owns the library. **Refresh PDF titles** retries an error. Notes remain navigable during a library failure; references show shortened IDs until titles are available. A successful load marks absent IDs **Missing PDF**. Open those nodes for the usual missing-reference recovery options. Re-importing a PDF creates a different identity and does not repair an old reference automatically.
+
+The inspector's compact **Connections** graph shows the current note and up to four nearby notes or cited PDFs. When both types are present, each gets up to two places; spare places show other connections. **+N more connections** opens the full graph with PDFs visible. The compact preview stays independent of the full graph's filter and manual arrangement.
+
+A compact PDF node opens the lowest page cited by the current note, including unsaved references. **Load PDF titles** fills in document names without opening the reader; until then, references show shortened IDs. Already loaded titles are reused. Merely opening a note does not open or take ownership of the PDF library. **Refresh PDF titles** retries a failure, and PDF nodes remain usable while titles are unavailable.
+
+Draft text survives navigating to other notes or the full graph. Undo history stays available while visiting PDFs and returning to the same mounted note; switching notes or entering the full graph currently starts a fresh editor history. Save explicitly to keep edits after restarting Prism.
 
 ## Focus and window controls
 
@@ -57,7 +63,7 @@ Use the title-bar maximize button to fill the desktop work area while retaining 
 
 ## Save and return later
 
-Within an open session, switching workspaces and layouts retains drafts, editor history, PDF page, zoom, rotation, and the current reader's unlocked session. Save notes before quitting; closing, refreshing a notebook, or opening a different notebook asks about unsaved changes.
+Within an open session, switching between **Notes** and **PDFs**, or toggling **Read & write**, retains drafts, editor history, PDF page, zoom, rotation, and the current reader's unlocked session. Save notes before quitting; closing, refreshing a notebook, or opening a different notebook asks about unsaved changes.
 
 After a restart, Prism starts with Notes only. Choose **Read & write** again to use the saved divider proportions, then open your PDF from the library to resume its last successfully rendered page. Following a note's page link instead opens the page recorded in that link. PDF zoom, rotation, and passwords are session-only; unsaved drafts and undo history do not survive quitting.
 

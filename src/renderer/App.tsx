@@ -91,6 +91,8 @@ export function App() {
   const [preferences, setPreferences] = useState(readPreferences);
   const [view, setView] = useState<'note' | 'graph'>('note');
   const [showGraphPDFs, setShowGraphPDFs] = useState(true);
+  const graphPDFToggle = useRef<HTMLInputElement>(null);
+  const focusExpandedGraph = useRef(false);
   const [graphPositions, setGraphPositions] = useState<ReadonlyMap<string, GraphPoint>>(new Map());
   const moveGraphNode = useCallback((path: string, point: GraphPoint) => {
     setGraphPositions(previous => new Map(previous).set(path, point));
@@ -238,11 +240,22 @@ export function App() {
     return () => { current = false; unsubscribe(); };
   }, []);
   useEffect(() => { if (view === 'graph') setHeadingTarget(undefined); }, [view]);
+  useEffect(() => {
+    if (view !== 'graph' || !focusExpandedGraph.current) return;
+    focusExpandedGraph.current = false;
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement === document.body && activeWorkspaceRef.current === 'notes'
+        && !document.querySelector('dialog[open]')) graphPDFToggle.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [view]);
 
   const notes = useMemo(() => (workspace?.notes || []).map(note => Object.hasOwn(drafts, note.path) ? { ...note, content: drafts[note.path] } : note), [workspace, drafts]);
   const active = notes.find(note => note.path === activePath);
   const filtered = useMemo(() => notes.filter(note => `${note.path}\n${note.content}`.toLowerCase().includes(query.trim().toLowerCase())), [notes, query]);
   const backlinks = useMemo(() => active ? getBacklinks(active.path, notes) : [], [active, notes]);
+  // The inspector can show this note's citations without opening the PDF library.
+  const compactPDFBacklinks = useMemo(() => getPDFBacklinks(active ? [active] : []), [active]);
   const pdfBacklinks = useMemo(() => pdfVisited || (view === 'graph' && showGraphPDFs) ? getPDFBacklinks(notes) : undefined, [notes, pdfVisited, view, showGraphPDFs]);
   const pdfGraph = usePDFGraphCatalog(view === 'graph' && showGraphPDFs && !!pdfBacklinks?.size);
   const previewNote = useDeferredValue(active);
@@ -413,6 +426,12 @@ export function App() {
     switchWorkspace('pdfs');
   };
 
+  const expandConnections = () => {
+    focusExpandedGraph.current = true;
+    setShowGraphPDFs(true);
+    setView('graph');
+  };
+
   const openHref = (href: string, fromPath: string) => {
     if (isPDFPageLink(href)) {
       const destination = parsePDFPageLink(href);
@@ -511,7 +530,7 @@ export function App() {
         {view === 'graph' ? <section className="graph-page">
           <div className="graph-page-heading"><div><p className="eyebrow">SEE THE CONNECTIONS</p><h1>Your ideas, together.</h1><p>Follow the connections between your notes and reading.</p></div><button className="subtle-button" onClick={() => setView('note')}><ArrowLeft size={15} />Back to note</button></div>
           <div className="graph-filters">
-            <label><input type="checkbox" checked={showGraphPDFs} onChange={event => setShowGraphPDFs(event.target.checked)} />Show PDFs</label>
+            <label><input ref={graphPDFToggle} type="checkbox" checked={showGraphPDFs} onChange={event => setShowGraphPDFs(event.target.checked)} />Show PDFs</label>
             {showGraphPDFs && !!pdfBacklinks?.size && <>
               <button className="subtle-button" onClick={pdfGraph.refresh} disabled={pdfGraph.catalog.status === 'loading'}>Refresh PDF titles</button>
               {(pdfGraph.catalog.status === 'idle' || pdfGraph.catalog.status === 'loading') && <span role="status">Loading PDF titles…</span>}
@@ -533,7 +552,19 @@ export function App() {
       {!split.visible && !focus && view === 'note' && active && <ResizableInspector width={preferences.inspectorWidth} onWidthChange={inspectorWidth => setPreferences(previous => ({ ...previous, inspectorWidth }))}>
         <div className="inspector-title"><Sparkles size={16} /><span>IN THIS NOTE</span></div>
         <section className="outline-section"><div className="inspector-section-heading">Outline <span>{outline.length}</span></div><nav aria-label="Note outline">{outline.length ? outline.map(item => <button key={item.index} className={`outline-link level-${item.level}`} onClick={() => { if (previewNote?.path !== active.path || previewNote.content !== active.content) return; if (preferences.mode === 'live') { setHeadingTarget({ path: active.path, index: item.index, request: ++headingRequest.current }); return; } if (preferences.mode === 'source') chooseMode('split'); requestAnimationFrame(() => document.querySelectorAll('.markdown-body h1,.markdown-body h2,.markdown-body h3')[item.index]?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }}><span />{item.title}</button>) : <p className="inspector-empty">Add a heading with # to give your ideas a little structure.</p>}</nav></section>
-        <section className="connections-section"><div className="inspector-section-heading">Connections <button className="icon-button" aria-label="Expand graph" onClick={() => setView('graph')}><ArrowUpRight size={15} /></button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} compact /><button className="text-button" onClick={() => setView('graph')}>Explore your graph <ArrowUpRight size={13} /></button></section>
+        <section className="connections-section">
+          <div className="inspector-section-heading">Connections <button className="icon-button" aria-label="Expand graph" onClick={expandConnections}><ArrowUpRight size={15} /></button></div>
+          <Graph notes={notes} activePath={activePath} onOpen={openNote} compact showPDFs
+            pdfBacklinks={compactPDFBacklinks} pdfCatalog={pdfGraph.catalog} onOpenPDF={openPDFPage} onExpand={expandConnections} />
+          {!!compactPDFBacklinks.size && <div className="compact-pdf-catalog">
+            <button className="text-button" onClick={pdfGraph.refresh} disabled={pdfGraph.catalog.status === 'loading'}>
+              {pdfGraph.catalog.status === 'idle' ? 'Load PDF titles' : 'Refresh PDF titles'}
+            </button>
+            {pdfGraph.catalog.status === 'loading' && <p role="status">Loading PDF titles…</p>}
+            {pdfGraph.catalog.status === 'error' && <p className="compact-pdf-error" role="status">PDF titles unavailable. {pdfGraph.catalog.error} You can still open a reference.</p>}
+          </div>}
+          <button className="text-button" onClick={expandConnections}>Explore your graph <ArrowUpRight size={13} /></button>
+        </section>
         <section className="backlinks-section"><div className="inspector-section-heading"><span><Link2 size={14} />Backlinks</span><span>{backlinks.length}</span></div>{backlinks.length ? backlinks.map(note => <button className="backlink" key={note.path} onClick={() => openNote(note.path)}><FileText size={14} /><span>{getTitle(note)}</span><ChevronRight size={13} /></button>) : <p className="inspector-empty">Notes that link here will appear here. Connect one with <code>[[{active.path.replace(/\.md$/i, '')}]]</code>.</p>}</section>
         <div className="inspector-tip"><PrismMark small /><p>Good ideas rarely<br />happen in isolation.</p></div>
       </ResizableInspector>}
