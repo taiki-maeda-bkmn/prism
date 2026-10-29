@@ -2,6 +2,8 @@
 export interface PDFPageTarget { documentId: string; page: number }
 export interface PDFPageReference extends PDFPageTarget { title: string }
 export interface PDFPageLinkRequest extends PDFPageTarget { request: number }
+/** One current-notebook note that cites a managed PDF, grouped by page. */
+export interface PDFNoteBacklink { path: string; title: string; pages: readonly number[] }
 
 // Recognize the namespace independently of validity so malformed/future links
 // can explain their failure inside Prism instead of reaching an external app.

@@ -14,6 +14,7 @@ import { snippetCatalog, type MarkdownSnippet } from './snippetDefinitions';
 import { readCustomSnippets, saveCustomSnippets } from './customSnippets';
 import { SnippetSettings } from './SnippetSettings';
 import { PDFWorkspaceLoader } from './PDFWorkspaceLoader';
+import { getPDFBacklinks } from './pdfBacklinks';
 import { useWorkspaceSplit } from './useWorkspaceSplit';
 
 type Intent = 'open' | 'refresh' | 'close';
@@ -75,7 +76,9 @@ export function App() {
   const pdfPanel = useRef<HTMLDivElement>(null);
   const notesNavigationButton = useRef<HTMLButtonElement>(null);
   const workspaceFocus = useRef<{ notes: HTMLElement | null; pdfs: HTMLElement | null }>({ notes: null, pdfs: null });
-  const switchWorkspace = (next: 'notes' | 'pdfs') => {
+  const focusNoteContent = useRef(false);
+  const switchWorkspace = (next: 'notes' | 'pdfs', noteContent = false) => {
+    focusNoteContent.current = next === 'notes' && noteContent;
     if (next === 'pdfs') setPdfVisited(true);
     setActiveWorkspace(next);
     setFocusRequest(previous => previous + 1);
@@ -138,8 +141,14 @@ export function App() {
   }, [busy]);
 
   const restoreWorkspaceFocus = useCallback((next: 'notes' | 'pdfs') => {
+    const noteContent = next === 'notes' && focusNoteContent.current;
+    focusNoteContent.current = false;
     if (document.querySelector('dialog[open]')) return;
-    const remembered = workspaceFocus.current[next];
+    // Opening a backlink may replace the editor DOM. Resolve it after the note
+    // mounts instead of restoring a stale editor or the old sidebar/search.
+    const remembered = noteContent
+      ? notesPanel.current?.querySelector<HTMLElement>('.source-pane:not([hidden]) .cm-content')
+      : workspaceFocus.current[next];
     const panel = next === 'notes' ? notesPanel.current : pdfPanel.current;
     if (remembered?.isConnected && !remembered.closest('[hidden], [inert]') && remembered.getClientRects().length) remembered.focus({ preventScroll: true });
     else panel?.focus({ preventScroll: true });
@@ -226,6 +235,7 @@ export function App() {
   const active = notes.find(note => note.path === activePath);
   const filtered = useMemo(() => notes.filter(note => `${note.path}\n${note.content}`.toLowerCase().includes(query.trim().toLowerCase())), [notes, query]);
   const backlinks = useMemo(() => active ? getBacklinks(active.path, notes) : [], [active, notes]);
+  const pdfBacklinks = useMemo(() => pdfVisited ? getPDFBacklinks(notes) : undefined, [notes, pdfVisited]);
   const previewNote = useDeferredValue(active);
   const rendered = useMemo(() => renderMarkdownDocument(previewNote?.content || ''), [previewNote?.content]);
   const html = rendered.html;
@@ -254,6 +264,12 @@ export function App() {
     setView('note');
     setPreferences(previous => ({ ...previous, mode }));
   }, []);
+  const openPDFBacklink = (path: string) => {
+    if (operation.current || latest.current.busy || document.querySelector('dialog[open]')
+      || !latest.current.workspace?.notes.some(note => note.path === path)) return;
+    openNote(path);
+    switchWorkspace('notes', true);
+  };
   useEffect(() => {
     if (!previewNavigation || view !== 'note' || preferences.mode === 'source'
       || !active || previewNavigation.path !== active.path
@@ -505,7 +521,7 @@ export function App() {
     {pdfVisited && <div className="pdf-panel" id="pdfs-workspace" ref={pdfPanel} tabIndex={-1} aria-label="PDFs workspace" hidden={!split.visible && activeWorkspace !== 'pdfs'} inert={busy || (!split.visible && activeWorkspace !== 'pdfs')} aria-busy={busy} data-active={activeWorkspace === 'pdfs'}
       onPointerDownCapture={() => setActiveWorkspace('pdfs')}
       onFocusCapture={event => { workspaceFocus.current.pdfs = event.target as HTMLElement; setActiveWorkspace('pdfs'); }}>
-      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} onAppearance={() => setSettings(true)} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} />
+      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} onAppearance={() => setSettings(true)} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} />
     </div>}
     </div>
 

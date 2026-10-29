@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowLeft, ChevronLeft, ChevronRight, FileText, Link2, LoaderCircle, LockKeyhole, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { getDocument, GlobalWorkerOptions, PasswordResponses, type PDFDocumentLoadingTask, type PDFDocumentProxy, type RenderTask } from 'pdfjs-dist';
 import type { PDFDocument } from '../shared/types';
-import type { PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
+import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
+import { PdfBacklinks } from './PdfBacklinks';
 import { PAGE_WHEEL_EDGE_PX, WheelPageTurnGate } from './pageNavigation';
 import './reader.css';
 
@@ -42,10 +43,12 @@ interface PdfReaderProps {
   pageLinkRequest?: PDFPageLinkRequest | null;
   onInsertPageLink?: (reference: PDFPageReference) => void;
   canInsertPageLink?: boolean;
+  backlinks?: readonly PDFNoteBacklink[];
+  onOpenNote?: (path: string) => void;
 }
 
 /** PDF files never become executable documents: only PDF.js canvas output is mounted. */
-export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive = true, pageLinkRequest, onInsertPageLink, canInsertPageLink = false }: PdfReaderProps) {
+export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive = true, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks = [], onOpenNote }: PdfReaderProps) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [pageNumber, setPageNumber] = useState(Math.max(1, entry.lastPage || 1));
   const [pageInput, setPageInput] = useState(String(Math.max(1, entry.lastPage || 1)));
@@ -342,6 +345,13 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         title={!canInsertPageLink ? 'Open a note to insert this page link.' : 'Insert this PDF page at the note’s cursor.'}
         onClick={() => { if (canLinkCurrentPage) onInsertPageLink({ documentId: entry.id, page: pageNumber, title: entry.title }); }}><Link2 size={16} />Insert page link</button>}
     </div>
+    {onOpenNote && <PdfBacklinks backlinks={backlinks} pageCount={pdf?.numPages ?? null} currentPage={pageNumber} onOpenNote={onOpenNote}
+      onOpenPage={page => {
+        if (!pdf || page < 1 || page > pdf.numPages) return;
+        goToPage(page);
+        viewportRef.current?.scrollTo({ top: 0, left: 0 });
+        viewportRef.current?.focus({ preventScroll: true });
+      }} />}
     {pageLinkError && <div className="notice notice-error pdf-page-link-error" role="alert" aria-label="PDF page link error"><span>{pageLinkError}</span><button aria-label="Dismiss page link error" onClick={() => setPageLinkError('')}><X size={16} /></button></div>}
     <div className="pdf-reader-viewport" ref={viewportRef} tabIndex={0} aria-label="PDF page viewport"
       onPointerDown={event => {

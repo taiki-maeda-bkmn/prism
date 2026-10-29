@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { ArrowDownUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clock3, FileText, FolderOpen, Grid2X2, HardDrive, Library, List, LoaderCircle, Maximize2, Minus, MoreHorizontal, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tag, Trash2, X } from 'lucide-react';
 import type { PDFDocument } from '../shared/types';
-import type { PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
+import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
 import { PdfReader, PdfThumbnail } from './PdfReader';
 import './styles.css';
 
@@ -36,10 +36,12 @@ export interface LibraryWorkspaceProps {
   pageLinkRequest?: PDFPageLinkRequest | null;
   onInsertPageLink?: (reference: PDFPageReference) => void;
   canInsertPageLink?: boolean;
+  backlinks?: ReadonlyMap<string, readonly PDFNoteBacklink[]>;
+  onOpenNote?: (path: string) => void;
 }
 
 /** Mounted once per workspace visit session so filters and password sessions survive hiding. */
-export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLinkRequest, onInsertPageLink, canInsertPageLink = false }: LibraryWorkspaceProps) {
+export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks, onOpenNote }: LibraryWorkspaceProps) {
   const integrated = !!onAppearance;
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -271,7 +273,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
         <div className="pdf-link-actions"><button onClick={() => selectFilter('all')}>Browse library</button><button aria-label="Dismiss PDF link error" onClick={cancelPageLink}><X size={16} /></button></div>
       </div>}
       {warnings.length > 0 && <details className="warnings"><summary>{warnings.length} library warning{warnings.length === 1 ? '' : 's'}</summary>{warnings.map((warning, index) => <p key={index}>{warning}</p>)}</details>}
-      {active ? <PdfReader key={active.id} workspaceActive={workspaceActive} document={active} onUpdate={readingUpdate} onClose={() => openDocument(null)} pageLinkRequest={readerLinkRequest?.documentId === active.id ? readerLinkRequest : null} onInsertPageLink={onInsertPageLink} canInsertPageLink={canInsertPageLink} /> : <main className="library-content">
+      {active ? <PdfReader key={active.id} workspaceActive={workspaceActive} document={active} onUpdate={readingUpdate} onClose={() => openDocument(null)} pageLinkRequest={readerLinkRequest?.documentId === active.id ? readerLinkRequest : null} onInsertPageLink={onInsertPageLink} canInsertPageLink={canInsertPageLink} backlinks={backlinks?.get(active.id)} onOpenNote={onOpenNote} /> : <main className="library-content">
         <div className="page-heading"><div><div className="eyebrow">A LITTLE ORDER. A LOT OF CLARITY.</div><h1>{heading}</h1><p>{filter === 'all' ? 'Everything you need, all in one place.' : filter === 'favorites' ? 'The documents you come back to.' : filter === 'recent' ? 'Pick up right where you left off.' : 'A collection of things that belong together.'}</p></div><button className="primary-button" onClick={() => void importFiles()} disabled={importing || loading || !!loadError}>{importing ? <LoaderCircle className="spin" size={17} /> : <Plus size={19} />}{importing ? 'Importing…' : 'Import PDFs'}</button></div>
         <div className="library-toolbar"><div className="result-label"><FileText size={16} /><strong>{query ? 'Search results' : 'PDF documents'}</strong><span className="count-badge">{filtered.length}</span></div><div className="view-options"><ArrowDownUp size={14} /><select aria-label="Sort documents" value={sort} onChange={event => setSort(event.target.value)}><option value="newest">{filter === 'recent' ? 'Last opened' : 'Date added'}</option><option value="name">Name</option><option value="size">File size</option></select><span className="toolbar-divider" /><div className="layout-buttons"><button className={layout === 'grid' ? 'active' : ''} aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><Grid2X2 size={16} /></button><button className={layout === 'list' ? 'active' : ''} aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={18} /></button></div></div></div>
         {loading ? <div className="empty-state" role="status"><LoaderCircle className="spin" size={30} /><h2>Opening your library…</h2></div> : loadError ? <div className="empty-state" role="alert"><FolderOpen size={36} /><h2>Your library couldn’t be opened</h2><p>{loadError}</p><button className="secondary-button" onClick={() => void load()}>Try again</button></div> : !documents.length ? <div className="empty-state welcome-state"><div className="paper-stack" aria-hidden="true"><div className="paper-back" /><div className="paper-front"><span className="pdf-badge">PDF</span><FileText size={45} strokeWidth={1} /><div className="paper-lines" /></div><span className="paper-spark"><Sparkles size={22} /></span></div><h2>A home for your PDFs.</h2><p>Bring your research, reading, and everyday documents<br />together in a space that stays yours.</p><button className="primary-button" onClick={() => void importFiles()} disabled={importing}><Plus size={18} />Import your first PDF</button><span className="privacy-note"><ShieldCheck size={14} />Stored on this device. No account needed.</span></div> : !filtered.length ? <div className="empty-state"><Search size={34} /><h2>{query ? 'No matching documents' : 'Nothing here just yet'}</h2><p>{query ? 'Try another title, filename, or tag.' : filter === 'favorites' ? 'Star a document to keep it close at hand.' : filter === 'recent' ? 'Open a PDF and find it here next time.' : 'Add this tag to a document to see it here.'}</p>{query && <button className="secondary-button" onClick={() => setQuery('')}>Clear search</button>}</div> : <div className={`documents documents-${layout}`} aria-label="Documents">

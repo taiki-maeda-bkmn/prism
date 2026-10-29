@@ -8,6 +8,8 @@ With a note open, **Insert page link** inserts a reference to the reader's curre
 
 The [reading and writing guide](../docs/pdf-reading-workflow.md) walks through a complete session, keyboard focus, saving, reopening at the remembered page, and recovery from notebook/library errors.
 
+In the main Prism reader, **Linked notes** lists the current notebook's references to the PDF, including unsaved changes. Open a note or jump to a cited page while keeping the reader session. This panel is omitted in the standalone launcher, which has no notebook.
+
 Prism PDF remains the standalone launcher during the transition. Launch it with `npm run start:pdf`; close the owning app before opening the library in the other launcher. See the [transition and backup guidance](../README.md#moving-from-prism-pdf). AI assistance and OpenAI API integration are outside Prism's scope.
 
 ![Prism PDF library with a real document thumbnail, tags, and favorites](docs/library.png)
