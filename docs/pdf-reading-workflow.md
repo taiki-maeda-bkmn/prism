@@ -27,6 +27,14 @@ The list updates as you insert, edit, or undo Markdown references, and when you 
 
 Cited pages become available after the PDF loads or is unlocked. Out-of-range pages remain marked **unavailable**; open the note and correct the reference. The panel scrolls independently and can be collapsed to leave more reading space. This notebook feature is available in the main Prism app.
 
+## Explore PDF connections in the graph
+
+Choose **Graph view** in Notes. With **Show PDFs** checked, document-shaped nodes connect PDFs to the notes citing them, including unsaved references. Only PDFs cited by this notebook appear. Drag a PDF node or move it with the arrow keys, just like a note; filtering PDFs off and on retains manual positions.
+
+Click a PDF node, or press Enter/Space while it is focused, to open its lowest cited page. Use **Linked notes** in the reader for other cited pages and to return to a note. Hovering a node shows the full document ID and cited pages; duplicate titles remain separate documents. The compact Connections graph in the note inspector still shows notes only.
+
+The graph loads library titles without opening PDF pages. This uses the same library ownership as the reader, so close the standalone Prism PDF app first if it owns the library. **Refresh PDF titles** retries an error. Notes remain navigable during a library failure; references show shortened IDs until titles are available. A successful load marks absent IDs **Missing PDF**. Open those nodes for the usual missing-reference recovery options. Re-importing a PDF creates a different identity and does not repair an old reference automatically.
+
 ## Focus and window controls
 
 Click inside a pane to send its shortcuts there. The title-bar **Notes** and **PDFs** buttons also select a pane and return focus to it; they can be reached with Tab and activated with Enter or Space.

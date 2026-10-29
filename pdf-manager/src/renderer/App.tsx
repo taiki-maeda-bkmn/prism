@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { ArrowDownUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clock3, FileText, FolderOpen, Grid2X2, HardDrive, Library, List, LoaderCircle, Maximize2, Minus, MoreHorizontal, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tag, Trash2, X } from 'lucide-react';
 import type { PDFDocument } from '../shared/types';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
+import type { PDFGraphDocument } from '../../../src/shared/pdfGraph';
 import { PdfReader, PdfThumbnail } from './PdfReader';
 import './styles.css';
 
@@ -38,10 +39,11 @@ export interface LibraryWorkspaceProps {
   canInsertPageLink?: boolean;
   backlinks?: ReadonlyMap<string, readonly PDFNoteBacklink[]>;
   onOpenNote?: (path: string) => void;
+  onDocumentsChange?: (documents: readonly PDFGraphDocument[]) => void;
 }
 
 /** Mounted once per workspace visit session so filters and password sessions survive hiding. */
-export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks, onOpenNote }: LibraryWorkspaceProps) {
+export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks, onOpenNote, onDocumentsChange }: LibraryWorkspaceProps) {
   const integrated = !!onAppearance;
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,6 +124,9 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!loading && !loadError) onDocumentsChange?.(documents);
+  }, [documents, loading, loadError, onDocumentsChange]);
   useEffect(() => { if (integrated) return; try { localStorage.setItem('prism-pdf-appearance', JSON.stringify(appearance)); } catch { /* Appearance can still be used for this session. */ } }, [appearance, integrated]);
 
   useEffect(() => {

@@ -308,11 +308,18 @@ input { min-width: 0; }
 .graph-page-heading h1 { font-family: var(--font-serif); color: var(--link); font-size: calc(35px * var(--text-scale)); font-weight: 400; letter-spacing: -.8px; margin: 0 0 12px; }
 .graph-page-heading > div > p:last-child { font-size: calc(12px * var(--text-scale)); color: var(--muted); line-height: 1.8; }
 .graph-page > .graph-view { flex: 1; min-height: 260px; height: auto; }
+.graph-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 0; color: var(--muted); font-size: calc(12px * var(--text-scale)); }
+.graph-filters label { display: inline-flex; align-items: center; gap: 8px; color: var(--text); cursor: pointer; }
+.graph-filters input { accent-color: var(--accent); width: 16px; height: 16px; }
+.graph-filters input:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.graph-filters .graph-catalog-error { width: 100%; margin: 0; color: var(--warning); line-height: 1.6; overflow-wrap: anywhere; }
 .graph-help { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 15px; padding-top: 15px; border-top: 1px solid var(--border); font-size: calc(10px * var(--text-scale)); color: var(--muted); }
 .graph-help > span { display: flex; align-items: center; gap: 6px; }
 .graph-help > span:last-child { margin-left: auto; }
 .graph-help i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent-soft); }
 .graph-help i.active { background: var(--accent); }
+.graph-help i.pdf { width: 9px; height: 11px; border-radius: 1px; background: var(--link); }
+.graph-help i.missing-pdf { width: 9px; height: 11px; border-radius: 1px; border: 1px dashed var(--warning); background: transparent; }
 .modal { width: min(470px, calc(100vw - 40px)); max-height: calc(100vh - 70px); overflow: auto; padding: 27px; border: 1px solid var(--border-strong); border-radius: 13px; background: var(--background); color: var(--text); box-shadow: 0 25px 80px var(--shadow); }
 .modal::backdrop { background: rgba(var(--titlebar-rgb), .5); }
 .modal-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 19px; }
