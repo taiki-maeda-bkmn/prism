@@ -1,4 +1,4 @@
-.graph-view { position: relative; width: 100%; height: 100%; min-height: 380px; overflow: hidden; color: var(--text); background: transparent; }
+.graph-view { position: relative; width: 100%; height: 100%; min-height: 380px; overflow: hidden; color: var(--text); background: transparent; container-type: inline-size; }
 .graph-canvas { display: block; width: 100%; height: 100%; min-height: 0; touch-action: none; user-select: none; cursor: grab; }
 .graph-canvas:active { cursor: grabbing; }
 .graph-grid { color: var(--text); opacity: .13; pointer-events: none; }
@@ -7,6 +7,8 @@
 .graph-caption-separator { padding: 0 8px; color: var(--muted); }
 .graph-edge { stroke: var(--muted); stroke-width: 1; opacity: .38; transition: stroke .15s, opacity .15s; pointer-events: none; }
 .graph-edge-highlight { stroke: var(--accent); stroke-width: 1.5; opacity: .8; }
+.graph-edge-pdf { stroke: var(--link); stroke-dasharray: 5 4; }
+.graph-edge-pdf.graph-edge-highlight { stroke: var(--accent); }
 /* Treat the dot and its inward-aligned caption as one click target. */
 .graph-node { cursor: pointer; outline: none; pointer-events: bounding-box; }
 .graph-view:not(.graph-compact) .graph-node { cursor: grab; }
@@ -22,6 +24,13 @@
 .graph-node:focus-visible .graph-node-halo { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 3 3; }
 .graph-node-label { font-family: inherit; font-size: calc(18px * var(--text-scale)); fill: var(--muted); paint-order: stroke; stroke: var(--graph-label-background, var(--background)); stroke-width: 4px; stroke-linejoin: round; }
 .graph-node-active .graph-node-label { fill: var(--text); font-weight: 600; }
+.graph-node-document { fill: var(--tint); stroke: var(--link); stroke-width: 1.75; stroke-linejoin: round; }
+.graph-node-pdf-badge { fill: var(--link); font-family: var(--font-sans); font-size: calc(7px * var(--text-scale)); font-weight: 700; pointer-events: none; }
+.graph-node-pdf.graph-node-connected .graph-node-document { stroke: var(--accent-soft); }
+.graph-node-pdf:hover .graph-node-document, .graph-node-pdf:focus .graph-node-document { stroke: var(--accent); fill: var(--hover); }
+.graph-node.graph-node-pdf-missing .graph-node-document { stroke: var(--warning); stroke-dasharray: 3 2; fill: transparent; }
+.graph-node-pdf-missing .graph-node-pdf-badge { fill: var(--warning); }
+.graph-node-pdf-unresolved .graph-node-document { opacity: .7; }
 .graph-hint { position: absolute; bottom: 27px; left: 30px; color: var(--muted); font-size: calc(11px * var(--text-scale)); pointer-events: none; }
 .graph-controls { position: absolute; right: 25px; bottom: 20px; display: flex; align-items: center; gap: 2px; padding: 4px; border: 1px solid var(--border); border-radius: 9px; background: rgba(var(--background-rgb), var(--surface-alpha)); box-shadow: 0 2px 7px var(--shadow); }
 .graph-controls button { display: grid; place-items: center; height: 29px; min-width: 30px; padding: 0 7px; border: 0; border-radius: 5px; background: transparent; color: var(--link); font-family: inherit; font-size: calc(18px * var(--text-scale)); line-height: 1; cursor: pointer; }
@@ -46,4 +55,10 @@
 .app-shell[data-theme="scifi"] .graph-controls button { border-radius: 1px; }
 .app-shell[data-theme="scifi"] .graph-grid { color: var(--accent); opacity: .17; }
 .app-shell[data-theme="scifi"] .graph-caption-dot { border-radius: 1px; }
+@container (max-width: 560px) {
+  .graph-caption { top: 14px; left: 16px; right: 16px; align-items: flex-start; line-height: 1.5; }
+  .graph-caption-dot { flex: none; margin-top: 5px; }
+  .graph-hint { left: 16px; bottom: 64px; }
+  .graph-controls { right: 14px; bottom: 14px; }
+}
 @media (prefers-reduced-motion: reduce) { .graph-edge, .graph-node-dot, .graph-node-halo { transition: none; } }

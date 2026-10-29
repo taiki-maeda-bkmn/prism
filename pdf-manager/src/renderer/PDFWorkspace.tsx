@@ -1,5 +1,6 @@
 import { LibraryWorkspace } from './App';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
+import type { PDFGraphDocument } from '../../../src/shared/pdfGraph';
 
 interface PDFWorkspaceProps {
   active: boolean;
@@ -9,6 +10,7 @@ interface PDFWorkspaceProps {
   canInsertPageLink?: boolean;
   backlinks?: ReadonlyMap<string, readonly PDFNoteBacklink[]>;
   onOpenNote?: (path: string) => void;
+  onDocumentsChange?: (documents: readonly PDFGraphDocument[]) => void;
 }
 
 export default function PDFWorkspace({ active, ...props }: PDFWorkspaceProps) {

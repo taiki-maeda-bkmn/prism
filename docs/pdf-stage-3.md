@@ -3,7 +3,7 @@
 Stages 1 and 2 provide the shared library, side-by-side reading/writing, and stable page links. Stage 3 connects those references back to notes and then to the graph. Deliver the increments separately; follow the [integration plan](pdf-integration.md). AI/API integration remains excluded.
 
 - [x] PDF backlinks in the reader.
-- [ ] Referenced PDFs in the full graph.
+- [x] Referenced PDFs in the full graph.
 - [ ] Compact graph and combined connection workflow checks.
 
 ## 1. Linked notes in the PDF reader
@@ -29,6 +29,18 @@ Define graph nodes with explicit note/PDF identity namespaces. Include PDFs refe
 Use distinct PDF styling and note-to-PDF edges. A PDF node opens its managed document, while page-specific navigation remains available through the reader's cited-page list. Represent unresolved managed IDs as missing references with a clear recovery action; never resolve by a duplicate title or silently replace an ID after re-import. Library loading/ownership errors must not block the note graph.
 
 Before implementation, specify how catalogue titles enter the graph without loading the reader unnecessarily, how missing-document labels are derived, and which page opens when a node has several citations. Verify title changes, duplicates, missing IDs, filters, notebook isolation, and existing note graph positions.
+
+Implementation decisions for this increment:
+
+- Graph identities are `note:<relative path>` and `pdf:<managed document ID>`. Only citations in the current notebook and its drafts add PDF nodes or edges; catalogue-only PDFs stay out of the graph.
+- **Show PDFs** defaults on for the full graph and can be turned off for a note-only view. Manual positions use these identities and survive filtering, title changes, and navigation within a notebook. Switching notebooks clears positions. The compact graph stays note-only for this increment.
+- A graph with visible PDF citations loads catalogue metadata through the existing library service, acquiring the same library ownership as the reader. It does not mount the PDF workspace, read PDF bytes, or load PDF.js. Notes-only sessions and graphs without PDF citations leave the library unopened. Renames, removals, and imports from the PDF workspace publish current titles to the graph; **Refresh PDF titles** retries metadata loading. An older load cannot replace a newer published snapshot.
+- Until metadata is available, a PDF is labelled with its shortened ID. A successful catalogue load marks absent IDs **Missing PDF**. Loading/ownership errors display a recoverable notice while note nodes remain usable; they do not declare references missing. Full IDs remain available in node descriptions to distinguish duplicate titles.
+- Clicking or pressing Enter/Space on a PDF opens the lowest cited page across the current notebook. Other citations remain available in **Linked notes**. An unavailable document or invalid page uses the existing page-link recovery flow; re-import never retargets an old ID.
+
+Implemented with document-shaped nodes, dashed citation edges, and distinct missing-document styling. Seven graph-model unit cases cover namespaced identities, duplicate titles, current-notebook citations, unique edges/pages, filtering, rename stability, unresolved metadata, and re-import behavior. Six catalogue-controller cases cover lazy loading, retry, superseded requests, metadata-only publications, unmount/remount, and stable React callbacks.
+
+Four native desktop journeys verify metadata loading without the reader or PDF resources, unsaved Japanese references and exact BOM/CRLF saves, lowest-page navigation, pointer/keyboard movement with attached edges, pan/zoom/filter/reset retention, rename/removal/re-import recovery, library ownership retry, and notebook isolation. Controls also fit a 420-pixel Notes pane at 150% text with transparency. The compact graph remains note-only until the next increment. All 83 regular main desktop journeys pass together (two opt-in host skips), along with six standalone journeys. Main type/unit/build checks pass (274 unit passes, five platform skips); PDF type/unit/build checks pass (55 unit tests).
 
 ## 3. Compact connections and complete workflow
 

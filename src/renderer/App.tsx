@@ -2,7 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, ty
 import { ArrowLeft, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Code2, Columns2, Copy, FilePlus2, FileText, Folder, FolderOpen, GitFork, Layers3, Link2, LoaderCircle, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Square, X } from 'lucide-react';
 import type { Note, Workspace } from '../shared/types';
 import { Editor, type EditorHandle } from './Editor';
-import { formatPDFPageLink, isPDFPageLink, parsePDFPageLink, type PDFPageLinkRequest, type PDFPageReference } from '../shared/pdfLinks';
+import { formatPDFPageLink, isPDFPageLink, parsePDFPageLink, type PDFPageLinkRequest, type PDFPageReference, type PDFPageTarget } from '../shared/pdfLinks';
 import { Graph, type GraphPoint } from './Graph';
 import { getBacklinks, getTitle, renderMarkdownDocument, resolveNoteLink } from './markdown';
 import { mathTextContent } from './math';
@@ -15,6 +15,7 @@ import { readCustomSnippets, saveCustomSnippets } from './customSnippets';
 import { SnippetSettings } from './SnippetSettings';
 import { PDFWorkspaceLoader } from './PDFWorkspaceLoader';
 import { getPDFBacklinks } from './pdfBacklinks';
+import { usePDFGraphCatalog } from './usePDFGraphCatalog';
 import { useWorkspaceSplit } from './useWorkspaceSplit';
 
 type Intent = 'open' | 'refresh' | 'close';
@@ -89,6 +90,7 @@ export function App() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [preferences, setPreferences] = useState(readPreferences);
   const [view, setView] = useState<'note' | 'graph'>('note');
+  const [showGraphPDFs, setShowGraphPDFs] = useState(true);
   const [graphPositions, setGraphPositions] = useState<ReadonlyMap<string, GraphPoint>>(new Map());
   const moveGraphNode = useCallback((path: string, point: GraphPoint) => {
     setGraphPositions(previous => new Map(previous).set(path, point));
@@ -180,8 +182,14 @@ export function App() {
 
   const acceptWorkspace = useCallback((next: Workspace) => {
     const sameNotebook = latest.current.workspace?.path === next.path;
-    const paths = new Set(next.notes.map(note => note.path));
-    setGraphPositions(previous => sameNotebook ? new Map([...previous].filter(([path]) => paths.has(path))) : new Map());
+    setGraphPositions(previous => {
+      if (!sameNotebook) return new Map();
+      const identities = new Set(next.notes.map(note => `note:${note.path}`));
+      if ([...previous.keys()].some(id => id.startsWith('pdf:'))) {
+        for (const id of getPDFBacklinks(next.notes).keys()) identities.add(`pdf:${id}`);
+      }
+      return new Map([...previous].filter(([id]) => identities.has(id)));
+    });
     latest.current.workspace = next;
     latest.current.drafts = {};
     setWorkspace(next);
@@ -235,7 +243,8 @@ export function App() {
   const active = notes.find(note => note.path === activePath);
   const filtered = useMemo(() => notes.filter(note => `${note.path}\n${note.content}`.toLowerCase().includes(query.trim().toLowerCase())), [notes, query]);
   const backlinks = useMemo(() => active ? getBacklinks(active.path, notes) : [], [active, notes]);
-  const pdfBacklinks = useMemo(() => pdfVisited ? getPDFBacklinks(notes) : undefined, [notes, pdfVisited]);
+  const pdfBacklinks = useMemo(() => pdfVisited || (view === 'graph' && showGraphPDFs) ? getPDFBacklinks(notes) : undefined, [notes, pdfVisited, view, showGraphPDFs]);
+  const pdfGraph = usePDFGraphCatalog(view === 'graph' && showGraphPDFs && !!pdfBacklinks?.size);
   const previewNote = useDeferredValue(active);
   const rendered = useMemo(() => renderMarkdownDocument(previewNote?.content || ''), [previewNote?.content]);
   const html = rendered.html;
@@ -395,6 +404,15 @@ export function App() {
     finally { operation.current = false; setWorking(false); }
   };
 
+  const openPDFPage = (destination: PDFPageTarget) => {
+    if (operation.current || busy || document.querySelector('dialog[open]')) return;
+    setError('');
+    setPreviewNavigation(null);
+    setHeadingTarget(undefined);
+    setPageLinkRequest({ ...destination, request: ++nextPageLinkRequest.current });
+    switchWorkspace('pdfs');
+  };
+
   const openHref = (href: string, fromPath: string) => {
     if (isPDFPageLink(href)) {
       const destination = parsePDFPageLink(href);
@@ -402,12 +420,7 @@ export function App() {
         setError('This PDF page link has an invalid destination or an unsupported version. Edit the link, or open its PDF and insert a new page link.');
         return;
       }
-      if (operation.current) return;
-      setError('');
-      setPreviewNavigation(null);
-      setHeadingTarget(undefined);
-      setPageLinkRequest({ ...destination, request: ++nextPageLinkRequest.current });
-      switchWorkspace('pdfs');
+      openPDFPage(destination);
       return;
     }
     const externalHref = href.startsWith('//') ? `https:${href}` : href;
@@ -495,7 +508,20 @@ export function App() {
         {error && <div className="message-banner error" role="alert"><span>{error}</span>{!workspace && <button onClick={() => void initialize()}>Try again</button>}<button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
         {notice && <div className="message-banner notice" role="status"><span>{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={14} /></button></div>}
 
-        {view === 'graph' ? <section className="graph-page"><div className="graph-page-heading"><div><p className="eyebrow">SEE THE CONNECTIONS</p><h1>Your ideas, together.</h1><p>Every note is a starting point. Follow a connection to see where it leads.</p></div><button className="subtle-button" onClick={() => setView('note')}><ArrowLeft size={15} />Back to note</button></div><Graph notes={notes} activePath={activePath} onOpen={openNote} manualPositions={graphPositions} onMoveNode={moveGraphNode} onResetLayout={resetGraphLayout} /><div className="graph-help"><span><i />Note</span><span><i className="active" />Current note</span><span>Drag background to pan · Scroll to zoom · Click to open · Arrow keys move a focused note</span></div></section> : active ? <>
+        {view === 'graph' ? <section className="graph-page">
+          <div className="graph-page-heading"><div><p className="eyebrow">SEE THE CONNECTIONS</p><h1>Your ideas, together.</h1><p>Follow the connections between your notes and reading.</p></div><button className="subtle-button" onClick={() => setView('note')}><ArrowLeft size={15} />Back to note</button></div>
+          <div className="graph-filters">
+            <label><input type="checkbox" checked={showGraphPDFs} onChange={event => setShowGraphPDFs(event.target.checked)} />Show PDFs</label>
+            {showGraphPDFs && !!pdfBacklinks?.size && <>
+              <button className="subtle-button" onClick={pdfGraph.refresh} disabled={pdfGraph.catalog.status === 'loading'}>Refresh PDF titles</button>
+              {(pdfGraph.catalog.status === 'idle' || pdfGraph.catalog.status === 'loading') && <span role="status">Loading PDF titles…</span>}
+              {pdfGraph.catalog.status === 'error' && <p className="graph-catalog-error" role="status">PDF titles unavailable. {pdfGraph.catalog.error} You can still open notes and follow PDF references.</p>}
+            </>}
+          </div>
+          <Graph notes={notes} activePath={activePath} onOpen={openNote} manualPositions={graphPositions} onMoveNode={moveGraphNode} onResetLayout={resetGraphLayout}
+            pdfBacklinks={pdfBacklinks} pdfCatalog={pdfGraph.catalog} showPDFs={showGraphPDFs} onOpenPDF={openPDFPage} />
+          <div className="graph-help"><span><i />Note</span><span><i className="active" />Current note</span>{showGraphPDFs && <><span><i className="pdf" />PDF</span><span><i className="missing-pdf" />Missing PDF</span></>}<span>Drag to arrange · Scroll to zoom · Click to open · Arrow keys move a node</span></div>
+        </section> : active ? <>
           <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source', 1], ['split', Columns2, 'Split', 2], ['live', Sparkles, 'Live', 4], ['preview', BookOpen, 'Read', 3]] as const).map(([mode, Icon, label, shortcut]) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl/⌘+${shortcut})`} onClick={() => chooseMode(mode)}><Icon size={15} /><span>{label}</span></button>)}</div></div>
           <div className={`editor-layout mode-${preferences.mode}`}>
             <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit. Ctrl+click links to open.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor ref={editor} key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} customSnippets={customSnippets} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onOpenLink={href => openHref(href, active.path)} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
@@ -521,7 +547,7 @@ export function App() {
     {pdfVisited && <div className="pdf-panel" id="pdfs-workspace" ref={pdfPanel} tabIndex={-1} aria-label="PDFs workspace" hidden={!split.visible && activeWorkspace !== 'pdfs'} inert={busy || (!split.visible && activeWorkspace !== 'pdfs')} aria-busy={busy} data-active={activeWorkspace === 'pdfs'}
       onPointerDownCapture={() => setActiveWorkspace('pdfs')}
       onFocusCapture={event => { workspaceFocus.current.pdfs = event.target as HTMLElement; setActiveWorkspace('pdfs'); }}>
-      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} onAppearance={() => setSettings(true)} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} />
+      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} onAppearance={() => setSettings(true)} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} onDocumentsChange={pdfGraph.updateDocuments} />
     </div>}
     </div>
 

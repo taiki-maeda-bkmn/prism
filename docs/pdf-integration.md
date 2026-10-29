@@ -1,6 +1,6 @@
 # PDF integration into Prism
 
-Status: stages 1 and 2 are complete, including the combined offline read/write/link workflow checks. [Stage 3](pdf-stage-3.md) reader backlinks are complete; full and compact graph connections follow separately. See the [reading and writing guide](pdf-reading-workflow.md), [stage 2 evidence](pdf-stage-2.md), the [page-link format](pdf-page-links.md), and [stage 1 evidence and platform limits](pdf-stage-1.md).
+Status: stages 1 and 2 are complete, including the combined offline read/write/link workflow checks. [Stage 3](pdf-stage-3.md) reader backlinks and full graph PDF connections are complete; compact graph connections and combined connection checks follow separately. See the [reading and writing guide](pdf-reading-workflow.md), [stage 2 evidence](pdf-stage-2.md), the [page-link format](pdf-page-links.md), and [stage 1 evidence and platform limits](pdf-stage-1.md).
 
 ## Product direction
 
@@ -88,7 +88,7 @@ All three [stage 2 increments](pdf-stage-2.md) are complete: the **Read & write*
 
 Goal: make PDF references part of Prism's connected-notes workflow.
 
-Follow the [stage 3 breakdown](pdf-stage-3.md), starting with **Linked notes** in the reader. Graph changes follow in separate increments.
+Follow the [stage 3 breakdown](pdf-stage-3.md). **Linked notes** in the reader and cited PDFs in the full graph are implemented. Compact connections and the complete connection workflow are the next increment.
 
 - Extend link resolution with distinct note and PDF identities; use stage 2's document links rather than guessing from display titles.
 - Show backlinks from a PDF to notes that reference it, including page destinations where available.

@@ -10,6 +10,8 @@ The [reading and writing guide](../docs/pdf-reading-workflow.md) walks through a
 
 In the main Prism reader, **Linked notes** lists the current notebook's references to the PDF, including unsaved changes. Open a note or jump to a cited page while keeping the reader session. This panel is omitted in the standalone launcher, which has no notebook.
 
+The main Prism graph also connects cited PDFs to notes. **Show PDFs** toggles document nodes; activating one opens its lowest cited page. Loading graph titles acquires the same library ownership as the reader while leaving PDF rendering unloaded until needed. See [graph navigation and recovery](../docs/pdf-reading-workflow.md#explore-pdf-connections-in-the-graph).
+
 Prism PDF remains the standalone launcher during the transition. Launch it with `npm run start:pdf`; close the owning app before opening the library in the other launcher. See the [transition and backup guidance](../README.md#moving-from-prism-pdf). AI assistance and OpenAI API integration are outside Prism's scope.
 
 ![Prism PDF library with a real document thumbnail, tags, and favorites](docs/library.png)
