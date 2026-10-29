@@ -218,7 +218,7 @@ test('loads graph metadata without the reader, follows the lowest cited page, an
   expect(remoteRequests).toEqual([]);
 });
 
-test('moves PDF nodes and their edges with keyboard and mouse, retains filters and layouts, and leaves compact graphs note-only', async ({}, testInfo) => {
+test('moves PDF nodes and their edges with keyboard and mouse, retains filters and layouts, and returns to current-note PDF connections', async ({}, testInfo) => {
   await launch();
   await loadedGraph();
   const originalPDF = await point(pdfNode(firstId));
@@ -318,7 +318,7 @@ test('moves PDF nodes and their edges with keyboard and mouse, retains filters a
   await noteNode('Graph notes').focus();
   await noteNode('Graph notes').press('Enter');
   await expect(page.locator('.graph-compact')).toBeVisible();
-  await expect(page.locator('.graph-compact [data-node-kind="pdf"]')).toHaveCount(0);
+  await expect(page.locator('.graph-compact [data-node-kind="pdf"]')).toHaveCount(2);
   await expectOriginalNotes();
   expect(rendererErrors).toEqual([]);
   expect(remoteRequests).toEqual([]);

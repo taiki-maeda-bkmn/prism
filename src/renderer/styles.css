@@ -272,6 +272,10 @@ input { min-width: 0; }
 .connections-section .graph-view { min-height: 170px; }
 .text-button { color: var(--muted); font-size: calc(10px * var(--text-scale)); display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; padding: 10px 0 18px; }
 .text-button:hover { color: var(--link); }
+.compact-pdf-catalog .text-button { padding: 7px 0; }
+.compact-pdf-catalog p { margin: 4px 0 8px; color: var(--muted); font-size: calc(10px * var(--text-scale)); line-height: 1.6; overflow-wrap: anywhere; }
+.compact-pdf-catalog .compact-pdf-error { color: var(--warning); }
+.connections-section .text-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; border-radius: 3px; }
 .backlinks-section { border-top: 1px solid var(--border); padding: 21px 0; }
 .backlink { width: 100%; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: calc(10px * var(--text-scale)); text-align: left; padding: 10px 7px; border: 1px solid var(--border); border-radius: 5px; margin-bottom: 7px; }
 .backlink span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

@@ -2,7 +2,7 @@ import { memo, useEffect, useId, useMemo, useRef, useState, type PointerEvent } 
 import type { Note } from '../shared/types';
 import type { PDFGraphCatalog } from '../shared/pdfGraph';
 import type { PDFNoteBacklink, PDFPageTarget } from '../shared/pdfLinks';
-import { buildGraphModel, noteGraphId, type GraphEdge, type GraphNode } from './graphModel';
+import { buildCompactGraphModel, buildGraphModel, noteGraphId, type GraphEdge, type GraphNode } from './graphModel';
 import './graph.css';
 
 interface GraphProps {
@@ -17,6 +17,7 @@ interface GraphProps {
   pdfCatalog?: PDFGraphCatalog;
   showPDFs?: boolean;
   onOpenPDF?: (target: PDFPageTarget) => void;
+  onExpand?: () => void;
 }
 
 export interface GraphPoint { x: number; y: number }
@@ -85,9 +86,18 @@ function createLayout(nodes: GraphNode[], edges: GraphEdge[], width: number, hei
   return new Map(points.map(point => [point.path, { x: point.x, y: point.y }]));
 }
 
-export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = false, manualPositions, onMoveNode, onResetLayout, pdfBacklinks, pdfCatalog, showPDFs = false, onOpenPDF }: GraphProps) {
+function createCompactLayout(nodes: GraphNode[], activeId: string): Map<string, Point> {
+  // Separate the label rows as well as the symbols. Each side has a fixed text
+  // allowance, so enlarged text and Japanese labels cannot collide.
+  const slots = [{ x: -75, y: -78 }, { x: 75, y: -78 }, { x: -75, y: 78 }, { x: 75, y: 78 }];
+  const points = new Map<string, Point>([[activeId, { x: 0, y: 0 }]]);
+  nodes.filter(node => node.id !== activeId).forEach((node, index) => points.set(node.id, slots[index]));
+  return points;
+}
+
+export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = false, manualPositions, onMoveNode, onResetLayout, pdfBacklinks, pdfCatalog, showPDFs = false, onOpenPDF, onExpand }: GraphProps) {
   const width = compact ? 300 : 960;
-  const height = compact ? 220 : 620;
+  const height = compact ? 280 : 620;
   const patternId = useId().replace(/:/g, '');
   const svg = useRef<SVGSVGElement>(null);
   const drag = useRef<Gesture | null>(null);
@@ -112,26 +122,16 @@ export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = 
     window.addEventListener('blur', cancel);
     return () => window.removeEventListener('blur', cancel);
   }, []);
-  const model = useMemo(() => buildGraphModel(notes, pdfBacklinks, pdfCatalog, !compact && showPDFs), [notes, pdfBacklinks, pdfCatalog, compact, showPDFs]);
+  const model = useMemo(() => compact
+    ? buildCompactGraphModel(notes, activePath, pdfBacklinks, pdfCatalog, showPDFs)
+    : { ...buildGraphModel(notes, pdfBacklinks, pdfCatalog, showPDFs), omittedCount: 0 },
+  [notes, activePath, pdfBacklinks, pdfCatalog, compact, showPDFs]);
   const activeId = noteGraphId(activePath);
-  const graphNodes = useMemo(() => {
-    if (!compact) return model.nodes;
-    const connected = new Set([activeId]);
-    for (const edge of model.edges) {
-      if (edge.source === activeId || edge.target === activeId) {
-        connected.add(edge.source); connected.add(edge.target);
-      }
-    }
-    return model.nodes.filter(node => connected.has(node.id));
-  }, [model, activeId, compact]);
-  const edges = useMemo(() => {
-    if (!compact) return model.edges;
-    const visible = new Set(graphNodes.map(node => node.id));
-    return model.edges.filter(edge => visible.has(edge.source) && visible.has(edge.target));
-  }, [model, graphNodes, compact]);
+  const graphNodes = model.nodes;
+  const edges = model.edges;
   const topology = useMemo(() => JSON.stringify([graphNodes.map(node => node.id), edges]), [graphNodes, edges]);
   // Text-only edits keep the existing layout; only changes to nodes/edges move it.
-  const layout = useMemo(() => createLayout(graphNodes, edges, width, height), [topology, width, height]);
+  const layout = useMemo(() => compact ? createCompactLayout(graphNodes, activeId) : createLayout(graphNodes, edges, width, height), [topology, width, height, compact]);
   useEffect(() => {
     // Filtering/removing a node must not leave pointer capture or a stale drag
     // attached to its old DOM. Metadata label changes keep the gesture intact.
@@ -211,7 +211,7 @@ export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = 
       className="graph-canvas"
       viewBox={`0 0 ${width} ${height}`}
       role="group"
-      aria-label={compact ? 'Local note graph' : pdfCount ? 'Note and PDF graph. Select a node to open it. Drag the background to pan.' : 'Note graph. Select a note to open it. Drag the background to pan.'}
+      aria-label={compact ? (pdfCount ? 'Local note and PDF graph' : 'Local note graph') : pdfCount ? 'Note and PDF graph. Select a node to open it. Drag the background to pan.' : 'Note graph. Select a note to open it. Drag the background to pan.'}
       onPointerDown={event => pointerDown(event)}
       onPointerMove={pointerMove}
       onPointerUp={finishGesture}
@@ -234,7 +234,7 @@ export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = 
           const accessibleLabel = node.kind === 'note' ? `Open ${title}`
             : node.availability === 'missing' ? `Open missing PDF ${node.documentId}`
               : `Open PDF ${node.availability === 'available' ? title : node.documentId}`;
-          const maxLabel = compact ? 12 : 28;
+          const maxLabel = 28;
           // Keep the larger labels inside the canvas at its default zoom. Edge
           // nodes point their labels inward; the accessible name stays complete.
           const labelAnchor = point.x < -width * 0.18 ? 'start' : point.x > width * 0.18 ? 'end' : 'middle';
@@ -244,7 +244,7 @@ export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = 
             className={`graph-node${isPDF ? ` graph-node-pdf graph-node-pdf-${node.availability}` : ''}${active ? ' graph-node-active' : ''}${neighbors.has(node.id) ? ' graph-node-connected' : ''}${draggedNode === node.id ? ' graph-node-dragging' : ''}`}
             transform={`translate(${point.x} ${point.y})`}
             tabIndex={0} role="button" aria-label={accessibleLabel} aria-pressed={active}
-            aria-description={compact ? undefined : `Drag or use arrow keys to move. Hold Shift for larger steps. Enter or Space ${node.kind === 'pdf' ? `opens cited page ${node.page}${node.availability === 'missing' ? ' with recovery options' : ''}` : 'opens the note'}.`}
+            aria-description={`${compact ? '' : 'Drag or use arrow keys to move. Hold Shift for larger steps. '}Enter or Space ${node.kind === 'pdf' ? `opens cited page ${node.page}${node.availability === 'missing' ? ' with recovery options' : ''}` : 'opens the note'}.`}
             onPointerDown={event => pointerDown(event, node.id)}
             onClick={event => {
               if (drag.current) return;
@@ -269,11 +269,14 @@ export const Graph = memo(function Graph({ notes, activePath, onOpen, compact = 
             <circle className="graph-node-halo" r={compact ? 12 : 21} />
             {isPDF ? <><path className="graph-node-document" d="M-11-16H3L11-8V16H-11Z M3-16V-8H11" /><text className="graph-node-pdf-badge" y="7" textAnchor="middle" aria-hidden="true">PDF</text></>
               : <circle className="graph-node-dot" r={compact ? (active ? 5.5 : 3.5) : (active ? 10 : 6)} />}
-            {(!compact || active || neighbors.has(node.id)) && <text className="graph-node-label" y={compact ? 24 : 34} textAnchor={labelAnchor}>{title.length > maxLabel ? `${title.slice(0, maxLabel - 1)}…` : title}</text>}
+            {compact ? <foreignObject className="graph-compact-label-box" x={active ? -125 : -67.5} y="23" width={active ? 250 : 135} height="37" pointerEvents="none" aria-hidden="true">
+              <div className="graph-compact-label">{title}</div>
+            </foreignObject> : <text className="graph-node-label" y="34" textAnchor={labelAnchor}>{title.length > maxLabel ? `${title.slice(0, maxLabel - 1)}…` : title}</text>}
           </g>;
         })}
       </g>
     </svg>}
+    {compact && model.omittedCount > 0 && <button type="button" className="graph-overflow" onClick={onExpand}>+{model.omittedCount} more connections</button>}
     {!compact && <><div className="graph-hint">Drag {pdfCount ? 'nodes' : 'notes'} to arrange.</div><div className="graph-controls" aria-label="Graph zoom controls">
       <button type="button" onClick={() => { onResetLayout?.(); setZoom(1); setPan({ x: 0, y: 0 }); }} aria-label="Reset graph layout" title="Restore the automatic layout" className="graph-reset">Reset layout</button>
       <button type="button" onClick={() => adjustZoom(-0.2)} disabled={zoom <= 0.4} aria-label="Zoom out" title="Zoom out">−</button>

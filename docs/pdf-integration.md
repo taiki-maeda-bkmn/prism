@@ -1,6 +1,6 @@
 # PDF integration into Prism
 
-Status: stages 1 and 2 are complete, including the combined offline read/write/link workflow checks. [Stage 3](pdf-stage-3.md) reader backlinks and full graph PDF connections are complete; compact graph connections and combined connection checks follow separately. See the [reading and writing guide](pdf-reading-workflow.md), [stage 2 evidence](pdf-stage-2.md), the [page-link format](pdf-page-links.md), and [stage 1 evidence and platform limits](pdf-stage-1.md).
+Status: core integration stages 1–3 are complete, including combined offline read/write/link checks, reader backlinks, full and compact PDF graph connections, and save/restart workflows. See [stage 3 evidence](pdf-stage-3.md), the [reading and writing guide](pdf-reading-workflow.md), [stage 2 evidence](pdf-stage-2.md), the [page-link format](pdf-page-links.md), and [stage 1 evidence and platform limits](pdf-stage-1.md). Additional reader and sibling-project features remain separate requirements.
 
 ## Product direction
 
@@ -88,7 +88,7 @@ All three [stage 2 increments](pdf-stage-2.md) are complete: the **Read & write*
 
 Goal: make PDF references part of Prism's connected-notes workflow.
 
-Follow the [stage 3 breakdown](pdf-stage-3.md). **Linked notes** in the reader and cited PDFs in the full graph are implemented. Compact connections and the complete connection workflow are the next increment.
+All three increments in the [stage 3 breakdown](pdf-stage-3.md) are complete: **Linked notes**, cited PDFs in the full graph, and bounded compact connections with combined workflow checks. Compact PDF nodes use the current note's cited pages and load titles explicitly; the full graph uses citations across the notebook. The reading guide documents draft retention and the existing editor-history boundary when changing notes or entering the full graph.
 
 - Extend link resolution with distinct note and PDF identities; use stage 2's document links rather than guessing from display titles.
 - Show backlinks from a PDF to notes that reference it, including page destinations where available.
