@@ -13,6 +13,12 @@ Open **Prism** from its desktop shortcut. This workflow uses the main app's **No
 
 Click a reference in Read or Split preview to open its page. In Live, use **Ctrl+click** or **⌘+click**; an ordinary click edits its Markdown. In Source, switch to Split, Live, or Read to follow the link. A linked PDF opens beside the note if **Read & write** is active; otherwise Prism switches to PDFs. Returning to Notes retains the draft and selection.
 
+## Turn pages from the reading area
+
+Use the **Previous / Next** buttons below the page; they stay visible while a zoomed page scrolls. With the mouse over the PDF, scroll normally through the page. Once you reach the bottom, pause briefly and scroll down again to turn forward. At the top, pause and scroll up to turn backward, landing at the preceding page's bottom. Each wheel or trackpad gesture turns at most one page; momentum from scrolling down a page cannot skip ahead.
+
+Click the PDF page to focus its keyboard controls. **Left / Right** and **Page Up / Page Down** turn pages directly; **Home / End** jump to the first/last page. **Space** scrolls down about one screen, then turns forward on the next press at the bottom. **Shift+Space** does the same backward. Search, page-number, password fields, and the note editor keep their usual typing behavior. Scrolling over the PDF while a note is focused does not move the typing cursor out of the note.
+
 ## Focus and window controls
 
 Click inside a pane to send its shortcuts there. The title-bar **Notes** and **PDFs** buttons also select a pane and return focus to it; they can be reached with Tab and activated with Enter or Space.
@@ -26,6 +32,8 @@ Click inside a pane to send its shortcuts there. The title-bar **Notes** and **P
 | PDFs | Ctrl/⌘+O | Import PDFs |
 | PDFs | Ctrl/⌘+K | Search library metadata |
 | PDF page viewport | Left/Right or Page Up/Page Down | Turn pages |
+| PDF page viewport | Space / Shift+Space | Scroll a screen down/up; turn at the corresponding edge |
+| PDF page viewport | Home / End | First / last page |
 | Pane divider | Left/Right, with Shift for larger steps | Resize panes |
 | Pane divider | Home or double-click | Reset equal widths |
 

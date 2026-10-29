@@ -1280,6 +1280,9 @@
 .pdf-workspace.pdf-integrated .modal::backdrop { background: rgba(var(--titlebar-rgb), .5); }
 .pdf-workspace.pdf-integrated :is(.pdf-reader, .pdf-reader-heading, .pdf-reader-toolbar, .pdf-reader-footer) { color: var(--text); background: transparent; border-color: var(--border); }
 .pdf-workspace.pdf-integrated .pdf-reader-viewport { background: var(--tint); }
+.pdf-workspace.pdf-integrated .pdf-page-navigation button { color: var(--text); background: var(--tint); border-color: var(--border); }
+.pdf-workspace.pdf-integrated .pdf-page-position { color: var(--text); }
+.pdf-workspace.pdf-integrated .pdf-navigation-hint { color: var(--muted); }
 .pdf-workspace.pdf-integrated :is(button:focus-visible, input:focus-visible, select:focus-visible, .pdf-reader-viewport:focus-visible) { outline-color: var(--accent); }
 .pdf-workspace.pdf-integrated .search-box:focus-within { outline-color: var(--accent); }
 @media (max-width: 900px) {
