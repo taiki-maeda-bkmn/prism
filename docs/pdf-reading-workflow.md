@@ -33,7 +33,21 @@ Repeating the same paper and edition preserves its existing review, including yo
 
 If the PDF is saved but the review cannot be written, the result explains the failure and still offers **Open PDF**. Resolve the notebook error and choose **Retry import** to add the review using the saved PDF. Catalogue or review loading failures have their own retry buttons; **Refresh catalogue** checks for newly published entries.
 
-Browsing published research and downloading PDFs require an internet connection. Saved PDFs and review notes work offline through the normal library and notebook. This browser searches the Rates & Execution catalogue; direct arXiv search and batch imports are not included. It reads existing published commentary and needs no AI service or API key. Research import is available in the main Prism app, where a notebook is open.
+Browsing published research and downloading PDFs require an internet connection. Saved PDFs and review notes work offline through the normal library and notebook. This browser searches the Rates & Execution catalogue; use **Search arXiv** to look beyond it. It reads existing published commentary and needs no AI service or API key. Research import is available in the main Prism app, where a notebook is open.
+
+## Search arXiv and import a PDF
+
+1. In the main app's **PDFs** library, choose **Search arXiv**. Opening the dialog does not start a search.
+2. Set **Search in** to **All fields**, **Title**, or **Author**, then enter a short phrase. Choose a **Category**, or leave **All categories** selected to search across arXiv. The category menu offers selected finance, economics, mathematics, statistics, and computing categories; you can also leave the phrase blank and browse one of these categories.
+3. Choose **Relevance**, **Newest submission**, or **Recently updated** under **Sort by**, then press **Search**. Searches use your text as a literal phrase; arXiv query operators are not supported. After changing any criteria, press **Search** again to apply them.
+4. Select a paper to read its abstract, authors, submission/update dates, and categories. Large author lists can be expanded. **arXiv paper** opens the original page in your browser. **Previous results** and **Next results** browse 20 papers at a time, up to the first 2,000 results; narrow your search to find more.
+5. Choose **Import PDF**, wait for it to finish, and select **Open PDF**. The paper is saved in your existing library with its arXiv categories as tags.
+
+To find a specific paper, choose **arXiv ID** under **Search in** and enter its bare ID, such as `2601.00001v2`, or paste an official arXiv abstract/PDF URL. Category and sort controls are inactive for an ID lookup.
+
+Repeat imports reuse the saved paper while preserving your title, existing tags, favorite, and reading position. A request for another version reports that the existing version was retained. Direct import creates no review note: open or create your own note, choose **Read & write**, and use **Insert page link** to cite a page. Your current draft remains available; save note edits explicitly.
+
+Search and downloads need an internet connection; saved PDFs remain readable offline. **Retry search** repeats a failed search, and **Import PDF** can retry a failed import. Batch importing remains deferred. No account or API key is required.
 
 ## Turn pages from the reading area
 

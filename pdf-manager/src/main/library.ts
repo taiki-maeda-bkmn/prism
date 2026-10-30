@@ -338,7 +338,7 @@ export class LibraryStore {
         for (const tag of requestedTags) if (!combined.some(other => other.toLowerCase() === tag.toLowerCase())) combined.push(tag);
         return { tags: combined.slice(0, 12), truncated: combined.length > 12 };
       };
-      const tagWarning = 'Only the first 12 tags fit in the PDF library; all published topics remain in the review note.';
+      const tagWarning = 'Only the first 12 tags fit in the PDF library.';
       const reuse = async (document: PDFDocument): Promise<ArxivImportResult> => {
         try { await this.bytes(document); }
         catch { throw new Error('The existing library copy is missing or changed. Remove its library entry, then import this paper again.'); }

@@ -129,7 +129,7 @@ test('source topics are bounded and merged after existing tags with explicit ove
   const previous = await fs.readFile(f.catalog);
   const repeated = await owner.importArxiv({ ...metadata, tags: ['New topic'] }, forbiddenDownload);
   assert.deepEqual(repeated.document.tags, first.document.tags);
-  assert.match(repeated.warning!, /all published topics remain in the review note/);
+  assert.match(repeated.warning!, /first 12 tags/);
   assert.deepEqual(await fs.readFile(f.catalog), previous);
   const separate = await owner.importArxiv({ ...metadata, arxivId: 'hep-th/9901001v1', tags: ['Long ' + 't'.repeat(90), 'Long ' + 't'.repeat(90)] }, async () => Buffer.concat([pdf, Buffer.from('%other')]));
   assert.equal(separate.document.filename, 'arxiv-hep-th-9901001v1.pdf');

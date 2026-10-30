@@ -12,6 +12,8 @@ import { resolvePDFProfileDirectory } from '../../pdf-manager/src/main/library-l
 import { registerPDFLibraryIPC } from '../../pdf-manager/src/main/library-ipc';
 import { ResearchClient } from './research-client';
 import { ResearchImporter } from './research-import';
+import { ArxivClient } from './arxiv-client';
+import { ArxivImporter } from './arxiv-import';
 
 app.setName('Prism');
 if (!app.isPackaged && process.env.PRISM_USER_DATA) app.setPath('userData', path.resolve(process.env.PRISM_USER_DATA));
@@ -32,6 +34,8 @@ const pdfLibrary = new PDFLibraryService(path.join(resolvePDFProfileDirectory({
 }), 'library'));
 const researchClient = new ResearchClient();
 const researchImporter = new ResearchImporter(researchClient, pdfLibrary, getWorkspace);
+const arxivClient = new ArxivClient();
+const arxivImporter = new ArxivImporter(arxivClient, researchClient, pdfLibrary);
 let quitting = false;
 let quitReady = false;
 
@@ -114,6 +118,14 @@ async function restrictRendererResources(): Promise<void> {
 
 function registerIPC(): void {
   registerPDFLibraryIPC({ service: pdfLibrary, validateSender, getWindow: () => window });
+  ipcMain.handle('prism-arxiv:search', (event, request: unknown) => {
+    validateSender(event);
+    return arxivClient.search(request);
+  });
+  ipcMain.handle('prism-arxiv:import', (event, id: unknown) => {
+    validateSender(event);
+    return serialize(() => arxivImporter.import(id));
+  });
   ipcMain.handle('prism-research:catalogue', (event, refresh: unknown) => {
     validateSender(event);
     if (refresh !== undefined && typeof refresh !== 'boolean') throw new Error('Invalid catalogue refresh request.');

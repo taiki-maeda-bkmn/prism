@@ -12,6 +12,7 @@ interface PDFWorkspaceProps {
   onOpenNote?: (path: string) => void;
   onDocumentsChange?: (documents: readonly PDFGraphDocument[]) => void;
   onResearch?: () => void;
+  onArxiv?: () => void;
   libraryRevision?: number;
 }
 

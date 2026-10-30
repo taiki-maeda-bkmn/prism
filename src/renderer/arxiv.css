@@ -1,0 +1,21 @@
+.arxiv-browser .arxiv-filters { grid-template-columns: minmax(0, .8fr) minmax(0, 1.6fr) minmax(0, 1fr); }
+.arxiv-start { margin: 12px 0 0; }
+.arxiv-results-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 8px 0 18px; }
+.arxiv-results-toolbar .research-result-count { margin: 0; }
+.arxiv-pagination { display: flex; gap: 8px; flex-wrap: wrap; }
+.arxiv-pagination .subtle-button { white-space: normal; }
+.arxiv-authors { margin: 0 0 18px; color: var(--muted); font-size: calc(11px * var(--text-scale)); line-height: 1.6; }
+.arxiv-authors summary { width: fit-content; cursor: pointer; color: var(--link); }
+.arxiv-authors summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.arxiv-authors p { max-height: min(22vh, 200px); margin: 8px 0 0; overflow: auto; overflow-wrap: anywhere; }
+.arxiv-paper-metadata { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 7px 14px; margin: 0 0 18px; font-size: calc(11px * var(--text-scale)); line-height: 1.6; }
+.arxiv-paper-metadata dt { color: var(--muted); }
+.arxiv-paper-metadata dd { margin: 0; overflow-wrap: anywhere; }
+.arxiv-abstract-heading { margin: 16px 0 0; color: var(--link); font-size: calc(12px * var(--text-scale)); font-weight: 500; }
+.arxiv-browser .arxiv-abstract { padding-top: 12px; }
+@media (max-width: 800px) {
+  .arxiv-browser .arxiv-filters { grid-template-columns: minmax(0, 1fr); }
+  .arxiv-results-toolbar { align-items: flex-start; }
+  .arxiv-paper-metadata { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .arxiv-paper-metadata dd { margin-bottom: 7px; }
+}
