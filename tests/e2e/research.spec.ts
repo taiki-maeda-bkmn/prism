@@ -47,7 +47,7 @@ const pdf = () => page.locator('.pdf-workspace');
 const editor = () => page.locator('.app-body .cm-content');
 const catalogFile = () => path.join(pdfProfile, 'library', 'catalog.json');
 
-async function launch(options: { failCatalogue?: boolean; failReview?: boolean; holdDownload?: boolean } = {}) {
+async function launch(options: { failCatalogue?: boolean; failReview?: boolean; holdDownload?: boolean; longCatalogue?: boolean } = {}) {
   desktop = await electron.launch({
     args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(),
     env: { ...process.env, PRISM_USER_DATA: userData, PRISM_WORKSPACE: notebook, PRISM_PDF_USER_DATA: pdfProfile },
@@ -71,14 +71,22 @@ async function launch(options: { failCatalogue?: boolean; failReview?: boolean; 
       state.requests.push(url);
       if (url === fixtures.source + 'data/papers.json') {
         if (state.failCatalogue) { state.failCatalogue = false; return new Response('Unavailable', { status: 503 }); }
-        return Response.json(fixtures.catalogue);
+        const catalogue = structuredClone(fixtures.catalogue);
+        if (fixtures.options.longCatalogue) catalogue.editions[0].papers.push(...Array.from({ length: 30 }, (_, index) => ({
+          ...catalogue.editions[0].papers[0], arxivId: `2601.${String(index + 100).padStart(5, '0')}v1`,
+          title: `Published market research ${index + 1}`, schedulerRank: index + 3,
+        })));
+        return Response.json(catalogue);
       }
       if (url.startsWith(fixtures.source + 'data/archive/')) {
         if (state.failReview) { state.failReview = false; return new Response('Unavailable', { status: 503 }); }
         const id = url.slice((fixtures.source + 'data/archive/').length).replace(/\.json$/, '');
         const archive = fixtures.archives[id as keyof typeof fixtures.archives];
         if (!archive) throw new Error('Unexpected review fixture: ' + url);
-        return Response.json(archive);
+        return Response.json(fixtures.options.longCatalogue ? { ...archive, sourceText: archive.sourceText.replace(
+          'Published execution commentary with $x^2$.',
+          'Published execution commentary with $x^2$.\n\n' + '市場構造と取引コストを検証する研究の解説です。\n\n'.repeat(80),
+        ) } : archive);
       }
       if (url.startsWith('https://arxiv.org/pdf/')) {
         if (state.holdDownload) await new Promise<void>(resolve => { state.release = () => { state.holdDownload = false; resolve(); }; });
@@ -265,6 +273,68 @@ test('retries catalogue and review failures, filters editions, and keeps a pendi
   await desktop!.evaluate(() => { (globalThis as typeof globalThis & { researchFixture: { release?: () => void } }).researchFixture.release?.(); });
   await expect(browser().getByRole('button', { name: 'Open review', exact: true })).toBeVisible();
   await expect(browser().locator('.research-note-path')).toContainText('2026-10');
+  expect(rendererErrors).toEqual([]);
+  expect(remoteRequests).toEqual([]);
+});
+
+test('fills the review column height with scrollable papers in tall windows and keeps narrow layouts usable', async ({}, testInfo) => {
+  await launch({ longCatalogue: true });
+  await page.getByRole('button', { name: 'Window appearance', exact: true }).click();
+  const appearance = page.getByRole('dialog', { name: 'Make a little space', exact: true });
+  await appearance.getByRole('radio', { name: 'Sci-fi theme', exact: true }).check();
+  await appearance.getByRole('slider', { name: 'Text size', exact: true }).fill('150');
+  await appearance.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.setViewportSize({ width: 1440, height: 1800 });
+  await openResearch();
+  await chooseExecution();
+  const results = browser().locator('.research-results');
+  const detail = browser().locator('.research-detail');
+  const review = browser().locator('.research-review');
+  const importButton = browser().getByRole('button', { name: 'Import PDF + review', exact: true });
+  await expect(results.locator('.research-paper')).toHaveCount(32);
+  expect((await results.boundingBox())!.height).toBeGreaterThan(900);
+  for (const viewport of [{ width: 1440, height: 1800 }, { width: 1440, height: 1000 }, { width: 1100, height: 600 }]) {
+    await page.setViewportSize(viewport);
+    await expect.poll(async () => {
+      const left = (await results.boundingBox())!;
+      const right = (await detail.boundingBox())!;
+      return Math.abs(left.y + left.height - right.y - right.height);
+    }).toBeLessThanOrEqual(1);
+    expect(await results.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+    expect(await browser().evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    await importButton.scrollIntoViewIfNeeded();
+    expect((await importButton.boundingBox())!.y + (await importButton.boundingBox())!.height).toBeLessThanOrEqual(viewport.height);
+    await browser().getByRole('button', { name: 'Close research browser', exact: true }).scrollIntoViewIfNeeded();
+    if (viewport.height === 1800) await testInfo.attach('Full-height research list', {
+      body: await page.screenshot({ path: testInfo.outputPath('research-full-height.png') }), contentType: 'image/png',
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 1800 });
+  const leftBox = (await results.boundingBox())!;
+  await page.mouse.move(leftBox.x + leftBox.width / 2, leftBox.y + 100);
+  await page.mouse.wheel(0, 500);
+  await expect.poll(() => results.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  expect(await review.evaluate(element => element.scrollTop)).toBe(0);
+  const listScroll = await results.evaluate(element => element.scrollTop);
+  await review.hover();
+  await page.mouse.wheel(0, 400);
+  await expect.poll(() => review.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  expect(await results.evaluate(element => element.scrollTop)).toBe(listScroll);
+  const search = browser().getByLabel('Search published papers', { exact: true });
+  await search.fill('no matching research paper');
+  await expect(results.locator('.research-empty')).toHaveText('No papers match these filters.');
+  const emptyBox = (await results.locator('.research-empty').boundingBox())!;
+  const emptyResults = (await results.boundingBox())!;
+  expect(emptyBox.y + emptyBox.height).toBeLessThanOrEqual(emptyResults.y + emptyResults.height);
+  await search.fill('');
+  await chooseExecution();
+  await page.setViewportSize({ width: 720, height: 1000 });
+  expect((await results.boundingBox())!.height).toBeLessThanOrEqual(280);
+  expect((await results.boundingBox())!.height).toBeGreaterThan(100);
+  await importButton.scrollIntoViewIfNeeded();
+  expect(await browser().evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await browser().getByRole('button', { name: 'Close research browser', exact: true }).click();
+  await expect(browser()).toHaveCount(0);
   expect(rendererErrors).toEqual([]);
   expect(remoteRequests).toEqual([]);
 });
