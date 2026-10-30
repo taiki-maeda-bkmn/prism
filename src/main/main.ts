@@ -7,6 +7,8 @@ import type { WindowState, Workspace } from '../shared/types';
 import { ensureStarterNotebook, WorkspaceStore } from './workspace';
 import { isRendererResource, validateExternalURL } from './security';
 import { installWslgWindowRecovery } from './window-recovery';
+import { loadWindowPlacement, trackWindowPlacement } from './window-placement';
+import { startWslgWindowPlacement } from './wslg-window-placement';
 import { PDFLibraryService } from '../../pdf-manager/src/main/library-service';
 import { resolvePDFProfileDirectory } from '../../pdf-manager/src/main/library-location';
 import { registerPDFLibraryIPC } from '../../pdf-manager/src/main/library-ipc';
@@ -213,9 +215,16 @@ async function createWindow(): Promise<void> {
   dirty = false;
   allowClose = false;
   pendingClose = false;
-  const workArea = screen.getPrimaryDisplay().workAreaSize;
+  const workArea = screen.getPrimaryDisplay().workArea;
+  const width = Math.min(1320, workArea.width);
+  const height = Math.min(860, workArea.height);
+  const placementFile = path.join(app.getPath('userData'), 'window-placement.json');
+  const placement = loadWindowPlacement(placementFile, screen.getAllDisplays(), {
+    x: workArea.x + Math.round((workArea.width - width) / 2),
+    y: workArea.y + Math.round((workArea.height - height) / 2), width, height,
+  });
   window = new BrowserWindow({
-    title: 'Prism', width: Math.min(1320, workArea.width), height: Math.min(860, workArea.height),
+    title: 'Prism', ...placement.bounds,
     icon: path.join(__dirname, 'icon.png'),
     frame: false, transparent: true, backgroundColor: '#00000000',
     // Linux window managers and macOS need resizable windows for native zoom.
@@ -228,6 +237,16 @@ async function createWindow(): Promise<void> {
       spellcheck: false, navigateOnDragDrop: false,
     },
   });
+  const nativeWindow = window;
+  // Initial mapping must not replace a saved maximized state while the host
+  // helper is still restoring coordinates. Start tracking after restoration.
+  let placementTracker: ReturnType<typeof trackWindowPlacement> | undefined;
+  let startupStateChanged = false;
+  let startupMaximized = placement.maximized;
+  const maximizedDuringStartup = () => { startupStateChanged = true; startupMaximized = true; };
+  const restoredDuringStartup = () => { startupStateChanged = true; startupMaximized = false; };
+  nativeWindow.on('maximize', maximizedDuringStartup);
+  nativeWindow.on('unmaximize', restoredDuringStartup);
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event) => event.preventDefault());
   window.webContents.on('will-frame-navigate', (event) => event.preventDefault());
@@ -236,18 +255,61 @@ async function createWindow(): Promise<void> {
   window.on('maximize', publishWindowState);
   window.on('unmaximize', publishWindowState);
   window.on('restore', publishWindowState);
-  if (process.platform === 'linux' && process.env.WSL_DISTRO_NAME
-    && app.commandLine.getSwitchValue('ozone-platform') === 'wayland') {
+  const wslgWayland = process.platform === 'linux' && process.env.WSL_DISTRO_NAME
+    && app.commandLine.getSwitchValue('ozone-platform') === 'wayland';
+  // Wayland does not expose global coordinates. Bind the optional host helper
+  // to this window while its unique native title is visible, then restore Prism.
+  const hostPlacement = wslgWayland ? startWslgWindowPlacement({
+    window: nativeWindow, directory: app.getPath('userData'), distribution: process.env.WSL_DISTRO_NAME!,
+    scriptPath: path.join(__dirname, 'wslg-window-placement.ps1'),
+  }) : undefined;
+  let hostReady = !hostPlacement;
+  nativeWindow.on('page-title-updated', event => { if (!hostReady) event.preventDefault(); });
+  if (wslgWayland) {
     installWslgWindowRecovery(window);
   }
+  let hostStopping = false;
+  let hostStopped = !hostPlacement;
   window.on('close', (event) => {
-    if (dirty && !allowClose) { event.preventDefault(); requestClose('close'); }
+    if (dirty && !allowClose) { event.preventDefault(); requestClose('close'); return; }
+    nativeWindow.setEnabled(false);
+    placementTracker?.flush();
+    if (!hostStopped) {
+      event.preventDefault();
+      if (!hostStopping) {
+        hostStopping = true;
+        // An accepted close must stop new input before waiting for the final
+        // host snapshot. Otherwise edits could arrive after the draft decision.
+        allowClose = true;
+        void hostPlacement!.flushAndStop().finally(() => {
+          hostStopped = true;
+          if (!nativeWindow.isDestroyed()) nativeWindow.close();
+        });
+      }
+    }
   });
-  window.on('closed', () => { window = null; });
+  window.on('closed', () => {
+    placementTracker?.dispose();
+    hostPlacement?.dispose();
+    window = null;
+  });
   await window.loadFile(rendererPath);
   // Wayland can defer the first paint of an unmapped transparent surface, so
   // waiting for ready-to-show can leave the application permanently hidden.
-  window?.show();
+  if (!nativeWindow.isDestroyed()) nativeWindow.show();
+  if (hostPlacement) await hostPlacement.ready;
+  hostReady = true;
+  if (!nativeWindow.isDestroyed()) {
+    nativeWindow.setTitle('Prism');
+    nativeWindow.removeListener('maximize', maximizedDuringStartup);
+    nativeWindow.removeListener('unmaximize', restoredDuringStartup);
+    if (!hostStopping) {
+      if (placement.maximized && !startupStateChanged && !nativeWindow.isMinimized()) nativeWindow.maximize();
+      placementTracker = trackWindowPlacement(nativeWindow, placementFile, () => screen.getAllDisplays(), {
+        bounds: placement.bounds, maximized: startupMaximized,
+      });
+    }
+  }
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -259,6 +321,7 @@ else {
     if (quitting) return;
     // A cancelled draft prompt must leave the PDF session open and usable.
     if (dirty && !allowClose && window) { requestClose('quit'); return; }
+    window?.setEnabled(false);
     quitting = true;
     void operations.then(() => pdfLibrary.close()).then(() => {
       quitReady = true;

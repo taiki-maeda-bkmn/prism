@@ -5,6 +5,7 @@
 Build the brief in `AGENTS.md` as a local desktop application. Notes remain ordinary Markdown files in a folder chosen by the user. Electron supplies the native transparent window, and React with CodeMirror supplies the editing interface.
 
 - [x] Desktop foundation: isolated renderer, narrow filesystem bridge, native folder picker, window controls, and a starter notebook.
+- [x] [Remember window placement](docs/window-placement.md): restore normal position/size and maximized state across launches, fit disconnected-monitor bounds to a connected work area, and reopen visibly after a minimized quit. WSLg's native Wayland backend uses an owned Windows host helper for absolute position while preserving the existing maximize/minimize recovery.
 - [x] Note workspace: folder navigation, search, create, explicit save, refresh, conflict detection, and protection for unsaved edits when closing or switching folders.
 - [x] Markdown: source, split preview, and reading modes; syntax highlighting; safe rendering; wiki links and Markdown file links.
 - [x] Connected notes: clickable graph, backlinks, and navigation between notes.
@@ -53,6 +54,8 @@ Implementation branch: `feat/prism-desktop`. Commit and push changes automatical
 Run appropriate local build, type, unit, and desktop checks. Per the user's instruction, do not check or wait for GitHub CI. Before reporting the work complete, check the Codex review against the current PR commit. Wait for the review summary to show that commit as completed, address any new findings, and check for unresolved threads. A new push requires checking the new commit's review again; resolved comments on an earlier commit do not complete this check.
 
 ## Verification
+
+- Window placement adds 14 core preference/geometry tests, 12 host-controller tests, and six native restart/recovery journeys. Main typecheck/build and 355 unit tests pass (five platform skips), with all 98 regular desktop journeys passing (three opt-in host skips). The new opt-in WSLg journey passes actual position retention through normal/maximized/minimized restarts and a new nonmodal move immediately after restore. The existing host pixel check reproduced the known maximize-paint issue; both old host pixel journeys also fail on unchanged baseline `b2b43cf`. The current backend remains Wayland, and that pre-existing clipping issue remains outside this change. See [placement details](docs/window-placement.md).
 
 - Direct arXiv discovery adds 14 API/parser tests and four import tests for strict Atom/query handling, bounded requests, pacing/cache/paging, authoritative metadata and version checks, failed-import retry, and reuse across research sources. Three native journeys verify fields/categories/sorting/paging, abstracts and source links, 150% narrow layout, retry/empty/stale responses, import/read/draft undo, metadata retention after restart, and reuse of a Rates PDF without rewriting its note. Main typecheck/build and 329 unit tests pass (five platform skips); all 92 regular main desktop journeys pass together (two opt-in host skips). Standalone PDF typecheck/build, 66 unit tests, and six desktop journeys pass. A read-only live metadata lookup also succeeds. See [research connection evidence](docs/research-connections.md).
 

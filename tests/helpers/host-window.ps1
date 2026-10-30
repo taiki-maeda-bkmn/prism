@@ -6,8 +6,10 @@ param(
   [ValidateNotNullOrEmpty()]
   [ValidateLength(1, 128)]
   [string]$Distribution,
-  [ValidateSet('sample', 'observe', 'restore')]
-  [string]$Action = 'sample'
+  [ValidateSet('sample', 'observe', 'restore', 'move', 'restore-move')]
+  [string]$Action = 'sample',
+  [int]$PositionX = 0,
+  [int]$PositionY = 0
 )
 $ErrorActionPreference = 'Stop'
 Add-Type @'
@@ -29,6 +31,7 @@ public static class PrismHostWindow {
   [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr window);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
   [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr window, int command);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
   [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
   [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
   [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(Point point);
@@ -56,10 +59,25 @@ $matches = [System.Collections.Generic.List[IntPtr]]::new()
 $result = [ordered]@{ found = ($matches.Count -eq 1); foreground = $false; covered = $false; aligned = $false }
 if ($matches.Count -eq 1) {
   $window = $matches[0]
-  if ($Action -eq 'restore') {
+  if ($Action -eq 'restore' -or $Action -eq 'restore-move') {
     # SW_RESTORE is sent only to the one exact UUID-bearing test title above.
     # The operation is asynchronous; callers can observe until it completes.
     [void][PrismHostWindow]::ShowWindowAsync($window, 9)
+  }
+  if ($Action -eq 'restore-move') {
+    $restoring = [System.Diagnostics.Stopwatch]::StartNew()
+    while ([PrismHostWindow]::IsZoomed($window) -or [PrismHostWindow]::IsIconic($window)) {
+      if ($restoring.ElapsedMilliseconds -gt 2000) { throw 'The owned test window did not restore.' }
+      [System.Threading.Thread]::Sleep(20)
+    }
+    # A non-modal move during the app's restore settling period models a new
+    # keyboard/window-manager placement, with no interactive drag in progress.
+    [System.Threading.Thread]::Sleep(200)
+  }
+  if ($Action -eq 'move' -or $Action -eq 'restore-move') {
+    # Move only the exact UUID-owned test window, without resizing, raising,
+    # or activating it. This simulates a user's drag on the Windows desktop.
+    [void][PrismHostWindow]::SetWindowPos($window, [IntPtr]::Zero, $PositionX, $PositionY, 0, 0, 0x15)
   }
   $result.minimized = [PrismHostWindow]::IsIconic($window)
   if ($Action -eq 'sample' -and -not $result.minimized) {

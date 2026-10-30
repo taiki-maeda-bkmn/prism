@@ -27,6 +27,7 @@ test('the Windows host displays the entire WSLg surface after maximize and resto
     });
     const page = await desktop.firstWindow();
     await expect(page.locator('.note-heading h1')).toHaveText('Host window');
+    await expect.poll(() => desktop!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle()), { timeout: 20_000 }).toBe('Prism');
     await expect.poll(() => desktop!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(true);
     await page.evaluate(ownedTitle => {
       document.title = ownedTitle;
@@ -105,6 +106,7 @@ test('host restore resumes painting and editing, and focus repairs a stale minim
     });
     const page = await desktop.firstWindow();
     await expect(page.locator('.note-heading h1')).toHaveText('Restore');
+    await expect.poll(() => desktop!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle()), { timeout: 20_000 }).toBe('Prism');
     await page.evaluate(ownedTitle => { document.title = ownedTitle; }, title);
     await desktop.evaluate(({ BrowserWindow }, ownedTitle) => BrowserWindow.getAllWindows()[0].setTitle(ownedTitle), title);
     await page.getByRole('button', { name: 'Source', exact: true }).click();
