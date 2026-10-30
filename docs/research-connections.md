@@ -28,6 +28,8 @@ Two native journeys verify a tagged PDF and linked review through draft undo, co
 
 A read-only check against the published site successfully parsed 205 paper appearances and retrieved a paper-specific daily review. It downloaded no PDFs and changed no user files. Runtime catalogue changes and arXiv availability remain external dependencies.
 
+The paper list now fills the review column's height instead of stopping at 700 pixels. A populated-catalogue desktop regression checks aligned column bottoms, independent scrolling, no-results visibility, and reachable import/close controls in tall, normal, short, and narrow windows at 150% text. The narrow layout retains its compact list height. Typecheck/build and all three research desktop journeys pass for this layout follow-up.
+
 ## 2. Batch and organization follow-ups
 
 Add selected-paper queues with per-item progress/retry only after single-paper behavior is established. Consider custom destination folders, richer date filters, and import-history affordances separately; do not silently move existing PDFs or notes.
