@@ -4,7 +4,7 @@ Core note/PDF integration is complete. Connect the existing Rates & Execution pu
 
 - [x] Rates & Execution browsing and single-paper PDF/review import.
 - [ ] Batch imports and additional organization options, if needed after using the first increment.
-- [ ] Direct arXiv search, categories, result details, and selected-paper import.
+- [x] Direct arXiv search, categories, result details, and selected-paper import.
 
 ## 1. Published reviews in Prism
 
@@ -37,5 +37,17 @@ Add selected-paper queues with per-item progress/retry only after single-paper b
 ## 3. Direct arXiv discovery
 
 Reuse the validated downloader and managed-source identity. Add title/author/ID search, concrete categories, result paging, metadata/abstract details, and explicit import. Respect arXiv request pacing and avoid duplicate downloads. No AI recommendations, API-key controls, or model service dependencies.
+
+The first arXiv increment adds **Search arXiv** to the integrated PDF library. Search all metadata, titles, authors, or an exact ID; narrow text searches to selected finance, economics, statistics, or computing categories, sort results, and browse 20 papers per page. Search happens only on submission. Show the original abstract, authors, categories, submitted/updated dates, and an explicit link to the arXiv page. **Import PDF** saves one selected document with category tags; this action creates no review note. Existing page-link insertion remains available when writing about the imported paper.
+
+Keep API/XML requests in the main process, with bounded strict parsing, fixed destinations, request pacing, and a bounded cache. Resolve import metadata by the selected ID in main and reuse the existing validated PDF downloader/library writer. Preserve custom titles, tags, favorites, reading positions, source versions, and note drafts. The library deduplicates across both research entry points. Keep renderer resource restrictions and the standalone launcher unchanged.
+
+Acceptance covers query/ID/category validation, Atom namespaces and malformed responses, paging limits, request pacing/cache/retry, trusted import metadata and version identity, selected-paper import/restart, existing-copy reuse, retained drafts, stale search results, empty/error states, and tall/narrow layouts at enlarged text sizes. Use deterministic fixtures and temporary profiles. A read-only live API check may confirm compatibility; external availability is not a substitute for fixture tests.
+
+Fourteen client tests cover strict Atom parsing, query/ID handling, paging, bounded responses, errors, request pacing, cache isolation, and trusted ID resolution. Four importer tests cover metadata authority, wrong-paper/version rejection, retry, retained metadata, and reuse across the two research entry points. A read-only live lookup of `1706.03762v7` returned the expected version, title, authors, categories, and abstract; it downloaded no PDF. The pinned XML parser and its license are bundled with the main app.
+
+Three native journeys cover search fields/categories/sorting/paging, abstract and source navigation, narrow 150% text, retry/empty results, stale responses after closing the browser, PDF import/read/draft undo, restart metadata preservation, and reuse of a Rates copy without modifying its review. Main typecheck/build and 329 unit tests pass (five platform skips), with all 92 regular desktop journeys passing together (two opt-in host skips). Standalone PDF typecheck/build, 66 unit tests, and six desktop journeys pass. Screenshots were inspected; tests used isolated profiles and libraries. GitHub CI was not checked.
+
+Reference: the [arXiv API manual](https://info.arxiv.org/help/api/user-manual.html), [API usage limits](https://info.arxiv.org/help/api/tou.html), and [category taxonomy](https://arxiv.org/category_taxonomy).
 
 Use a branch and PR per increment, run local checks, request Copilot review, verify the final-commit Codex review, and leave PRs unmerged. Do not check GitHub CI.

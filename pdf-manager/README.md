@@ -10,6 +10,8 @@ The [reading and writing guide](../docs/pdf-reading-workflow.md) walks through a
 
 The main app's PDF library also has **Rates & Execution** for importing a published paper with topic tags and a linked review in the current notebook. Discovery and downloads need an internet connection; imported PDFs remain available in both launchers offline. The standalone launcher has no research-import entry because it has no notebook. See [research import](../docs/pdf-reading-workflow.md#import-a-published-rates--execution-review).
 
+**Search arXiv** in the main app searches arXiv directly and imports one selected PDF with category tags. It shares source/version deduplication with Rates & Execution and preserves your library metadata. Use either launcher to read saved PDFs offline; the standalone launcher retains its local-file import controls. See [arXiv search](../docs/pdf-reading-workflow.md#search-arxiv-and-import-a-pdf).
+
 In the main Prism reader, **Linked notes** lists the current notebook's references to the PDF, including unsaved changes. Open a note or jump to a cited page while keeping the reader session. This panel is omitted in the standalone launcher, which has no notebook.
 
 The main Prism graph also connects cited PDFs to notes. **Show PDFs** toggles document nodes; activating one opens its lowest cited page. The compact note inspector shows up to four neighbors and opens the lowest page cited by that note. Its **Load PDF titles** action explicitly loads names; merely opening a note leaves library ownership untouched. Loading graph titles acquires the same library ownership as the reader while leaving PDF rendering unloaded until needed. See [graph navigation and recovery](../docs/pdf-reading-workflow.md#explore-pdf-connections-in-the-graph).

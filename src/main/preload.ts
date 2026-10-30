@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { PrismAPI, WindowState } from '../shared/types';
 import { createPDFAPI } from '../../pdf-manager/src/main/pdf-api';
 import type { PrismResearchAPI } from '../shared/research';
+import type { PrismArxivAPI } from '../shared/arxivSearch';
 
 const api: PrismAPI = {
   loadWorkspace: () => ipcRenderer.invoke('prism:load'),
@@ -35,3 +36,8 @@ const research: PrismResearchAPI = {
   importPaper: request => ipcRenderer.invoke('prism-research:import', request),
 };
 contextBridge.exposeInMainWorld('prismResearch', Object.freeze(research));
+const arxiv: PrismArxivAPI = {
+  search: request => ipcRenderer.invoke('prism-arxiv:search', request),
+  importPaper: id => ipcRenderer.invoke('prism-arxiv:import', id),
+};
+contextBridge.exposeInMainWorld('prismArxiv', Object.freeze(arxiv));

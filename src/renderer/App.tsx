@@ -19,6 +19,7 @@ import { usePDFGraphCatalog } from './usePDFGraphCatalog';
 import { useWorkspaceSplit } from './useWorkspaceSplit';
 import { ResearchBrowser } from './ResearchBrowser';
 import type { ResearchImportRequest } from '../shared/research';
+import { ArxivBrowser } from './ArxivBrowser';
 
 type Intent = 'open' | 'refresh' | 'close';
 
@@ -105,6 +106,7 @@ export function App() {
   const [maximized, setMaximized] = useState(false);
   const [settings, setSettings] = useState(false);
   const [researchOpen, setResearchOpen] = useState(false);
+  const [arxivOpen, setArxivOpen] = useState(false);
   const [libraryRevision, setLibraryRevision] = useState(0);
   const [snippetHelp, setSnippetHelp] = useState(false);
   const [customSnippets, setCustomSnippets] = useState(readCustomSnippets);
@@ -438,6 +440,17 @@ export function App() {
     } finally { operation.current = false; setWorking(false); }
   };
 
+  const importArxiv = async (arxivId: string) => {
+    if (operation.current) throw new Error('Finish the current operation before importing a paper.');
+    operation.current = true;
+    setWorking(true);
+    try {
+      const result = await window.prismArxiv.importPaper(arxivId);
+      setLibraryRevision(previous => previous + 1);
+      return result;
+    } finally { operation.current = false; setWorking(false); }
+  };
+
   const openPDFPage = (destination: PDFPageTarget) => {
     if (operation.current || busy || document.querySelector('dialog[open]')) return;
     setError('');
@@ -600,7 +613,7 @@ export function App() {
       onPointerDownCapture={() => setActiveWorkspace('pdfs')}
       onFocusCapture={event => { workspaceFocus.current.pdfs = event.target as HTMLElement; setActiveWorkspace('pdfs'); }}>
       <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} onAppearance={() => setSettings(true)} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} onDocumentsChange={pdfGraph.updateDocuments}
-        onResearch={workspace ? () => setResearchOpen(true) : undefined} libraryRevision={libraryRevision} />
+        onResearch={workspace ? () => setResearchOpen(true) : undefined} onArxiv={() => setArxivOpen(true)} libraryRevision={libraryRevision} />
     </div>}
     </div>
 
@@ -612,6 +625,10 @@ export function App() {
       onClose={() => { if (!operation.current) setResearchOpen(false); }} onImport={importResearch}
       onOpenNote={path => { setResearchOpen(false); requestAnimationFrame(() => openPDFBacklink(path)); }}
       onOpenPDF={documentId => { setResearchOpen(false); requestAnimationFrame(() => openPDFPage({ documentId, page: 1 })); }} />}
+
+    {arxivOpen && (!pending || busy) && <ArxivBrowser
+      onClose={() => { if (!operation.current) setArxivOpen(false); }} onImport={importArxiv}
+      onOpenPDF={documentId => { setArxivOpen(false); requestAnimationFrame(() => openPDFPage({ documentId, page: 1 })); }} />}
 
     {snippetHelp && <Modal title="Markdown snippets" onClose={() => setSnippetHelp(false)} className="snippet-help-modal">
       <p className="modal-description">In Source, Split, or Live mode, type <code>/</code> at the start of a line or within prose to see snippets. Use the arrow keys to choose one, then press <kbd>Tab</kbd> to insert it. You can also type a full shortcut, such as <code>/task</code>, and press <kbd>Tab</kbd>.</p>
@@ -640,7 +657,7 @@ export function App() {
       <div className="modal-actions"><button className="primary-button" onClick={() => setSettings(false)}><Check size={16} />Done</button></div>
     </Modal>}
 
-    {pending && (!researchOpen || !busy) && <Modal title="Keep your latest thoughts?" onClose={() => !busy && setPending(null)}><p className="modal-description">You have changes in {dirtyCount} {dirtyCount === 1 ? 'note' : 'notes'}. Save them before {pending === 'close' ? 'closing Prism' : pending === 'open' ? 'opening another notebook' : 'reloading from disk'}.</p><ul className="unsaved-list">{Object.keys(drafts).map(path => <li key={path}><FileText size={14} />{path}</li>)}</ul>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button className="subtle-button discard-button" disabled={busy} onClick={() => { const intent = pending; setPending(null); void runIntent(intent); }}>Discard changes</button><button className="subtle-button" disabled={busy} onClick={() => setPending(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={async () => { const intent = pending; if (await save(true)) { setPending(null); await runIntent(intent); } }}>{busy ? 'Saving…' : 'Save & continue'}</button></div></Modal>}
+    {pending && (!(researchOpen || arxivOpen) || !busy) && <Modal title="Keep your latest thoughts?" onClose={() => !busy && setPending(null)}><p className="modal-description">You have changes in {dirtyCount} {dirtyCount === 1 ? 'note' : 'notes'}. Save them before {pending === 'close' ? 'closing Prism' : pending === 'open' ? 'opening another notebook' : 'reloading from disk'}.</p><ul className="unsaved-list">{Object.keys(drafts).map(path => <li key={path}><FileText size={14} />{path}</li>)}</ul>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button className="subtle-button discard-button" disabled={busy} onClick={() => { const intent = pending; setPending(null); void runIntent(intent); }}>Discard changes</button><button className="subtle-button" disabled={busy} onClick={() => setPending(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={async () => { const intent = pending; if (await save(true)) { setPending(null); await runIntent(intent); } }}>{busy ? 'Saving…' : 'Save & continue'}</button></div></Modal>}
   </div>;
 }
 
