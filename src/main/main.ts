@@ -12,6 +12,7 @@ import { startWslgWindowPlacement } from './wslg-window-placement';
 import { PDFLibraryService } from '../../pdf-manager/src/main/library-service';
 import { resolvePDFProfileDirectory } from '../../pdf-manager/src/main/library-location';
 import { registerPDFLibraryIPC } from '../../pdf-manager/src/main/library-ipc';
+import { PDFURLImportManager } from '../../pdf-manager/src/main/pdf-url-import';
 import { ResearchClient } from './research-client';
 import { ResearchImporter } from './research-import';
 import { ArxivClient } from './arxiv-client';
@@ -34,6 +35,7 @@ let operations: Promise<unknown> = Promise.resolve();
 const pdfLibrary = new PDFLibraryService(path.join(resolvePDFProfileDirectory({
   appData: app.getPath('appData'), isPackaged: app.isPackaged, override: process.env.PRISM_PDF_USER_DATA,
 }), 'library'));
+const pdfURLImports = new PDFURLImportManager(pdfLibrary);
 const researchClient = new ResearchClient();
 const researchImporter = new ResearchImporter(researchClient, pdfLibrary, getWorkspace);
 const arxivClient = new ArxivClient();
@@ -119,7 +121,7 @@ async function restrictRendererResources(): Promise<void> {
 }
 
 function registerIPC(): void {
-  registerPDFLibraryIPC({ service: pdfLibrary, validateSender, getWindow: () => window });
+  registerPDFLibraryIPC({ service: pdfLibrary, urlImports: pdfURLImports, validateSender, getWindow: () => window });
   ipcMain.handle('prism-arxiv:search', (event, request: unknown) => {
     validateSender(event);
     return arxivClient.search(request);
@@ -251,6 +253,7 @@ async function createWindow(): Promise<void> {
   window.webContents.on('will-navigate', (event) => event.preventDefault());
   window.webContents.on('will-frame-navigate', (event) => event.preventDefault());
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
+  window.webContents.on('render-process-gone', () => { void pdfURLImports.cancelActive(); });
   const publishWindowState = () => window?.webContents.send('prism:window-state', windowState());
   window.on('maximize', publishWindowState);
   window.on('unmaximize', publishWindowState);
@@ -289,6 +292,9 @@ async function createWindow(): Promise<void> {
     }
   });
   window.on('closed', () => {
+    // A cancelled dirty-note prompt never reaches this point. Accepted closes
+    // stop downloads, while an already-started atomic save is allowed to finish.
+    void pdfURLImports.cancelActive();
     placementTracker?.dispose();
     hostPlacement?.dispose();
     window = null;
@@ -323,7 +329,7 @@ else {
     if (dirty && !allowClose && window) { requestClose('quit'); return; }
     window?.setEnabled(false);
     quitting = true;
-    void operations.then(() => pdfLibrary.close()).then(() => {
+    void Promise.all([operations, pdfURLImports.close()]).then(() => pdfLibrary.close()).then(() => {
       quitReady = true;
       app.quit();
     }).catch((error: unknown) => {

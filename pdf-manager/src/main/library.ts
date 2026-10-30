@@ -17,6 +17,8 @@ const documentKeys = ['id', 'title', 'filename', 'size', 'sha256', 'importedAt',
 
 export interface ArxivImportMetadata { arxivId: string; title: string; tags: string[] }
 export interface ArxivImportResult { document: PDFDocument; duplicate: boolean; warning?: string }
+export interface DownloadedPDFImport { filename: string; bytes: Uint8Array }
+export interface DownloadedPDFImportResult { document: PDFDocument; duplicate: boolean }
 
 /** Narrow filesystem seam for deterministic write/publication failure tests. */
 export interface LibraryWriteIO {
@@ -319,6 +321,46 @@ export class LibraryStore {
         } catch (error) { errors.push(`${filename}: ${message(error)}`); }
       }
       return { library: await this.snapshot(), importedIds, duplicateCount, errors };
+    });
+  }
+
+  /** Publish downloaded bytes without persisting the source URL or changing duplicates. */
+  importDownloaded(input: DownloadedPDFImport): Promise<DownloadedPDFImportResult> {
+    return this.serialize(async () => {
+      if (!object(input) || !text(input.filename, 255) || /[\\/:*?"<>|]/.test(input.filename)
+        || !/\.pdf$/i.test(input.filename)) throw new Error('The downloaded PDF filename is invalid.');
+      if (!(input.bytes instanceof Uint8Array) || input.bytes.byteLength < 8
+        || input.bytes.byteLength > MAX_PDF_BYTES) throw new Error('The downloaded PDF must be between 8 bytes and 100 MB.');
+      const filename = input.filename;
+      const bytes = Buffer.from(input.bytes);
+      if (!/^%PDF-\d\.\d/.test(bytes.subarray(0, 8).toString('ascii'))) throw new Error('The download does not have a valid PDF header.');
+      await this.checkCatalog();
+      const sha256 = digest(bytes);
+      const duplicate = this.documents.find(document => document.sha256 === sha256);
+      if (duplicate) {
+        try { await this.bytes(duplicate); }
+        catch { throw new Error('The existing library copy is missing or changed. Remove its library entry, then import this paper again.'); }
+        await this.checkCatalog();
+        return { document: { ...duplicate, tags: [...duplicate.tags] }, duplicate: true };
+      }
+      if (this.documents.length >= MAX_DOCUMENTS) throw new Error(`The library can contain up to ${MAX_DOCUMENTS.toLocaleString()} PDFs.`);
+      const id = randomUUID();
+      const destination = path.join(this.filesDirectory, `${id}.pdf`);
+      const output = await this.writeIO.createFile(destination);
+      try {
+        await output.writeFile(bytes);
+        await output.sync();
+        const now = new Date().toISOString();
+        const document: PDFDocument = {
+          id, filename, title: filename.replace(/\.pdf$/i, '').slice(0, 200).trim() || 'Untitled PDF',
+          size: bytes.length, sha256, importedAt: now, updatedAt: now,
+          tags: [], favorite: false, lastOpenedAt: null, lastPage: 1, pageCount: null,
+        };
+        await this.commit([...this.documents, document]);
+        return { document: { ...document, tags: [...document.tags] }, duplicate: false };
+      } catch (error) {
+        throw await this.failedPublication(error, destination, output, bytes, id);
+      } finally { await output.close().catch(() => undefined); }
     });
   }
 
