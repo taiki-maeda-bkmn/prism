@@ -10,6 +10,8 @@ import { installWslgWindowRecovery } from './window-recovery';
 import { PDFLibraryService } from '../../pdf-manager/src/main/library-service';
 import { resolvePDFProfileDirectory } from '../../pdf-manager/src/main/library-location';
 import { registerPDFLibraryIPC } from '../../pdf-manager/src/main/library-ipc';
+import { ResearchClient } from './research-client';
+import { ResearchImporter } from './research-import';
 
 app.setName('Prism');
 if (!app.isPackaged && process.env.PRISM_USER_DATA) app.setPath('userData', path.resolve(process.env.PRISM_USER_DATA));
@@ -28,6 +30,8 @@ let operations: Promise<unknown> = Promise.resolve();
 const pdfLibrary = new PDFLibraryService(path.join(resolvePDFProfileDirectory({
   appData: app.getPath('appData'), isPackaged: app.isPackaged, override: process.env.PRISM_PDF_USER_DATA,
 }), 'library'));
+const researchClient = new ResearchClient();
+const researchImporter = new ResearchImporter(researchClient, pdfLibrary, getWorkspace);
 let quitting = false;
 let quitReady = false;
 
@@ -110,6 +114,19 @@ async function restrictRendererResources(): Promise<void> {
 
 function registerIPC(): void {
   registerPDFLibraryIPC({ service: pdfLibrary, validateSender, getWindow: () => window });
+  ipcMain.handle('prism-research:catalogue', (event, refresh: unknown) => {
+    validateSender(event);
+    if (refresh !== undefined && typeof refresh !== 'boolean') throw new Error('Invalid catalogue refresh request.');
+    return researchClient.catalogue(refresh === true);
+  });
+  ipcMain.handle('prism-research:review', (event, identity: unknown) => {
+    validateSender(event);
+    return researchClient.review(identity);
+  });
+  ipcMain.handle('prism-research:import', (event, request: unknown) => {
+    validateSender(event);
+    return serialize(() => researchImporter.import(request));
+  });
   ipcMain.handle('prism:load', (event) => {
     validateSender(event);
     return serialize(async () => {
@@ -231,7 +248,7 @@ else {
     // A cancelled draft prompt must leave the PDF session open and usable.
     if (dirty && !allowClose && window) { requestClose('quit'); return; }
     quitting = true;
-    void Promise.all([operations, pdfLibrary.close()]).then(() => {
+    void operations.then(() => pdfLibrary.close()).then(() => {
       quitReady = true;
       app.quit();
     }).catch((error: unknown) => {

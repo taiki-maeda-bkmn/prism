@@ -11,6 +11,8 @@ interface PDFWorkspaceProps {
   backlinks?: ReadonlyMap<string, readonly PDFNoteBacklink[]>;
   onOpenNote?: (path: string) => void;
   onDocumentsChange?: (documents: readonly PDFGraphDocument[]) => void;
+  onResearch?: () => void;
+  libraryRevision?: number;
 }
 
 export default function PDFWorkspace({ active, ...props }: PDFWorkspaceProps) {

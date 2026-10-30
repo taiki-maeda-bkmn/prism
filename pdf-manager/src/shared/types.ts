@@ -11,6 +11,8 @@ export interface PDFDocument {
   lastOpenedAt: string | null;
   lastPage: number;
   pageCount: number | null;
+  /** Canonical arXiv ID of the saved copy, including its version when known. */
+  arxivId?: string;
 }
 
 export interface LibrarySnapshot {

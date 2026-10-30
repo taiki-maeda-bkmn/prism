@@ -13,6 +13,28 @@ Open **Prism** from its desktop shortcut. This workflow uses the main app's **No
 
 Click a reference in Read or Split preview to open its page. In Live, use **Ctrl+click** or **⌘+click**; an ordinary click edits its Markdown. In Source, switch to Split, Live, or Read to follow the link. A linked PDF opens beside the note if **Read & write** is active; otherwise Prism switches to PDFs. Returning to Notes retains the draft and selection.
 
+## Import a published Rates & Execution review
+
+1. Open the notebook where you want to keep research notes. In **PDFs**, return to the library and choose **Rates & Execution**.
+2. Search by title, author, arXiv ID, or topic. Use **Topic**, **Edition type**, and **Minimum rating** to narrow the published catalogue. Ratings are compared on a ten-point scale. Each paper appears once with its latest matching edition; **Review edition** selects another matching edition.
+3. Read the published commentary. Some publications provide a **Full edition review** covering several papers; Prism labels it accordingly. **Published source** and **arXiv paper** open the original pages in your browser.
+4. Check the destination notebook and choose **Group review notes**. Then select **Import PDF + review** and keep the dialog open until it finishes.
+5. Choose **Open review** to edit the saved Markdown, or **Open PDF** to read the managed document. The review includes its published rating, authors, topics, source links, and a **Read PDF** link to page 1. That link connects the note and PDF in the graph and the reader's **Linked notes** panel.
+
+| Group review notes | Destination within the current notebook |
+| --- | --- |
+| Topic | `Research/Rates & Execution/<first published topic>/` (or `Uncategorized`) |
+| Month | `Research/Rates & Execution/YYYY-MM/`, using the edition date |
+| No subfolders | `Research/Rates & Execution/` |
+
+The PDF goes into the existing managed library; published topics become its tags. Importing the same arXiv paper again reuses its saved PDF and preserves your title, existing tags, favorite, and reading position. If another edition refers to a different arXiv version, Prism reports that it reused the saved version instead of replacing its contents. An identical local PDF can also be reused by its file content.
+
+Repeating the same paper and edition preserves its existing review, including your edits, even when you choose another grouping. Each imported note has a hidden source marker on its first line; keep that marker so later imports can recognize it. A different review edition can create a separate note. Existing files at the intended destination are preserved, with a numbered filename used for the new review. Importing does not save or discard the draft you were already editing.
+
+If the PDF is saved but the review cannot be written, the result explains the failure and still offers **Open PDF**. Resolve the notebook error and choose **Retry import** to add the review using the saved PDF. Catalogue or review loading failures have their own retry buttons; **Refresh catalogue** checks for newly published entries.
+
+Browsing published research and downloading PDFs require an internet connection. Saved PDFs and review notes work offline through the normal library and notebook. This browser searches the Rates & Execution catalogue; direct arXiv search and batch imports are not included. It reads existing published commentary and needs no AI service or API key. Research import is available in the main Prism app, where a notebook is open.
+
 ## Turn pages from the reading area
 
 Use the **Previous / Next** buttons below the page; they stay visible while a zoomed page scrolls. With the mouse over the PDF, scroll normally through the page. Once you reach the bottom, pause briefly and scroll down again to turn forward. At the top, pause and scroll up to turn backward, landing at the preceding page's bottom. Each wheel or trackpad gesture turns at most one page; momentum from scrolling down a page cannot skip ahead.

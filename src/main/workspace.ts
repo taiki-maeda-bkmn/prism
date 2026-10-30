@@ -274,17 +274,19 @@ export class WorkspaceStore {
     });
   }
 
-  create(value: unknown): Promise<Note> {
+  create(value: unknown, initialContent?: string): Promise<Note> {
     return this.serialize(async () => {
       const notePath = validateNotePath(value, true);
       if (this.snapshots.size >= MAX_NOTES) throw new Error(`A notebook can load up to ${MAX_NOTES.toLocaleString()} notes.`);
+      const title = path.basename(notePath, path.extname(notePath));
+      const content = initialContent === undefined ? `# ${title}\n\n` : initialContent;
+      if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > MAX_NOTE_BYTES) throw new Error('A note can contain up to 2 MB of UTF-8 text.');
       const parent = await this.safeParent(notePath, true);
       const target = path.join(parent, path.basename(notePath));
       const temporary = path.join(parent, `.prism-${randomUUID()}.tmp`);
-      const title = path.basename(notePath, path.extname(notePath));
       try {
         const handle = await fs.open(temporary, 'wx', 0o644);
-        try { await handle.writeFile(`# ${title}\n\n`, 'utf8'); await handle.sync(); } finally { await handle.close(); }
+        try { await handle.writeFile(content, 'utf8'); await handle.sync(); } finally { await handle.close(); }
         await this.safeParent(notePath);
         try {
           try { await this.createIO.link(temporary, target); }

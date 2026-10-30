@@ -8,6 +8,8 @@ With a note open, **Insert page link** inserts a reference to the reader's curre
 
 The [reading and writing guide](../docs/pdf-reading-workflow.md) walks through a complete session, keyboard focus, saving, reopening at the remembered page, and recovery from notebook/library errors.
 
+The main app's PDF library also has **Rates & Execution** for importing a published paper with topic tags and a linked review in the current notebook. Discovery and downloads need an internet connection; imported PDFs remain available in both launchers offline. The standalone launcher has no research-import entry because it has no notebook. See [research import](../docs/pdf-reading-workflow.md#import-a-published-rates--execution-review).
+
 In the main Prism reader, **Linked notes** lists the current notebook's references to the PDF, including unsaved changes. Open a note or jump to a cited page while keeping the reader session. This panel is omitted in the standalone launcher, which has no notebook.
 
 The main Prism graph also connects cited PDFs to notes. **Show PDFs** toggles document nodes; activating one opens its lowest cited page. The compact note inspector shows up to four neighbors and opens the lowest page cited by that note. Its **Load PDF titles** action explicitly loads names; merely opening a note leaves library ownership untouched. Loading graph titles acquires the same library ownership as the reader while leaving PDF rendering unloaded until needed. See [graph navigation and recovery](../docs/pdf-reading-workflow.md#explore-pdf-connections-in-the-graph).
@@ -49,6 +51,8 @@ The default library locations are `%APPDATA%/prism-pdf/library` on Windows, `~/L
 
 Only one updated Prism app can own a library at a time. If another app has it open, close that app and choose **Try again**. Ownership is released automatically after a crash; keep the hidden `.prism-library-lock.sqlite` file in place. Close older app builds before sharing their library with an updated build.
 
+Research imports add an optional `arxivId` to their catalogue entries; existing entries without it remain supported. Update both launchers together, since older builds do not accept this additional field. The catalogue stays at version 1, and existing PDFs need no migration.
+
 **Remove** removes the catalog entry and its tags, favorite, and reading position. Both the original and the managed PDF remain on disk. Removed copies can be imported again from `library/documents`; this release does not automatically reclaim their disk space. The displayed storage total counts cataloged PDFs only. A damaged catalog is reported without overwriting it; restore its backup before continuing.
 
 Failed imports clean up copies that can still be verified as belonging to the failed operation. If a file was replaced, edited, or its ownership is uncertain, it is kept and its recovery path is shown in the error.
@@ -72,4 +76,4 @@ On Linux without a display, run the desktop suite with `xvfb-run --auto-servernu
 
 Source code is in `pdf-manager/src/`; generated output is in `pdf-manager/dist/`. Dependencies and their pinned versions are managed by the repository-root package manifest and lockfile.
 
-The [integration plan](../docs/pdf-stage-1.md) uses a shared `PDFLibraryService`, profile resolver, and reusable IPC handlers in both launchers. Prism's Notes/PDFs navigation keeps note drafts and reader sessions intact, with shared appearance settings. The library uses bundled Node SQLite only as an ownership lock; the existing JSON catalogue and PDF files remain unchanged.
+The [integration plan](../docs/pdf-stage-1.md) uses a shared `PDFLibraryService`, profile resolver, and reusable IPC handlers in both launchers. Prism's Notes/PDFs navigation keeps note drafts and reader sessions intact, with shared appearance settings. The library uses bundled Node SQLite only as an ownership lock; library metadata remains in the JSON catalogue alongside the managed PDF files.

@@ -1,6 +1,6 @@
 # PDF integration into Prism
 
-Status: core integration stages 1–3 are complete, including combined offline read/write/link checks, reader backlinks, full and compact PDF graph connections, and save/restart workflows. See [stage 3 evidence](pdf-stage-3.md), the [reading and writing guide](pdf-reading-workflow.md), [stage 2 evidence](pdf-stage-2.md), the [page-link format](pdf-page-links.md), and [stage 1 evidence and platform limits](pdf-stage-1.md). Additional reader and sibling-project features remain separate requirements.
+Status: core integration stages 1–3 are complete, including combined offline read/write/link checks, reader backlinks, full and compact PDF graph connections, and save/restart workflows. See [stage 3 evidence](pdf-stage-3.md), the [reading and writing guide](pdf-reading-workflow.md), [stage 2 evidence](pdf-stage-2.md), the [page-link format](pdf-page-links.md), and [stage 1 evidence and platform limits](pdf-stage-1.md). [Research connections](research-connections.md) adds published Rates & Execution browsing and single-paper PDF/review import as the next independent increment; direct arXiv discovery and batch imports remain follow-ups.
 
 ## Product direction
 
