@@ -57,9 +57,11 @@ eligible after a card has once been visible, even if the PDF workspace is later
 hidden. PDF.js also performs canvas execution on the renderer main thread;
 the CPU profile includes image scaling, drawing setup, text, and fills.
 
-Wheel page turning separately requires a deliberate gesture: a 250 ms quiet gap,
-350 ms inter-turn cooldown, and movement threshold. That interaction policy can
-feel like a pause at a page edge without being a rendering stall. It is unchanged.
+At the time of this investigation, wheel page turning required a deliberate
+gesture: a 250 ms quiet gap, 350 ms inter-turn cooldown, and movement threshold.
+That interaction policy could feel like a pause at a page edge without being a
+rendering stall. A subsequent change removed wheel page turning at the user's
+request; mouse-wheel and trackpad scrolling now stay within the current page.
 
 ## Reproduce the measurements
 

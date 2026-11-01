@@ -95,7 +95,7 @@ Search and downloads need an internet connection; saved PDFs remain readable off
 
 ## Turn pages from the reading area
 
-Use the **Previous / Next** buttons below the page; they stay visible while a zoomed page scrolls. With the mouse over the PDF, scroll normally through the page. Once you reach the bottom, pause briefly and scroll down again to turn forward. At the top, pause and scroll up to turn backward, landing at the preceding page's bottom. Each wheel or trackpad gesture turns at most one page; momentum from scrolling down a page cannot skip ahead.
+Use the **Previous / Next** buttons below the page; they stay visible while a zoomed page scrolls. Mouse-wheel and trackpad scrolling move within the current page and stop at its edges. Continuing to scroll, or starting a new gesture, never turns a page. This also applies when the entire page fits in the viewport.
 
 Click the PDF page to focus its keyboard controls. **Left / Right** and **Page Up / Page Down** turn pages directly; **Home / End** jump to the first/last page. **Space** scrolls down about one screen, then turns forward on the next press at the bottom. **Shift+Space** does the same backward. Search, page-number, password fields, and the note editor keep their usual typing behavior. Scrolling over the PDF while a note is focused does not move the typing cursor out of the note.
 

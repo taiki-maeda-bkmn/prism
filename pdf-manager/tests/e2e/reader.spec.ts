@@ -123,7 +123,7 @@ async function renderedPage(number: number) {
   const canvas = page.locator(`.pdf-paper canvas[data-page-number="${number}"]`);
   await expect(canvas).toBeVisible();
   // A loaded white canvas is insufficient: check the colored PDF artwork.
-  expect(await canvas.evaluate((element: HTMLCanvasElement) => {
+  await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) => {
     if (!element.isConnected || !element.width || !element.height) return 0;
     const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data;
     let colored = 0;
