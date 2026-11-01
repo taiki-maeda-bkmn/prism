@@ -7,7 +7,7 @@ Open **Prism** from its desktop shortcut. This workflow uses the main app's **No
 1. In **Notes**, open your notebook and select or create a note. Put the cursor where you want to add a reference.
 2. Choose **Read & write** in the title bar. **Show notes** opens note navigation; **Library** opens PDF filters and tags when its pane is narrow.
 3. Open a PDF from your library, or use **Import PDFs**. Imported originals stay untouched. Password-protected PDFs ask for a password for the current reading session.
-4. Read and write in either pane. Drag the divider to change their widths. The note keeps its Source, Split, Live, or Read mode; the note's own Split preview stacks vertically when space is limited.
+4. Read and write in either pane. **Swap sides** beside **Read & write** switches PDF and Markdown between left and right. Each pane keeps its width and current content. Drag the divider to resize; Left/Right arrows move it in the corresponding direction, and Home resets the widths. The note keeps its Source, Split, Live, or Read mode; the note's own Split preview stacks vertically when space is limited.
 5. On the page you want to cite, choose **Insert page link**. The link replaces the current note selection, or inserts at the cursor. One undo removes the insertion. Read mode changes to Source so you can see the change.
 6. Focus **Notes** and press **Ctrl+S** (**⌘S** on Mac), or click the note's **Save** button. Inserting a link does not save it automatically.
 
@@ -145,7 +145,7 @@ Use the title-bar maximize button to fill the desktop work area while retaining 
 
 Within an open session, switching between **Notes** and **PDFs**, or toggling **Read & write**, retains drafts, editor history, PDF page, zoom, rotation, and the current reader's unlocked session. Save notes before quitting; closing, refreshing a notebook, or opening a different notebook asks about unsaved changes.
 
-After a restart, Prism starts with Notes only. Choose **Read & write** again to use the saved divider proportions, then open your PDF from the library to resume its last successfully rendered page. Following a note's page link instead opens the page recorded in that link. PDF zoom, rotation, and passwords are session-only; unsaved drafts and undo history do not survive quitting.
+After a restart, Prism starts with Notes only. Choose **Read & write** again to use the saved pane order and divider proportions, then open your PDF from the library to resume its last successfully rendered page. Following a note's page link instead opens the page recorded in that link. PDF zoom, rotation, and passwords are session-only; unsaved drafts and undo history do not survive quitting.
 
 PDF reading, Japanese fonts, Markdown preview, and page links use bundled local resources and work offline. No account or API key is needed.
 

@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Code2, Columns2, Copy, FilePlus2, FileText, Folder, FolderOpen, GitFork, Layers3, Link2, LoaderCircle, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Square, X } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Code2, Columns2, Copy, FilePlus2, FileText, Folder, FolderOpen, GitFork, Layers3, Link2, LoaderCircle, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Square, X } from 'lucide-react';
 import type { Note, Workspace } from '../shared/types';
 import { Editor, type EditorHandle } from './Editor';
 import { formatPDFPageLink, isPDFPageLink, parsePDFPageLink, type PDFPageLinkRequest, type PDFPageReference, type PDFPageTarget } from '../shared/pdfLinks';
@@ -522,21 +522,29 @@ export function App() {
     });
   };
 
+  // Stable keys move the existing workspaces without replacing editor/reader state.
+  // DOM order follows the visual order for keyboard and screen-reader navigation.
+  const orderPanes = (panes: ReactNode[]) => split.notesSide === 'left' ? panes : panes.reverse();
+
   return <div className={`app-shell ${focus ? 'focus-mode' : ''}`} style={appStyle} data-transparent={preferences.transparent} data-theme={preferences.theme} data-maximized={maximized} data-workspace={activeWorkspace} data-layout={split.visible ? 'split' : 'single'}>
     <header className="titlebar">
       <div className="titlebar-brand"><PrismMark small /><strong>prism</strong><span className="titlebar-divider" /><span>A little space for big ideas.</span></div>
       <nav className="workspace-navigation" aria-label="Workspaces">
-        <button aria-label="Notes" aria-pressed={activeWorkspace === 'notes'} disabled={busy} onClick={() => switchWorkspace('notes')}><FileText size={15} />Notes{dirtyCount > 0 && <span className="workspace-unsaved" title={`${dirtyCount} unsaved notes`} />}</button>
-        <button aria-label="PDFs" aria-pressed={activeWorkspace === 'pdfs'} disabled={busy} onClick={() => switchWorkspace('pdfs')}><BookOpen size={15} />PDFs</button>
+        <button aria-label="Notes" title="Notes" aria-pressed={activeWorkspace === 'notes'} disabled={busy} onClick={() => switchWorkspace('notes')}><FileText size={15} /><span className="workspace-button-label">Notes</span>{dirtyCount > 0 && <span className="workspace-unsaved" title={`${dirtyCount} unsaved notes`} />}</button>
+        <button aria-label="PDFs" title="PDFs" aria-pressed={activeWorkspace === 'pdfs'} disabled={busy} onClick={() => switchWorkspace('pdfs')}><BookOpen size={15} /><span className="workspace-button-label">PDFs</span></button>
         <button className="workspace-layout-toggle" aria-label="Read & write" aria-pressed={split.requested} disabled={busy || (!split.available && !split.requested)}
           title={!split.available ? 'Widen the window to show Notes and PDFs side by side.' : split.requested ? 'Return to one workspace' : 'Show Notes and PDFs side by side'}
-          onClick={() => { setPdfVisited(true); split.setRequested(previous => !previous); }}><Columns2 size={15} />Read &amp; write</button>
+          onClick={() => { setPdfVisited(true); split.setRequested(previous => !previous); }}><Columns2 size={15} /><span className="workspace-button-label">Read &amp; write</span></button>
+        {split.requested && <button className="workspace-swap" aria-label="Swap PDF and Markdown panes" disabled={busy}
+          title={split.notesSide === 'left' ? 'Move PDF to the left and Markdown to the right' : 'Move Markdown to the left and PDF to the right'}
+          onClick={split.swapSides}><ArrowLeftRight size={15} /><span>Swap sides</span></button>}
       </nav>
       <div className="window-controls"><button aria-label="Minimize window" title="Minimize window" onClick={() => window.prism?.windowControl('minimize')}><Minus size={15} /></button><button aria-label={maximized ? 'Restore window' : 'Maximize window'} title={maximized ? 'Restore window' : 'Maximize window'} onClick={() => window.prism?.windowControl('maximize')}>{maximized ? <Copy size={13} /> : <Square size={13} />}</button><button className="close-window" aria-label="Close window" title="Close window" onClick={() => requestIntent('close')}><X size={17} /></button></div>
     </header>
 
-    <div className="workspace-area" ref={split.area} style={split.style} data-layout={split.visible ? 'split' : 'single'} data-resizing={split.resizing}>
-    <div className="app-body" id="notes-workspace" ref={notesPanel} tabIndex={-1} aria-label="Notes workspace" hidden={!split.visible && activeWorkspace !== 'notes'} inert={busy || (!split.visible && activeWorkspace !== 'notes')} aria-busy={busy} data-active={activeWorkspace === 'notes'} data-notes-open={notesNavigation}
+    <div className="workspace-area" ref={split.area} style={split.style} data-layout={split.visible ? 'split' : 'single'} data-resizing={split.resizing} data-notes-side={split.notesSide}>
+    {orderPanes([
+    <div key="notes" className="app-body" id="notes-workspace" ref={notesPanel} tabIndex={-1} aria-label="Notes workspace" hidden={!split.visible && activeWorkspace !== 'notes'} inert={busy || (!split.visible && activeWorkspace !== 'notes')} aria-busy={busy} data-active={activeWorkspace === 'notes'} data-notes-open={notesNavigation}
       onPointerDownCapture={() => setActiveWorkspace('notes')}
       onFocusCapture={event => { workspaceFocus.current.notes = event.target as HTMLElement; setActiveWorkspace('notes'); }}>
       {split.visible && notesNavigation && <button className="notes-navigation-dismiss" aria-label="Dismiss notes navigation" tabIndex={-1} onClick={() => { setNotesNavigation(false); notesNavigationButton.current?.focus({ preventScroll: true }); }} />}
@@ -602,19 +610,20 @@ export function App() {
         <section className="backlinks-section"><div className="inspector-section-heading"><span><Link2 size={14} />Backlinks</span><span>{backlinks.length}</span></div>{backlinks.length ? backlinks.map(note => <button className="backlink" key={note.path} onClick={() => openNote(note.path)}><FileText size={14} /><span>{getTitle(note)}</span><ChevronRight size={13} /></button>) : <p className="inspector-empty">Notes that link here will appear here. Connect one with <code>[[{active.path.replace(/\.md$/i, '')}]]</code>.</p>}</section>
         <div className="inspector-tip"><PrismMark small /><p>Good ideas rarely<br />happen in isolation.</p></div>
       </ResizableInspector>}
-    </div>
+    </div>,
 
-    <div className="workspace-divider" role="separator" tabIndex={split.visible && !busy ? 0 : -1} hidden={!split.visible} inert={busy || !split.visible}
+    <div key="divider" className="workspace-divider" role="separator" tabIndex={split.visible && !busy ? 0 : -1} hidden={!split.visible} inert={busy || !split.visible}
       aria-label="Resize note and PDF panes" aria-orientation="vertical" aria-controls="notes-workspace pdfs-workspace"
       title="Drag to resize. Left/Right arrows adjust width; Home or double-click resets."
-      {...split.dividerProps} />
+      {...split.dividerProps} />,
 
-    {pdfVisited && <div className="pdf-panel" id="pdfs-workspace" ref={pdfPanel} tabIndex={-1} aria-label="PDFs workspace" hidden={!split.visible && activeWorkspace !== 'pdfs'} inert={busy || (!split.visible && activeWorkspace !== 'pdfs')} aria-busy={busy} data-active={activeWorkspace === 'pdfs'}
+    pdfVisited && <div key="pdfs" className="pdf-panel" id="pdfs-workspace" ref={pdfPanel} tabIndex={-1} aria-label="PDFs workspace" hidden={!split.visible && activeWorkspace !== 'pdfs'} inert={busy || (!split.visible && activeWorkspace !== 'pdfs')} aria-busy={busy} data-active={activeWorkspace === 'pdfs'}
       onPointerDownCapture={() => setActiveWorkspace('pdfs')}
       onFocusCapture={event => { workspaceFocus.current.pdfs = event.target as HTMLElement; setActiveWorkspace('pdfs'); }}>
       <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} onAppearance={() => setSettings(true)} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} onDocumentsChange={pdfGraph.updateDocuments}
         onResearch={workspace ? () => setResearchOpen(true) : undefined} onArxiv={() => setArxivOpen(true)} libraryRevision={libraryRevision} />
-    </div>}
+    </div>,
+    ])}
     </div>
 
     <footer className="statusbar"><div><span className={`status-dot ${dirtyCount ? 'unsaved' : ''}`} /><span>{busy ? 'Working…' : dirtyCount ? `${dirtyCount} unsaved ${dirtyCount === 1 ? 'note' : 'notes'}` : 'All changes saved'}</span><span className="status-divider" /><span>{notes.length} notes</span></div><div>{activeWorkspace === 'notes' && active && view === 'note' && <><span>Ln {cursor.line}, Col {cursor.column}</span><span className="status-divider" /><span>UTF-8</span><span>Markdown</span></>}<button onClick={() => setSettings(true)}><Layers3 size={12} />{preferences.transparent ? 'Transparent' : 'Opaque'}</button></div></footer>
