@@ -99,6 +99,7 @@ async function renderedPage(number: number) {
   await expect(pdf().getByLabel('Page number', { exact: true })).toHaveValue(String(number));
   await expect(pdf().locator('.pdf-paper')).toHaveAttribute('aria-busy', 'false');
   await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) => {
+    if (!element.isConnected || !element.width || !element.height) return 0;
     const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data;
     let colored = 0;
     for (let offset = 0; offset < pixels.length; offset += 16) {

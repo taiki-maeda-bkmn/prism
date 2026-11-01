@@ -124,6 +124,7 @@ async function renderedPage(number: number) {
   await expect(canvas).toBeVisible();
   // A loaded white canvas is insufficient: check the colored PDF artwork.
   expect(await canvas.evaluate((element: HTMLCanvasElement) => {
+    if (!element.isConnected || !element.width || !element.height) return 0;
     const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data;
     let colored = 0;
     for (let offset = 0; offset < pixels.length; offset += 16) if (Math.max(pixels[offset], pixels[offset + 1], pixels[offset + 2]) - Math.min(pixels[offset], pixels[offset + 1], pixels[offset + 2]) > 40) colored++;
