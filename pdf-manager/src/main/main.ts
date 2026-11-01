@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PDFLibraryService } from './library-service';
 import { registerPDFLibraryIPC } from './library-ipc';
+import { PDFURLImportManager } from './pdf-url-import';
 import { resolvePDFProfileDirectory } from './library-location';
 
 app.setName('Prism PDF');
@@ -17,10 +18,12 @@ const rendererURL = pathToFileURL(rendererPath).href;
 let window: BrowserWindow | null = null;
 let restoreBounds: Rectangle | null = null;
 const library = new PDFLibraryService(path.join(app.getPath('userData'), 'library'));
+const pdfURLImports = new PDFURLImportManager(library);
 let quitting = false;
 let quitReady = false;
 
 function validateSender(event: IpcMainEvent | IpcMainInvokeEvent): void {
+  if (quitting) throw new Error('Prism PDF is closing. Reopen it before continuing.');
   if (!window || window.isDestroyed() || event.sender !== window.webContents
     || event.senderFrame !== window.webContents.mainFrame || event.senderFrame.url !== rendererURL) {
     throw new Error('This request did not come from the Prism PDF window.');
@@ -43,7 +46,7 @@ async function allowedResource(value: string, root: string, resourceType: string
 }
 
 function registerIPC(): void {
-  registerPDFLibraryIPC({ service: library, validateSender, getWindow: () => window });
+  registerPDFLibraryIPC({ service: library, urlImports: pdfURLImports, validateSender, getWindow: () => window });
   ipcMain.on('prism-pdf:window', (event, action: unknown) => {
     try {
       validateSender(event);
@@ -77,7 +80,8 @@ async function createWindow(): Promise<void> {
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.on('will-frame-navigate', event => event.preventDefault());
   window.webContents.on('will-attach-webview', event => event.preventDefault());
-  window.on('closed', () => { window = null; });
+  window.webContents.on('render-process-gone', () => { void pdfURLImports.cancelActive(); });
+  window.on('closed', () => { void pdfURLImports.cancelActive(); window = null; });
   window.once('ready-to-show', () => window?.show());
   await window.loadFile(rendererPath);
 }
@@ -102,7 +106,8 @@ else {
     event.preventDefault();
     if (quitting) return;
     quitting = true;
-    void library.close().then(() => {
+    window?.setEnabled(false);
+    void pdfURLImports.close().then(() => library.close()).then(() => {
       quitReady = true;
       app.quit();
     }).catch(handleStartupError);

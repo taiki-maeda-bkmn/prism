@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { ArrowDownUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clock3, FileText, FolderOpen, Grid2X2, HardDrive, Library, List, LoaderCircle, Maximize2, Minus, MoreHorizontal, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tag, Trash2, X } from 'lucide-react';
+import { ArrowDownUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clock3, FileText, FolderOpen, Grid2X2, HardDrive, Library, Link2, List, LoaderCircle, Maximize2, Minus, MoreHorizontal, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tag, Trash2, X } from 'lucide-react';
 import type { PDFDocument } from '../shared/types';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
 import type { PDFGraphDocument } from '../../../src/shared/pdfGraph';
 import { PdfReader, PdfThumbnail } from './PdfReader';
+import { URLImportDialog } from './URLImportDialog';
 import './styles.css';
 
 type Filter = 'all' | 'recent' | 'favorites' | `tag:${string}`;
@@ -54,6 +55,9 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
   const [warnings, setWarnings] = useState<string[]>([]);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
   const [importing, setImporting] = useState(false);
+  const [urlImportOpen, setURLImportOpen] = useState(false);
+  const loadRequest = useRef(0);
+  const documentChanges = useRef(new Map<string, number>());
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('newest');
@@ -120,11 +124,35 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     return () => cancelAnimationFrame(frame);
   }, [compact, navigationOpen]);
 
-  const load = useCallback(async () => {
-    setLoading(true); setLoadError('');
-    try { const library = await window.prismPdf.loadLibrary(); setDocuments(library.documents); setWarnings(library.warnings); }
-    catch (error) { setLoadError(message(error)); }
-    finally { setLoading(false); }
+  const recordDocumentChange = useCallback((id: string) => {
+    documentChanges.current.set(id, (documentChanges.current.get(id) ?? 0) + 1);
+  }, []);
+  const load = useCallback(async (quiet = false) => {
+    const request = ++loadRequest.current;
+    const changesAtRequest = new Map(documentChanges.current);
+    if (!quiet) { setLoading(true); setLoadError(''); }
+    try {
+      const library = await window.prismPdf.loadLibrary();
+      if (request !== loadRequest.current) return;
+      // A completed download may refresh while a page link or metadata edit is
+      // updating a document. Preserve results received after this request began.
+      setDocuments(current => {
+        const currentById = new Map(current.map(document => [document.id, document]));
+        const changed = (id: string) => documentChanges.current.get(id) !== changesAtRequest.get(id);
+        const incomingIds = new Set(library.documents.map(document => document.id));
+        const merged = library.documents.flatMap(document => {
+          if (!changed(document.id)) return [document];
+          const latest = currentById.get(document.id);
+          return latest ? [latest] : [];
+        });
+        return merged.concat(current.filter(document => !incomingIds.has(document.id) && changed(document.id)));
+      });
+      setWarnings(library.warnings);
+    } catch (error) {
+      if (request !== loadRequest.current) return;
+      if (quiet) setNotice({ text: `The PDF library could not be refreshed. ${message(error)}`, error: true });
+      else setLoadError(message(error));
+    } finally { if (request === loadRequest.current) setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load, libraryRevision]);
   useEffect(() => {
@@ -155,6 +183,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     setImporting(true);
     try {
       const result = await window.prismPdf.importDocuments();
+      result.importedIds.forEach(recordDocumentChange);
       setDocuments(result.library.documents); setWarnings(result.library.warnings);
       if (result.importedIds.length || result.duplicateCount || result.errors.length) {
         const parts: string[] = [];
@@ -167,13 +196,21 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
       if (result.importedIds.length && latestLink.current?.request === linkAtImport) { setFilter('all'); setQuery(''); setActiveId(null); }
     } catch (error) { setNotice({ text: message(error), error: true }); }
     finally { setImporting(false); }
-  }, [importing, loading, loadError, closeNavigation, cancelPageLink]);
+  }, [importing, loading, loadError, closeNavigation, cancelPageLink, recordDocumentChange]);
+
+  const completeURLImport = useCallback((document: PDFDocument) => {
+    recordDocumentChange(document.id);
+    // Duplicate imports must not replace newer title, tag, or reading edits.
+    setDocuments(current => current.some(item => item.id === document.id) ? current : [...current, document]);
+    void load(true);
+  }, [load, recordDocumentChange]);
 
   const update = useCallback(async (id: string, patch: Patch) => {
     const updated = await window.prismPdf.updateDocument(id, patch);
+    recordDocumentChange(id);
     setDocuments(current => current.map(document => document.id === id ? updated : document));
     return updated;
-  }, []);
+  }, [recordDocumentChange]);
   const active = documents.find(document => document.id === activeId);
   const editing = documents.find(document => document.id === editingId);
   const readingUpdate = useCallback((patch: { lastPage?: number; pageCount?: number }) => {
@@ -233,6 +270,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     setSaving(true); setModalError('');
     try {
       const result = await window.prismPdf.removeDocument(editing.id);
+      recordDocumentChange(editing.id);
       setDocuments(result.documents); setWarnings(result.warnings);
       if (activeId === editing.id) openDocument(null);
       setEditingId(null); setRemoving(false);
@@ -282,7 +320,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
       </div>}
       {warnings.length > 0 && <details className="warnings"><summary>{warnings.length} library warning{warnings.length === 1 ? '' : 's'}</summary>{warnings.map((warning, index) => <p key={index}>{warning}</p>)}</details>}
       {active ? <PdfReader key={active.id} workspaceActive={workspaceActive} document={active} onUpdate={readingUpdate} onClose={() => openDocument(null)} pageLinkRequest={readerLinkRequest?.documentId === active.id ? readerLinkRequest : null} onInsertPageLink={onInsertPageLink} canInsertPageLink={canInsertPageLink} backlinks={backlinks?.get(active.id)} onOpenNote={onOpenNote} /> : <main className="library-content">
-        <div className="page-heading"><div><div className="eyebrow">A LITTLE ORDER. A LOT OF CLARITY.</div><h1>{heading}</h1><p>{filter === 'all' ? 'Everything you need, all in one place.' : filter === 'favorites' ? 'The documents you come back to.' : filter === 'recent' ? 'Pick up right where you left off.' : 'A collection of things that belong together.'}</p></div><div className="library-heading-actions">{onArxiv && <button className="secondary-button" onClick={onArxiv} disabled={importing || loading}><Search size={17} />Search arXiv</button>}{onResearch && <button className="secondary-button" onClick={onResearch} disabled={importing || loading}><BookOpen size={17} />Rates &amp; Execution</button>}<button className="primary-button" onClick={() => void importFiles()} disabled={importing || loading || !!loadError}>{importing ? <LoaderCircle className="spin" size={17} /> : <Plus size={19} />}{importing ? 'Importing…' : 'Import PDFs'}</button></div></div>
+        <div className="page-heading"><div><div className="eyebrow">A LITTLE ORDER. A LOT OF CLARITY.</div><h1>{heading}</h1><p>{filter === 'all' ? 'Everything you need, all in one place.' : filter === 'favorites' ? 'The documents you come back to.' : filter === 'recent' ? 'Pick up right where you left off.' : 'A collection of things that belong together.'}</p></div><div className="library-heading-actions">{onArxiv && <button className="secondary-button" onClick={onArxiv} disabled={importing || loading}><Search size={17} />Search arXiv</button>}{onResearch && <button className="secondary-button" onClick={onResearch} disabled={importing || loading}><BookOpen size={17} />Rates &amp; Execution</button>}<button className="secondary-button" onClick={() => { closeNavigation(); setURLImportOpen(true); }} disabled={importing || loading || !!loadError}><Link2 size={17} />Import from URL</button><button className="primary-button" onClick={() => void importFiles()} disabled={importing || loading || !!loadError}>{importing ? <LoaderCircle className="spin" size={17} /> : <Plus size={19} />}{importing ? 'Importing…' : 'Import PDFs'}</button></div></div>
         <div className="library-toolbar"><div className="result-label"><FileText size={16} /><strong>{query ? 'Search results' : 'PDF documents'}</strong><span className="count-badge">{filtered.length}</span></div><div className="view-options"><ArrowDownUp size={14} /><select aria-label="Sort documents" value={sort} onChange={event => setSort(event.target.value)}><option value="newest">{filter === 'recent' ? 'Last opened' : 'Date added'}</option><option value="name">Name</option><option value="size">File size</option></select><span className="toolbar-divider" /><div className="layout-buttons"><button className={layout === 'grid' ? 'active' : ''} aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><Grid2X2 size={16} /></button><button className={layout === 'list' ? 'active' : ''} aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={18} /></button></div></div></div>
         {loading ? <div className="empty-state" role="status"><LoaderCircle className="spin" size={30} /><h2>Opening your library…</h2></div> : loadError ? <div className="empty-state" role="alert"><FolderOpen size={36} /><h2>Your library couldn’t be opened</h2><p>{loadError}</p><button className="secondary-button" onClick={() => void load()}>Try again</button></div> : !documents.length ? <div className="empty-state welcome-state"><div className="paper-stack" aria-hidden="true"><div className="paper-back" /><div className="paper-front"><span className="pdf-badge">PDF</span><FileText size={45} strokeWidth={1} /><div className="paper-lines" /></div><span className="paper-spark"><Sparkles size={22} /></span></div><h2>A home for your PDFs.</h2><p>Bring your research, reading, and everyday documents<br />together in a space that stays yours.</p><button className="primary-button" onClick={() => void importFiles()} disabled={importing}><Plus size={18} />Import your first PDF</button><span className="privacy-note"><ShieldCheck size={14} />Stored on this device. No account needed.</span></div> : !filtered.length ? <div className="empty-state"><Search size={34} /><h2>{query ? 'No matching documents' : 'Nothing here just yet'}</h2><p>{query ? 'Try another title, filename, or tag.' : filter === 'favorites' ? 'Star a document to keep it close at hand.' : filter === 'recent' ? 'Open a PDF and find it here next time.' : 'Add this tag to a document to see it here.'}</p>{query && <button className="secondary-button" onClick={() => setQuery('')}>Clear search</button>}</div> : <div className={`documents documents-${layout}`} aria-label="Documents">
           {filtered.map((document, index) => <article key={document.id} className="document-card">
@@ -295,6 +333,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
         {!loading && !loadError && documents.length > 0 && <footer className="library-footer"><span>Showing {filtered.length} of {documents.length} documents</span><span><ShieldCheck size={13} />Your library stays on this device</span></footer>}
       </main>}
     </div>
+    {urlImportOpen && <URLImportDialog active={workspaceActive} onClose={() => setURLImportOpen(false)} onComplete={completeURLImport} onRefresh={() => void load(true)} onOpenPDF={id => { setURLImportOpen(false); openDocument(id); }} />}
     {editing && <Modal title={removing ? 'Remove from library?' : 'Edit document'} onClose={closeModal} active={workspaceActive}>
       {removing ? <><p className="modal-description">Remove <strong>{editing.title}</strong> from the library? Your original PDF and stored copy will be kept. This removes its tags, favorite, and reading position from the catalog.</p>{modalError && <p className="form-error" role="alert">{modalError}</p>}<div className="modal-actions"><button className="secondary-button" disabled={saving} onClick={() => setRemoving(false)}>Keep document</button><button className="danger-button" disabled={saving} onClick={() => void remove()}>{saving ? 'Removing…' : 'Remove document'}</button></div></> : <form onSubmit={saveDetails}>
         <label className="field-label">Document title<input autoFocus={workspaceActive} required maxLength={200} value={title} onChange={event => setTitle(event.target.value)} /></label>

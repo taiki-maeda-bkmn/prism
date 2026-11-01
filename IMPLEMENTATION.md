@@ -37,6 +37,8 @@ The new requirements in `AGENTS.md` are being implemented one at a time:
 
 Text size now defaults to 120% and remains adjustable in Appearance. Built-in and custom slash snippets support Tab completion in Source, Split, and Live modes. Richer Live blocks remain separate follow-ups.
 
+- [x] [Import PDF from URL](docs/pdf-url-import.md): both PDF launchers accept public HTTPS PDF links with redirects, progress, cancellation, safe filenames, and content deduplication. Downloads stay in the main process and use the existing managed library; no browser session or AI service is involved. Private networks, login pages, and arbitrary webpage extraction are outside this increment.
+
 PDF reading now includes persistent Previous/Next controls below the page, deliberate wheel turns at page edges, click-to-focus keyboard paging, and Space/Shift+Space screen scrolling. Wheel momentum stays within one page turn per gesture; keyboard input remains scoped to the page viewport. Both launchers share this behavior. See [page navigation](docs/pdf-reading-workflow.md#turn-pages-from-the-reading-area).
 
 An open P2 review finding concerns concurrent replacement of nested directories between validation and filesystem access. A portable fix requires directory-handle operations across the filesystem layer. Per the brief's instruction to break down large next actions, [filesystem races](docs/filesystem-races.md) records the implementation stages and acceptance tests. This finding remains unresolved; passing current CI does not cover this race.
@@ -54,6 +56,8 @@ Implementation branch: `feat/prism-desktop`. Commit and push changes automatical
 Run appropriate local build, type, unit, and desktop checks. Per the user's instruction, do not check or wait for GitHub CI. Before reporting the work complete, check the Codex review against the current PR commit. Wait for the review summary to show that commit as completed, address any new findings, and check for unresolved threads. A new push requires checking the new commit's review again; resolved comments on an earlier commit do not complete this check.
 
 ## Verification
+
+- URL import adds 32 transport/storage/job tests and five desktop journeys across both launchers. Main build/typecheck and 355 unit tests pass (five platform skips); PDF build/typecheck and 98 unit tests pass. All 23 targeted main desktop journeys and seven standalone journeys pass, including existing research, page-link, side-by-side, ownership, and native-window regressions. New coverage checks redirects/progress, cancellation/retry, errors, duplicate metadata, drafts/undo, renderer reload, dirty-close decisions, offline restart, and 420-pixel dialogs at 150% text size in all themes. A real public HTTPS PDF download also succeeds. GitHub CI was not checked.
 
 - Window placement adds 14 core preference/geometry tests, 12 host-controller tests, and six native restart/recovery journeys. Main typecheck/build and 355 unit tests pass (five platform skips), with all 98 regular desktop journeys passing (three opt-in host skips). The new opt-in WSLg journey passes actual position retention through normal/maximized/minimized restarts and a new nonmodal move immediately after restore. The existing host pixel check reproduced the known maximize-paint issue; both old host pixel journeys also fail on unchanged baseline `b2b43cf`. The current backend remains Wayland, and that pre-existing clipping issue remains outside this change. See [placement details](docs/window-placement.md).
 

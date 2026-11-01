@@ -368,9 +368,12 @@
   display: flex;
   flex-direction: column;
 }
-.pdf-workspace .library-heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.pdf-workspace .library-heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; min-width: 0; max-width: 100%; }
+.pdf-workspace .library-heading-actions > button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.pdf-workspace .library-heading-actions > button svg { flex: 0 0 auto; }
 .pdf-workspace .page-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
@@ -1360,3 +1363,69 @@
 .pdf-workspace.pdf-integrated[data-compact="true"] .modal { max-height: calc(100vh - 48px); overflow: auto; }
 .pdf-workspace.pdf-integrated[data-compact="true"] .native-actions,
 .pdf-workspace.pdf-integrated[data-compact="true"] .modal-actions { flex-wrap: wrap; }
+
+/* The URL dialog is shared by the integrated and standalone launchers. */
+.pdf-workspace .modal.pdf-url-import {
+  box-sizing: border-box;
+  width: 560px;
+  max-width: calc(100vw - 28px);
+  max-height: calc(100dvh - 28px);
+  margin: auto;
+  padding: clamp(16px, 4vw, 26px);
+  overflow: auto;
+}
+.pdf-workspace .pdf-url-import header { gap: 12px; }
+.pdf-workspace .pdf-url-import h2 { min-width: 0; overflow-wrap: anywhere; }
+.pdf-workspace .pdf-url-import header > button { flex: 0 0 auto; }
+.pdf-workspace .pdf-url-import :is(form, .field-label, .pdf-url-result > div) { min-width: 0; }
+.pdf-workspace .pdf-url-import .field-label input { box-sizing: border-box; min-width: 0; max-width: 100%; }
+.pdf-workspace .pdf-url-import .modal-actions { flex-wrap: wrap; gap: 10px; }
+.pdf-workspace .pdf-url-import :is(.primary-button, .secondary-button) {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.pdf-workspace .pdf-url-import :is(.primary-button, .secondary-button) svg { flex: 0 0 auto; }
+.pdf-workspace .pdf-url-progress { margin-top: 20px; }
+.pdf-workspace .pdf-url-progress progress {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: 10px;
+  margin: 12px 0;
+  accent-color: var(--accent, #64854e);
+}
+.pdf-workspace .pdf-url-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 18px;
+  font-size: calc(12px * var(--pdf-text-scale, 1));
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.pdf-workspace .pdf-url-status svg { flex: 0 0 auto; }
+.pdf-workspace .pdf-url-transfer,
+.pdf-workspace .pdf-url-help {
+  color: var(--muted, #718364);
+  font-size: calc(11px * var(--pdf-text-scale, 1));
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.pdf-workspace .pdf-url-help { margin-top: 8px; }
+.pdf-workspace .pdf-url-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 14px;
+  border: 1px solid var(--border, #e3e9dc);
+  border-radius: 8px;
+  font-size: calc(12px * var(--pdf-text-scale, 1));
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.pdf-workspace .pdf-url-result > svg { flex: 0 0 auto; color: var(--accent, #64854e); margin-top: 2px; }
+.pdf-workspace .pdf-url-result p { margin-top: 5px; }
+.pdf-workspace .pdf-url-status-error > button { margin-top: 10px; }

@@ -13,6 +13,28 @@ Open **Prism** from its desktop shortcut. This workflow uses the main app's **No
 
 Click a reference in Read or Split preview to open its page. In Live, use **Ctrl+click** or **⌘+click**; an ordinary click edits its Markdown. In Source, switch to Split, Live, or Read to follow the link. A linked PDF opens beside the note if **Read & write** is active; otherwise Prism switches to PDFs. Returning to Notes retains the draft and selection.
 
+## Import a PDF from a website
+
+1. In your browser, copy the website's **Download PDF** link. A direct PDF link
+   can have query parameters and does not have to end in `.pdf`.
+2. In Prism's **PDFs** library (or Prism PDF), choose **Import from URL**.
+3. Paste the public HTTPS link and choose **Download PDF**. Progress shows the
+   downloaded size and, when the site supplies a total, the percentage.
+4. Choose **Open PDF** when it finishes. The managed copy is available offline.
+   **Already in your library** means identical content was reused, preserving
+   your title, tags, favorites, page links, and reading position.
+
+**Cancel download**, Escape, or closing the dialog stops an unfinished download
+without adding a partial document. The brief final save must finish before the
+app closes. A cancelled unsaved-note close prompt keeps the download running.
+If the renderer reloads, reopening **Import from URL** resumes its progress view.
+
+Links must return a PDF of at most 100 MiB. HTTPS redirects are supported, but
+ordinary webpages, private-network addresses, and websites requiring browser
+sign-in are not. For those sites, download the PDF in your browser and use
+**Import PDFs** to select it from Downloads or another local folder. No website
+cookies or login credentials are copied into Prism.
+
 ## Import a published Rates & Execution review
 
 1. Open the notebook where you want to keep research notes. In **PDFs**, return to the library and choose **Rates & Execution**.
