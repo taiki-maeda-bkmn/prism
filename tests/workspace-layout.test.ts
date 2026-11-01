@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { notesPaneWidth, parseWorkspaceRatio, workspaceSplit } from '../src/renderer/workspaceLayout';
+import { notesPaneWidth, parseNotesSide, parseWorkspaceRatio, workspaceSplit } from '../src/renderer/workspaceLayout';
+
+test('pane order defaults safely for missing or malformed preferences', () => {
+  for (const value of [null, '{broken', 'null', 'true', '1', '"Right"', '[]', '{}', '"left"']) {
+    assert.equal(parseNotesSide(value), 'left');
+  }
+  assert.equal(parseNotesSide('"right"'), 'right');
+});
 
 test('invalid saved split preferences recover without accepting coercible values', () => {
   for (const serialized of [null, '{broken', 'null', 'true', '"0.7"', '[]', '{}', '1e309']) {

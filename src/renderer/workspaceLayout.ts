@@ -1,4 +1,11 @@
 export const workspaceSplit = { minimumWidth: 960, minimumPane: 420, divider: 10, defaultRatio: 0.5 };
+export type NotesSide = 'left' | 'right';
+
+export function parseNotesSide(serialized: string | null): NotesSide {
+  try { if (JSON.parse(serialized ?? 'null') === 'right') return 'right'; }
+  catch { /* Keep the default order if the saved preference is damaged. */ }
+  return 'left';
+}
 
 /** Saved proportions are independent of a temporarily smaller native window. */
 export function parseWorkspaceRatio(serialized: string | null): number {
