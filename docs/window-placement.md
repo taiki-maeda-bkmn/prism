@@ -1,20 +1,43 @@
 # Remembering Prism's window
 
-Prism should reopen where it was last used, with the same normal size and maximized state. Closing while minimized should reopen a visible window. Removing a monitor or reducing its resolution must leave the title bar reachable.
+Prism remembers its normal size and maximized state across launches. On native Windows, macOS, and X11, it also restores its previous position and fits saved bounds to a connected screen. On native Wayland, including WSLg, the compositor chooses the position. Closing while minimized reopens a visible window.
 
 ## Implementation
 
 1. Save the normal window bounds and maximized state in the Notes profile's `window-placement.json`. Validate saved values, fit the restored rectangle to a connected display's work area, debounce changes, and flush an accepted close. A cancelled unsaved-note prompt keeps the same window and session.
 2. Keep native maximize, minimize, transparency, and the WSLg repaint recovery. The standalone PDF launcher keeps its separate window behavior.
-3. On WSLg's native Wayland backend, use a Windows helper to remember the physical desktop position in `window-placement-wslg.json`. [Wayland does not expose global window coordinates to Electron](https://www.electronjs.org/docs/latest/api/browser-window#wingetbounds). The helper binds once to a unique startup title, retains an identity check for that window, restores its position without raising it, and observes its normal bounds. It also corrects WSLg's original-position reset after restoring a maximized/minimized window. Active dragging or a new position from a keyboard/window-manager move cancels that correction. It exits when Prism closes. The main-process placement record supplies the normal size and maximized state.
-4. Treat missing, damaged, or unwritable preference files and an unavailable host helper as recoverable. Notebook and PDF data remain independent of these preferences.
+3. Leave WSLg position control to Wayland. The Windows host-position helper has been removed because it could separate the displayed window from its input coordinates. Existing `window-placement-wslg.json` files are ignored and left untouched. The ordinary placement record still supplies normal size and maximized state.
+4. Treat missing, damaged, or unwritable preference files as recoverable. Notebook and PDF data remain independent of these preferences.
+
+## WSLg input regression
+
+The removed helper used Windows `SetWindowPos` to restore the host window. That moved the visible window without updating WSLg's compositor coordinates. Microsoft documents this source of misaligned mouse input in [WSLg issue #324](https://github.com/microsoft/wslg/issues/324).
+
+A real Windows mouse check reproduced the failure: a fresh window received the expected pointer event, while reopening with a different saved host position produced no renderer pointer event at the displayed control. The host window was visible, enabled, and foreground in both cases. Removing host-only movement addresses that mismatch; restoring a host rectangle alone is insufficient evidence that input works.
+
+The earlier position test checked Windows rectangles and used Playwright to click inside Chromium. It did not exercise the Windows-to-WSLg mouse route and therefore missed this regression. Its coordinate results are historical geometry evidence, not proof that the previous restoration was usable.
 
 ## Checks
 
-- Unit checks for validated geometry, display changes, minimized/maximized transitions, debouncing, final writes, and host-helper lifecycle.
+- Unit checks for validated geometry, display changes, minimized/maximized transitions, debouncing, and final writes.
 - Native Electron restart journeys for moved/resized windows, maximized and minimized restarts, cancelled draft closure, and damaged/offscreen preferences under Xvfb/Openbox.
-- An opt-in WSLg journey moves its own uniquely titled window through Windows, restarts Prism, and checks actual Windows coordinates through normal, maximized, and minimized sessions. It also verifies that a new nonmodal move immediately after restore is retained across restart. All profiles and notebooks are disposable.
+- An opt-in WSLg input journey sends real Windows mouse input to a uniquely titled test window before and after reopening with legacy host-position preferences. It checks delivery to the displayed control rather than relying on a Playwright click. All profiles and notebooks are disposable.
 
-Verified locally: main typecheck/build and 355 unit tests pass (five platform skips); all 98 regular desktop journeys pass (three opt-in host skips). The new Windows-host position/restart/move sequence passes. The existing host minimize/focus/pixel journey passed an earlier run but hit the known maximize-paint issue on the final run. Both old host pixel journeys also fail on unchanged baseline `b2b43cf`, including the same overlay-alignment assertion. That pre-existing WSLg painting/clipping limitation remains outside this change; see the [desktop guide](../README.md#development-and-checks).
+Verified locally: typecheck/build and 343 unit tests pass (five platform skips),
+along with 16 desktop regressions for window persistence, native controls,
+dirty-close decisions, PDF workspaces, and URL imports. The real Windows-pointer
+journey passes fresh launch, reopening with legacy host-position preferences,
+actual Notes/PDFs button clicks, and minimize/host restore. The same pointer test
+failed on the previous build after position restoration, despite its visible,
+enabled window. Legacy host-position JSON remains unchanged. No user notebook
+or PDF library is used by these tests, and GitHub CI was not checked.
 
-The WSLg bridge requires Windows PowerShell and WSL interoperability. On other native Wayland compositors, placement remains compositor-controlled; normal size and maximized-state persistence still apply. Physical Windows/macOS checks remain separate from the Linux and WSLg results.
+The existing repeated-maximize host pixel tests previously exposed a separate painting/clipping issue, also reproduced on unchanged baseline `b2b43cf`. Removing the placement helper does not establish that this separate issue is fixed. Physical native Windows/macOS checks remain separate from the Linux and WSLg results.
+
+## Follow-up: exact position on WSLg
+
+Exact position restoration remains deferred. [Electron documents Wayland's limits on programmatic positioning](https://www.electronjs.org/docs/latest/api/browser-window#platform-notices). WSLg's current [shell protocol](https://github.com/microsoft/weston-mirror/blob/working/protocol/weston-rdprail-shell.xml) has no positioning request, and its [experimental local-move support](https://github.com/microsoft/weston-mirror/blob/working/rdprail-shell/shell.c#L779-L785) is disabled by default and marked incomplete.
+
+1. Identify supported compositor-aware placement or session restoration available to Electron and the installed WSLg backend. Do not use host-only movement or production cursor/keyboard automation.
+2. Define coordinate/display handling and a fallback that keeps input usable when restoration is unsupported. Preserve existing preferences until a compatible migration is available.
+3. Require real Windows-pointer delivery checks after reopening, maximize/restore, minimize/restore, and monitor changes, alongside geometry, transparency, and draft-retention checks. Re-enable exact restoration only when both placement and input pass.

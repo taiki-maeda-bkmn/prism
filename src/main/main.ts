@@ -8,7 +8,6 @@ import { ensureStarterNotebook, WorkspaceStore } from './workspace';
 import { isRendererResource, validateExternalURL } from './security';
 import { installWslgWindowRecovery } from './window-recovery';
 import { loadWindowPlacement, trackWindowPlacement } from './window-placement';
-import { startWslgWindowPlacement } from './wslg-window-placement';
 import { PDFLibraryService } from '../../pdf-manager/src/main/library-service';
 import { resolvePDFProfileDirectory } from '../../pdf-manager/src/main/library-location';
 import { registerPDFLibraryIPC } from '../../pdf-manager/src/main/library-ipc';
@@ -240,8 +239,8 @@ async function createWindow(): Promise<void> {
     },
   });
   const nativeWindow = window;
-  // Initial mapping must not replace a saved maximized state while the host
-  // helper is still restoring coordinates. Start tracking after restoration.
+  // Initial mapping must not replace a saved maximized state. Track after the
+  // initial show/restore, respecting window controls used during startup.
   let placementTracker: ReturnType<typeof trackWindowPlacement> | undefined;
   let startupStateChanged = false;
   let startupMaximized = placement.maximized;
@@ -260,56 +259,34 @@ async function createWindow(): Promise<void> {
   window.on('restore', publishWindowState);
   const wslgWayland = process.platform === 'linux' && process.env.WSL_DISTRO_NAME
     && app.commandLine.getSwitchValue('ozone-platform') === 'wayland';
-  // Wayland does not expose global coordinates. Bind the optional host helper
-  // to this window while its unique native title is visible, then restore Prism.
-  const hostPlacement = wslgWayland ? startWslgWindowPlacement({
-    window: nativeWindow, directory: app.getPath('userData'), distribution: process.env.WSL_DISTRO_NAME!,
-    scriptPath: path.join(__dirname, 'wslg-window-placement.ps1'),
-  }) : undefined;
-  let hostReady = !hostPlacement;
-  nativeWindow.on('page-title-updated', event => { if (!hostReady) event.preventDefault(); });
+  // Leave native Wayland placement to its compositor. Moving only WSLg's
+  // Windows HWND desynchronizes its visible surface from pointer routing.
+  // Preserve normal size/maximized state through Electron's own window API.
   if (wslgWayland) {
     installWslgWindowRecovery(window);
   }
-  let hostStopping = false;
-  let hostStopped = !hostPlacement;
+  let windowClosing = false;
   window.on('close', (event) => {
     if (dirty && !allowClose) { event.preventDefault(); requestClose('close'); return; }
-    nativeWindow.setEnabled(false);
+    windowClosing = true;
     placementTracker?.flush();
-    if (!hostStopped) {
-      event.preventDefault();
-      if (!hostStopping) {
-        hostStopping = true;
-        // An accepted close must stop new input before waiting for the final
-        // host snapshot. Otherwise edits could arrive after the draft decision.
-        allowClose = true;
-        void hostPlacement!.flushAndStop().finally(() => {
-          hostStopped = true;
-          if (!nativeWindow.isDestroyed()) nativeWindow.close();
-        });
-      }
-    }
   });
   window.on('closed', () => {
     // A cancelled dirty-note prompt never reaches this point. Accepted closes
     // stop downloads, while an already-started atomic save is allowed to finish.
     void pdfURLImports.cancelActive();
     placementTracker?.dispose();
-    hostPlacement?.dispose();
     window = null;
   });
   await window.loadFile(rendererPath);
   // Wayland can defer the first paint of an unmapped transparent surface, so
   // waiting for ready-to-show can leave the application permanently hidden.
   if (!nativeWindow.isDestroyed()) nativeWindow.show();
-  if (hostPlacement) await hostPlacement.ready;
-  hostReady = true;
   if (!nativeWindow.isDestroyed()) {
     nativeWindow.setTitle('Prism');
     nativeWindow.removeListener('maximize', maximizedDuringStartup);
     nativeWindow.removeListener('unmaximize', restoredDuringStartup);
-    if (!hostStopping) {
+    if (!windowClosing) {
       if (placement.maximized && !startupStateChanged && !nativeWindow.isMinimized()) nativeWindow.maximize();
       placementTracker = trackWindowPlacement(nativeWindow, placementFile, () => screen.getAllDisplays(), {
         bounds: placement.bounds, maximized: startupMaximized,
