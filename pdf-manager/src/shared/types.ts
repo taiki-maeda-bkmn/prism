@@ -13,10 +13,15 @@ export interface PDFDocument {
   pageCount: number | null;
   /** Canonical arXiv ID of the saved copy, including its version when known. */
   arxivId?: string;
+  /** Library folder identity; absent means Unfiled. Managed file paths stay stable. */
+  folderId?: string;
 }
+
+export interface PDFFolder { id: string; name: string; }
 
 export interface LibrarySnapshot {
   documents: PDFDocument[];
+  folders: PDFFolder[];
   warnings: string[];
 }
 
@@ -38,11 +43,15 @@ export interface PDFURLImportState {
   error: string | null;
 }
 
-export type DocumentPatch = Partial<Pick<PDFDocument, 'title' | 'tags' | 'favorite' | 'lastPage' | 'pageCount'>>;
+export type DocumentPatch = Partial<Pick<PDFDocument, 'title' | 'tags' | 'favorite' | 'lastPage' | 'pageCount'>>
+  & { folderId?: string | null };
 
 export interface PrismPdfAPI {
   loadLibrary(): Promise<LibrarySnapshot>;
   importDocuments(): Promise<ImportResult>;
+  createFolder(name: string): Promise<LibrarySnapshot>;
+  renameFolder(id: string, name: string): Promise<LibrarySnapshot>;
+  removeFolder(id: string): Promise<LibrarySnapshot>;
   startURLImport(url: string): Promise<PDFURLImportState>;
   getURLImport(): Promise<PDFURLImportState | null>;
   cancelURLImport(id: string): Promise<PDFURLImportState>;

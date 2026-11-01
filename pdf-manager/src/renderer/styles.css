@@ -914,7 +914,7 @@
   margin-top: 17px;
   color: #68795c;
 }
-.pdf-workspace .field-label input {
+.pdf-workspace .field-label :is(input, select) {
   display: block;
   margin-top: 8px;
   background: white;
@@ -1255,7 +1255,7 @@
 .pdf-workspace.pdf-integrated :is(.search-box, .layout-buttons, .documents-grid .document-card, .documents-list, .secondary-button, .file-facts, .pdf-reader-state) {
   color: var(--text); background: rgba(var(--panel-rgb), var(--surface-alpha)); border-color: var(--border);
 }
-.pdf-workspace.pdf-integrated :is(.search-box input, .field-label input, .pdf-page-form input, .pdf-password-form input, .pdf-zoom-controls select) {
+.pdf-workspace.pdf-integrated :is(.search-box input, .field-label input, .field-label select, .pdf-page-form input, .pdf-password-form input, .pdf-zoom-controls select) {
   color: var(--text); background: var(--tint); border-color: var(--border);
 }
 .pdf-workspace.pdf-integrated .search-box input::placeholder,
@@ -1429,3 +1429,31 @@
 .pdf-workspace .pdf-url-result > svg { flex: 0 0 auto; color: var(--accent, #64854e); margin-top: 2px; }
 .pdf-workspace .pdf-url-result p { margin-top: 5px; }
 .pdf-workspace .pdf-url-status-error > button { margin-top: 10px; }
+
+/* Library folders are shared by both desktop launchers. */
+.pdf-workspace .pdf-folders-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 26px; padding-right: 8px; }
+.pdf-workspace .pdf-folders-heading .section-label { margin: 0; }
+.pdf-workspace :is(.pdf-folders-heading button, .pdf-folder-manage) { display: flex; align-items: center; justify-content: center; flex: none; border-radius: 5px; min-width: 30px; min-height: 32px; padding: 6px; color: #aab8ad; }
+.pdf-workspace :is(.pdf-folders-heading button, .pdf-folder-manage):hover:not(:disabled) { color: #f6f7f3; background: #3d4b40; }
+.pdf-workspace .pdf-folder-hint { padding: 0 14px; margin: 8px 0; color: #9aa69b; font-size: calc(10px * var(--pdf-text-scale, 1)); line-height: 1.5; }
+.pdf-workspace .pdf-folder-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.pdf-workspace .pdf-folder-row .nav-item { flex: 1; min-width: 0; gap: 8px; padding-right: 8px; }
+.pdf-workspace .pdf-folder-row .nav-item > svg { flex: none; }
+.pdf-workspace .pdf-folder-row .nav-count { flex: none; }
+.pdf-workspace .pdf-folder-target { outline: 2px solid transparent; outline-offset: -2px; transition: background .12s, outline-color .12s; }
+.pdf-workspace .pdf-folders-dragging .pdf-folder-target { outline: 1px dashed #8f9f92; outline-offset: -1px; }
+.pdf-workspace .pdf-folder-target.pdf-drop-target { background: #3d4b40; outline: 2px solid #d7e7b7; outline-offset: -2px; color: #fff; }
+.pdf-workspace .document-card[draggable="true"] { cursor: grab; }
+.pdf-workspace .document-card.pdf-document-dragging { opacity: .55; cursor: grabbing; }
+.pdf-workspace .pdf-drag-handle { display: flex; align-items: center; justify-content: center; color: #7c8e6e; cursor: grab; }
+.pdf-workspace .documents-grid .pdf-drag-handle { position: absolute; top: 10px; left: 10px; z-index: 1; padding: 4px; border-radius: 4px; background: #fcfdf9; }
+.pdf-workspace .documents-list .pdf-drag-handle { flex: none; }
+.pdf-workspace .modal { max-height: calc(100vh - 48px); overflow: auto; }
+.pdf-workspace .modal-actions { flex-wrap: wrap; }
+.pdf-workspace .field-label select { min-width: 0; text-overflow: ellipsis; }
+.pdf-workspace.pdf-integrated :is(.pdf-folders-heading button, .pdf-folder-manage, .pdf-folder-hint) { color: var(--sidebar-muted); }
+.pdf-workspace.pdf-integrated :is(.pdf-folders-heading button, .pdf-folder-manage):hover:not(:disabled) { color: var(--sidebar-text); background: var(--sidebar-hover); }
+.pdf-workspace.pdf-integrated .pdf-folders-dragging .pdf-folder-target { outline-color: var(--sidebar-muted); }
+.pdf-workspace.pdf-integrated .pdf-folder-target.pdf-drop-target { color: var(--sidebar-text); background: var(--sidebar-hover); outline-color: var(--accent); }
+.pdf-workspace.pdf-integrated .pdf-drag-handle { color: var(--muted); }
+.pdf-workspace.pdf-integrated .documents-grid .pdf-drag-handle { background: var(--background); }

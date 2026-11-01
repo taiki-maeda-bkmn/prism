@@ -13,6 +13,28 @@ Open **Prism** from its desktop shortcut. This workflow uses the main app's **No
 
 Click a reference in Read or Split preview to open its page. In Live, use **Ctrl+click** or **⌘+click**; an ordinary click edits its Markdown. In Source, switch to Split, Live, or Read to follow the link. A linked PDF opens beside the note if **Read & write** is active; otherwise Prism switches to PDFs. Returning to Notes retains the draft and selection.
 
+## Organize PDFs in folders
+
+1. In the PDF library sidebar, choose **New folder**, enter a name, and choose
+   **Create folder**. In a narrow window, **Library** opens the sidebar.
+2. Drag an existing PDF from the grid or list onto a sidebar folder. Selecting
+   that folder shows its contents. Drop onto **Unfiled** to remove an assignment.
+3. For a keyboard alternative, open the PDF's **Details**, choose **Folder**, and
+   **Save changes**. The title and tags can be edited in the same dialog.
+4. Use the management button beside a folder to rename or remove it. Removing
+   a folder returns its documents to **Unfiled**; it does not delete PDFs.
+
+Folders use one level and each PDF belongs to one folder. **All documents**,
+Favorites, Recently opened, and tags continue to work across folders. Moving a
+PDF preserves its tags, favorite, reading position, and existing note links.
+The stored PDF file keeps its managed path. Both updated launchers share the
+same organization. Newly imported PDFs start in Unfiled, and duplicate imports
+keep the saved copy's folder.
+
+This increment moves PDFs already in Prism. Use **Import PDFs** for files from
+your computer; importing by dropping files from another app is planned next.
+See [folder scope and catalogue compatibility](pdf-folders.md).
+
 ## Import a PDF from a website
 
 1. In your browser, copy the website's **Download PDF** link. A direct PDF link

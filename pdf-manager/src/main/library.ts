@@ -3,17 +3,19 @@ import { constants, type Stats } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
-import type { DocumentPatch, ImportResult, LibrarySnapshot, PDFDocument } from '../shared/types';
+import type { DocumentPatch, ImportResult, LibrarySnapshot, PDFDocument, PDFFolder } from '../shared/types';
 import { baseArxivId, normalizeArxivId } from '../../../src/shared/arxiv';
 
 export const MAX_PDF_BYTES = 100 * 1024 * 1024;
 export const MAX_DOCUMENTS = 2_000;
+export const MAX_FOLDERS = 200;
 const MAX_CATALOG_BYTES = 8 * 1024 * 1024;
 const MAX_IMPORT_BATCH = 100;
 const idPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const hashPattern = /^[a-f0-9]{64}$/;
 const controls = /[\u0000-\u001f\u007f-\u009f]/;
 const documentKeys = ['id', 'title', 'filename', 'size', 'sha256', 'importedAt', 'updatedAt', 'tags', 'favorite', 'lastOpenedAt', 'lastPage', 'pageCount'];
+interface Catalog { version: 1 | 2; documents: PDFDocument[]; folders: PDFFolder[] }
 
 export interface ArxivImportMetadata { arxivId: string; title: string; tags: string[] }
 export interface ArxivImportResult { document: PDFDocument; duplicate: boolean; warning?: string }
@@ -47,9 +49,23 @@ function validTags(value: unknown): value is string[] {
   return validTagShape(value)
     && new Set(value.map(tag => tag.toLowerCase())).size === value.length;
 }
+function validFolderName(value: unknown): value is string {
+  return text(value, 80) && value.normalize('NFC') === value && value !== '.' && value !== '..' && !/[\\/]/.test(value);
+}
+function folderName(value: unknown): string {
+  if (typeof value !== 'string' || controls.test(value)) throw new Error('Use a folder name between 1 and 80 characters without slashes.');
+  const name = value.normalize('NFC').trim();
+  if (!validFolderName(name)) throw new Error('Use a folder name between 1 and 80 characters without slashes.');
+  return name;
+}
+function validFolder(value: unknown): value is PDFFolder {
+  return object(value) && Object.keys(value).length === 2 && typeof value.id === 'string'
+    && idPattern.test(value.id) && validFolderName(value.name);
+}
 function validDocument(value: unknown): value is PDFDocument {
   if (!object(value) || !documentKeys.every(key => Object.hasOwn(value, key))
-    || Object.keys(value).some(key => !documentKeys.includes(key) && key !== 'arxivId')
+    || Object.keys(value).some(key => !documentKeys.includes(key) && key !== 'arxivId' && key !== 'folderId')
+    || (Object.hasOwn(value, 'folderId') && (typeof value.folderId !== 'string' || !idPattern.test(value.folderId)))
     || (Object.hasOwn(value, 'arxivId') && (typeof value.arxivId !== 'string' || normalizeArxivId(value.arxivId) !== value.arxivId))) return false;
   return typeof value.id === 'string' && idPattern.test(value.id) && text(value.title, 200)
     && text(value.filename, 255) && !/[\\/]/.test(value.filename) && /\.pdf$/i.test(value.filename)
@@ -61,12 +77,22 @@ function validDocument(value: unknown): value is PDFDocument {
     && (value.pageCount === null || value.lastPage <= value.pageCount);
 }
 
-function parseCatalog(bytes: Uint8Array): PDFDocument[] {
+function parseCatalog(bytes: Uint8Array): Catalog {
   const corrupt = () => new Error('The PDF catalog is damaged or unsupported. Its contents were left untouched; restore catalog.json from a backup before trying again.');
   let value: unknown;
   try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { throw corrupt(); }
-  if (!object(value) || Object.keys(value).length !== 2 || value.version !== 1 || !Array.isArray(value.documents)
+  if (!object(value) || ![1, 2].includes(value.version as number) || !Array.isArray(value.documents)
     || value.documents.length > MAX_DOCUMENTS) throw corrupt();
+  const version = value.version as 1 | 2;
+  if (Object.keys(value).length !== (version === 1 ? 2 : 3)) throw corrupt();
+  const folders: PDFFolder[] = [];
+  if (version === 2) {
+    if (!Array.isArray(value.folders) || value.folders.length > MAX_FOLDERS || !value.folders.every(validFolder)) throw corrupt();
+    folders.push(...value.folders);
+    if (new Set(folders.map(folder => folder.id)).size !== folders.length
+      || new Set(folders.map(folder => folder.name.toLowerCase())).size !== folders.length) throw corrupt();
+  }
+  const folderIds = new Set(folders.map(folder => folder.id));
   const documents: PDFDocument[] = [];
   for (const candidate of value.documents) {
     if (!object(candidate) || !validTagShape(candidate.tags)) throw corrupt();
@@ -87,14 +113,15 @@ function parseCatalog(bytes: Uint8Array): PDFDocument[] {
       return true;
     });
     const document = { ...candidate, tags };
-    if (!validDocument(document)) throw corrupt();
+    if (!validDocument(document) || (Object.hasOwn(document, 'folderId')
+      && (version !== 2 || !folderIds.has(document.folderId!)))) throw corrupt();
     documents.push(document);
   }
   const sources = documents.filter(document => document.arxivId).map(document => baseArxivId(document.arxivId));
   if (new Set(documents.map(document => document.id)).size !== documents.length
     || new Set(documents.map(document => document.sha256)).size !== documents.length
     || new Set(sources).size !== sources.length) throw corrupt();
-  return documents;
+  return { version, documents, folders };
 }
 
 /** Read from one checked handle, bounded even if another process grows the file. */
@@ -127,18 +154,22 @@ export class LibraryStore {
   private readonly rootIdentity: Stats;
   private readonly filesIdentity: Stats;
   private documents: PDFDocument[];
+  private folders: PDFFolder[];
+  private catalogVersion: 1 | 2;
   private catalogHash: string | null;
   private operations: Promise<unknown> = Promise.resolve();
   private readonly writeIO: LibraryWriteIO;
 
-  private constructor(root: string, rootIdentity: Stats, filesIdentity: Stats, documents: PDFDocument[], catalogHash: string | null, writeIO: LibraryWriteIO,
+  private constructor(root: string, rootIdentity: Stats, filesIdentity: Stats, catalog: Catalog, catalogHash: string | null, writeIO: LibraryWriteIO,
     private readonly checkOwnership: () => Promise<void>) {
     this.root = root;
     this.filesDirectory = path.join(root, 'documents');
     this.catalogPath = path.join(root, 'catalog.json');
     this.rootIdentity = rootIdentity;
     this.filesIdentity = filesIdentity;
-    this.documents = documents;
+    this.documents = catalog.documents;
+    this.folders = catalog.folders;
+    this.catalogVersion = catalog.version;
     this.catalogHash = catalogHash;
     this.writeIO = writeIO;
   }
@@ -156,7 +187,7 @@ export class LibraryStore {
     let bytes: Buffer | null = null;
     try { bytes = await readRegularFile(path.join(root, 'catalog.json'), MAX_CATALOG_BYTES); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-    return new LibraryStore(root, await fs.stat(root), filesIdentity, bytes ? parseCatalog(bytes) : [], bytes ? digest(bytes) : null,
+    return new LibraryStore(root, await fs.stat(root), filesIdentity, bytes ? parseCatalog(bytes) : { version: 1, documents: [], folders: [] }, bytes ? digest(bytes) : null,
       { ...defaultWriteIO, ...writeIO }, checkOwnership);
   }
 
@@ -191,7 +222,8 @@ export class LibraryStore {
         if (!file.isFile() || file.isSymbolicLink() || file.size !== document.size) warnings.push(`${document.filename}: its managed copy is unavailable or changed.`);
       } catch { warnings.push(`${document.filename}: its managed copy is unavailable.`); }
     }
-    return { documents: this.documents.map(document => ({ ...document, tags: [...document.tags] })), warnings };
+    return { documents: this.documents.map(document => ({ ...document, tags: [...document.tags] })),
+      folders: this.folders.map(folder => ({ ...folder })), warnings };
   }
 
   private lookup(id: unknown): PDFDocument {
@@ -199,6 +231,21 @@ export class LibraryStore {
     const document = this.documents.find(candidate => candidate.id === id);
     if (!document) throw new Error('Unknown PDF document.');
     return document;
+  }
+
+  private lookupFolder(id: unknown): PDFFolder {
+    if (typeof id !== 'string' || !idPattern.test(id)) throw new Error('Unknown PDF folder.');
+    const folder = this.folders.find(candidate => candidate.id === id);
+    if (!folder) throw new Error('Unknown PDF folder.');
+    return folder;
+  }
+
+  private uniqueFolderName(value: unknown, exceptId?: string): string {
+    const name = folderName(value);
+    if (this.folders.some(folder => folder.id !== exceptId && folder.name.toLowerCase() === name.toLowerCase())) {
+      throw new Error('A folder with this name already exists. Choose another name.');
+    }
+    return name;
   }
 
   /** Remove only an unpublished file still owned by this handle with our bytes. */
@@ -211,7 +258,7 @@ export class LibraryStore {
         let catalog: Buffer | null = null;
         try { catalog = await readRegularFile(this.catalogPath, MAX_CATALOG_BYTES); }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-        if (catalog && parseCatalog(catalog).some(document => document.id === documentId)) return false;
+        if (catalog && parseCatalog(catalog).documents.some(document => document.id === documentId)) return false;
       }
       const owned = await handle.stat();
       let named: Stats;
@@ -246,9 +293,10 @@ export class LibraryStore {
     return new Error(message(error) + (removed ? '' : ' A file was retained for recovery at ' + filename + '.'));
   }
 
-  private async commit(documents: PDFDocument[]): Promise<void> {
+  private async commit(documents: PDFDocument[], folders = this.folders, version = this.catalogVersion): Promise<void> {
     await this.checkCatalog();
-    const bytes = Buffer.from(JSON.stringify({ version: 1, documents }, null, 2) + '\n');
+    const catalog = version === 1 ? { version, documents } : { version, documents, folders };
+    const bytes = Buffer.from(JSON.stringify(catalog, null, 2) + '\n');
     if (bytes.length > MAX_CATALOG_BYTES) throw new Error('The PDF catalog has reached its size limit.');
     const temporary = path.join(this.root, `.catalog-${randomUUID()}.tmp`);
     const hash = digest(bytes);
@@ -260,6 +308,8 @@ export class LibraryStore {
       await this.writeIO.rename(temporary, this.catalogPath);
       this.catalogHash = hash;
       this.documents = documents;
+      this.folders = folders;
+      this.catalogVersion = version;
     } catch (error) {
       throw await this.failedPublication(error, temporary, handle, bytes);
     } finally {
@@ -272,6 +322,42 @@ export class LibraryStore {
   load(): Promise<LibrarySnapshot> {
     return this.serialize(async () => {
       await this.checkCatalog();
+      return this.snapshot();
+    });
+  }
+
+  createFolder(value: unknown): Promise<LibrarySnapshot> {
+    return this.serialize(async () => {
+      await this.checkCatalog();
+      const name = this.uniqueFolderName(value);
+      if (this.folders.length >= MAX_FOLDERS) throw new Error(`The library can contain up to ${MAX_FOLDERS} folders.`);
+      await this.commit(this.documents, [...this.folders, { id: randomUUID(), name }], 2);
+      return this.snapshot();
+    });
+  }
+
+  renameFolder(id: unknown, value: unknown): Promise<LibrarySnapshot> {
+    return this.serialize(async () => {
+      await this.checkCatalog();
+      const folder = this.lookupFolder(id);
+      const name = this.uniqueFolderName(value, folder.id);
+      if (folder.name !== name) await this.commit(this.documents, this.folders.map(candidate => candidate.id === folder.id ? { ...candidate, name } : candidate));
+      return this.snapshot();
+    });
+  }
+
+  removeFolder(id: unknown): Promise<LibrarySnapshot> {
+    return this.serialize(async () => {
+      await this.checkCatalog();
+      const folder = this.lookupFolder(id);
+      const now = new Date().toISOString();
+      const documents = this.documents.map(document => {
+        if (document.folderId !== folder.id) return document;
+        const updated = { ...document, updatedAt: now };
+        delete updated.folderId;
+        return updated;
+      });
+      await this.commit(documents, this.folders.filter(candidate => candidate.id !== folder.id));
       return this.snapshot();
     });
   }
@@ -455,7 +541,7 @@ export class LibraryStore {
     return this.serialize(async () => {
       await this.checkCatalog();
       const document = this.lookup(id);
-      if (!object(patch) || !Object.keys(patch).length || Object.keys(patch).some(key => !['title', 'tags', 'favorite', 'lastPage', 'pageCount'].includes(key))) throw new Error('Unsupported PDF metadata update.');
+      if (!object(patch) || !Object.keys(patch).length || Object.keys(patch).some(key => !['title', 'tags', 'favorite', 'lastPage', 'pageCount', 'folderId'].includes(key))) throw new Error('Unsupported PDF metadata update.');
       const normalized = { ...patch } as DocumentPatch;
       if (Object.hasOwn(patch, 'title')) {
         if (typeof patch.title !== 'string' || !text(patch.title.trim(), 200)) throw new Error('Use a title between 1 and 200 characters.');
@@ -470,9 +556,19 @@ export class LibraryStore {
       if (Object.hasOwn(patch, 'favorite') && typeof patch.favorite !== 'boolean') throw new Error('Favorite must be true or false.');
       if (Object.hasOwn(patch, 'lastPage') && !page(patch.lastPage)) throw new Error('Choose a valid page number.');
       if (Object.hasOwn(patch, 'pageCount') && patch.pageCount !== null && !page(patch.pageCount)) throw new Error('Choose a valid page count.');
+      if (Object.hasOwn(patch, 'folderId') && patch.folderId !== null) this.lookupFolder(patch.folderId);
+      // A repeated drop onto the current folder is not a metadata edit.
+      if (Object.keys(patch).length === 1 && Object.hasOwn(patch, 'folderId')
+        && (document.folderId ?? null) === patch.folderId) return { ...document, tags: [...document.tags] };
+      const nextFolder = normalized.folderId;
+      delete normalized.folderId;
       const now = new Date().toISOString();
       const updated = { ...document, ...normalized, updatedAt: now,
         lastOpenedAt: Object.hasOwn(patch, 'lastPage') ? now : document.lastOpenedAt };
+      if (Object.hasOwn(patch, 'folderId')) {
+        if (nextFolder === null) delete updated.folderId;
+        else updated.folderId = nextFolder;
+      }
       if (updated.pageCount !== null && updated.lastPage > updated.pageCount) {
         if (Object.hasOwn(patch, 'lastPage')) throw new Error('The page number is beyond the end of this PDF.');
         updated.lastPage = updated.pageCount;

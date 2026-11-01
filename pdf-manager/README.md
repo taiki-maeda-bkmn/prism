@@ -43,6 +43,8 @@ The app opens a native Electron window. Import PDFs using the system file picker
 
 **Import from URL** adds a public HTTPS PDF link directly to the library in either launcher. Paste a website's PDF download link, choose **Download PDF**, and then **Open PDF**. The dialog shows progress and supports cancellation while downloading. The same 100 MiB limit and content deduplication apply. Login pages and ordinary webpages are unsupported; download those PDFs in your browser and use **Import PDFs**. See the [website import guide](../docs/pdf-reading-workflow.md#import-a-pdf-from-a-website).
 
+Use **New folder** in the library sidebar to organize existing PDFs. Drag a document from the grid or list onto a folder, or choose a **Folder** in its details and save. **Unfiled** contains documents without a folder; **All documents**, tags, Favorites, and Recently opened span the whole library. Folder management supports rename and removal; removing a folder returns its PDFs to Unfiled. These library folders keep managed files and document links at their existing paths. Dropping files from Windows Explorer is a later increment; use **Import PDFs** first.
+
 Use **Ctrl+O / ⌘O** to import and **Ctrl+K / ⌘K** to search. **Previous / Next** buttons stay below the page while you scroll. At a page's top or bottom, pause and scroll again to turn backward or forward. Scrolling within a zoomed page stays normal, and one wheel gesture turns at most one page.
 
 Click the PDF page to use **Left / Right**, **Page Up / Page Down**, or **Home / End** for the first/last page. **Space** scrolls down a screen and turns at the bottom; **Shift+Space** scrolls up and turns at the top. These shortcuts stay inside the page viewport so typing in notes, search, page-number, and password fields is unaffected.
@@ -55,7 +57,7 @@ The default library locations are `%APPDATA%/prism-pdf/library` on Windows, `~/L
 
 Only one updated Prism app can own a library at a time. If another app has it open, close that app and choose **Try again**. Ownership is released automatically after a crash; keep the hidden `.prism-library-lock.sqlite` file in place. Close older app builds before sharing their library with an updated build.
 
-Research imports add an optional `arxivId` to their catalogue entries; existing entries without it remain supported. Update both launchers together, since older builds do not accept this additional field. The catalogue stays at version 1, and existing PDFs need no migration.
+Research imports add an optional `arxivId` to their catalogue entries; existing entries without it remain supported. Existing version 1 catalogues open unchanged. Creating the first library folder atomically upgrades the catalogue to version 2, adding folder records and optional document folder IDs while retaining existing PDFs and metadata. Update both launchers together: older builds reject version 2 rather than dropping organization data. Back up the complete library for use with another build. See [folder storage and compatibility](../docs/pdf-folders.md#storage-and-compatibility).
 
 **Remove** removes the catalog entry and its tags, favorite, and reading position. Both the original and the managed PDF remain on disk. Removed copies can be imported again from `library/documents`; this release does not automatically reclaim their disk space. The displayed storage total counts cataloged PDFs only. A damaged catalog is reported without overwriting it; restore its backup before continuing.
 
