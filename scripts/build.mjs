@@ -56,7 +56,6 @@ await Promise.all([
 
 await copyFile('src/renderer/index.html', 'dist/renderer/index.html');
 await copyFile('assets/prism.png', 'dist/icon.png');
-await copyFile('src/main/wslg-window-placement.ps1', 'dist/wslg-window-placement.ps1');
 await copyFile('node_modules/katex/LICENSE', 'dist/katex-LICENSE.txt');
 await copyFile('node_modules/@xmldom/xmldom/LICENSE', 'dist/xmldom-LICENSE.txt');
 await copyFile('node_modules/@fontsource-variable/noto-sans-jp/LICENSE', 'dist/noto-sans-jp-OFL.txt');

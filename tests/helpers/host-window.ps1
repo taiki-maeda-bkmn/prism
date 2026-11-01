@@ -6,10 +6,14 @@ param(
   [ValidateNotNullOrEmpty()]
   [ValidateLength(1, 128)]
   [string]$Distribution,
-  [ValidateSet('sample', 'observe', 'restore', 'move', 'restore-move')]
+  [ValidateSet('sample', 'observe', 'restore', 'move', 'restore-move', 'click')]
   [string]$Action = 'sample',
   [int]$PositionX = 0,
-  [int]$PositionY = 0
+  [int]$PositionY = 0,
+  [ValidateRange(0, 1)]
+  [double]$PointerX = 0.5,
+  [ValidateRange(0, 1)]
+  [double]$PointerY = 0.5
 )
 $ErrorActionPreference = 'Stop'
 Add-Type @'
@@ -25,9 +29,14 @@ public static class PrismHostWindow {
   [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr parameter);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr window, StringBuilder title, int size);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr window);
+  [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr window);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rectangle);
+  [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr window, out Rect rectangle);
+  [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr window, ref Point point);
   [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr window);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
   [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr window, int command);
@@ -39,6 +48,41 @@ public static class PrismHostWindow {
   [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr window);
   [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr window, IntPtr dc);
   [DllImport("gdi32.dll")] public static extern uint GetPixel(IntPtr dc, int x, int y);
+  [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point point);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
+  [DllImport("user32.dll")] private static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
+
+  public static uint ProcessId(IntPtr window) {
+    uint process; return GetWindowThreadProcessId(window, out process) == 0 ? 0 : process;
+  }
+  private static bool OwnsPoint(IntPtr window, uint process, string title, string distribution, Point point) {
+    var name = new StringBuilder(512);
+    GetWindowText(window, name, name.Capacity);
+    return IsWindow(window) && ProcessId(window) == process && IsWindowVisible(window) && IsWindowEnabled(window)
+      && !IsIconic(window) && GetForegroundWindow() == window
+      && (name.ToString() == title || name.ToString() == title + " (" + distribution + ")")
+      && GetAncestor(WindowFromPoint(point), 2) == window;
+  }
+  public static string Click(IntPtr window, uint process, string title, string distribution, Point target) {
+    // Never inject a click into an overlapping window or an unrelated app.
+    // Also refuse while the user is holding a mouse button or moving the cursor.
+    if (!OwnsPoint(window, process, title, distribution, target)) return "owned-window-not-at-target";
+    if ((GetAsyncKeyState(1) & 0x8000) != 0 || (GetAsyncKeyState(2) & 0x8000) != 0 || (GetAsyncKeyState(4) & 0x8000) != 0) return "mouse-button-held";
+    Point previous;
+    if (!GetCursorPos(out previous) || !SetCursorPos(target.x, target.y)) return "cursor-unavailable";
+    try {
+      Point current;
+      if (!GetCursorPos(out current) || current.x != target.x || current.y != target.y) return "cursor-moved";
+      if (!OwnsPoint(window, process, title, distribution, target)) return "owned-window-changed";
+      mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
+      mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+      return null;
+    } finally {
+      Point current;
+      if (GetCursorPos(out current) && current.x == target.x && current.y == target.y) SetCursorPos(previous.x, previous.y);
+    }
+  }
 }
 '@
 [void][PrismHostWindow]::SetProcessDpiAwarenessContext([IntPtr](-4))
@@ -59,6 +103,7 @@ $matches = [System.Collections.Generic.List[IntPtr]]::new()
 $result = [ordered]@{ found = ($matches.Count -eq 1); foreground = $false; covered = $false; aligned = $false }
 if ($matches.Count -eq 1) {
   $window = $matches[0]
+  $ownerProcess = [PrismHostWindow]::ProcessId($window)
   if ($Action -eq 'restore' -or $Action -eq 'restore-move') {
     # SW_RESTORE is sent only to the one exact UUID-bearing test title above.
     # The operation is asynchronous; callers can observe until it completes.
@@ -80,8 +125,27 @@ if ($matches.Count -eq 1) {
     [void][PrismHostWindow]::SetWindowPos($window, [IntPtr]::Zero, $PositionX, $PositionY, 0, 0, 0x15)
   }
   $result.minimized = [PrismHostWindow]::IsIconic($window)
-  if ($Action -eq 'sample' -and -not $result.minimized) {
+  $result.enabled = [PrismHostWindow]::IsWindowEnabled($window)
+  if (($Action -eq 'sample' -or $Action -eq 'click') -and -not $result.minimized) {
     [void][PrismHostWindow]::SetForegroundWindow($window)
+  }
+  if ($Action -eq 'click') {
+    $result.clicked = $false
+    $result.clickFailure = 'owned-window-unavailable'
+    $client = [PrismHostWindow+Rect]::new()
+    if (-not $result.minimized -and $result.enabled -and $ownerProcess -ne 0 -and [PrismHostWindow]::GetClientRect($window, [ref]$client)) {
+      $width = $client.right - $client.left; $height = $client.bottom - $client.top
+      if ($width -gt 0 -and $height -gt 0) {
+        $target = [PrismHostWindow+Point]::new()
+        $target.x = $client.left + [int][Math]::Floor(($width - 1) * $PointerX)
+        $target.y = $client.top + [int][Math]::Floor(($height - 1) * $PointerY)
+        if ([PrismHostWindow]::ClientToScreen($window, [ref]$target)) {
+          $result.clickTarget = $target
+          $result.clickFailure = [PrismHostWindow]::Click($window, $ownerProcess, $Title, $Distribution, $target)
+          $result.clicked = ($null -eq $result.clickFailure)
+        }
+      }
+    }
   }
   $rectangle = [PrismHostWindow+Rect]::new()
   if ([PrismHostWindow]::GetWindowRect($window, [ref]$rectangle)) {
