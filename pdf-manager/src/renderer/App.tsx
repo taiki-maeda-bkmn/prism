@@ -5,6 +5,7 @@ import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../.
 import type { PDFGraphDocument } from '../../../src/shared/pdfGraph';
 import { PdfReader, PdfThumbnail } from './PdfReader';
 import { URLImportDialog } from './URLImportDialog';
+import { TagInput } from './TagInput';
 import { mergeFolderSnapshotDocuments } from './folderSnapshots';
 import './styles.css';
 
@@ -257,6 +258,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     for (const document of documents) for (const tag of document.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
     return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [documents]);
+  const tagCandidates = useMemo(() => tagCounts.map(([tag]) => tag), [tagCounts]);
   const favorites = documents.filter(document => document.favorite).length;
   const recentCount = documents.filter(document => document.lastOpenedAt).length;
   const filtered = useMemo(() => {
@@ -478,7 +480,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     {editing && <Modal title={removing ? 'Remove from library?' : 'Edit document'} onClose={closeModal} active={workspaceActive}>
       {removing ? <><p className="modal-description">Remove <strong>{editing.title}</strong> from the library? Your original PDF and stored copy will be kept. This removes its tags, favorite, and reading position from the catalog.</p>{modalError && <p className="form-error" role="alert">{modalError}</p>}<div className="modal-actions"><button className="secondary-button" disabled={saving} onClick={() => setRemoving(false)}>Keep document</button><button className="danger-button" disabled={saving} onClick={() => void remove()}>{saving ? 'Removing…' : 'Remove document'}</button></div></> : <form onSubmit={saveDetails}>
         <label className="field-label">Document title<input autoFocus={workspaceActive} required maxLength={200} value={title} onChange={event => setTitle(event.target.value)} /></label>
-        <label className="field-label">Tags (comma-separated)<input placeholder="Research, Reading, Work" maxLength={800} value={tags} onChange={event => setTags(event.target.value)} /></label>
+        <TagInput key={editing.id} value={tags} onChange={setTags} candidates={tagCandidates} disabled={saving} />
         <label className="field-label">Folder<select value={detailFolder} onChange={event => setDetailFolder(event.target.value)}><option value="">Unfiled</option>{orderedFolders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
         <div className="file-facts"><span>Original filename<strong>{editing.filename}</strong></span><span>Added<strong>{dateLabel(editing.importedAt)}</strong></span><span>File size<strong>{formatSize(editing.size)}</strong></span></div>
         <div className="native-actions"><button type="button" onClick={() => void nativeAction('open', editing.id)}><ArrowUpRight size={15} />Open in default app</button><button type="button" onClick={() => void nativeAction('reveal', editing.id)}><FolderOpen size={15} />Show library copy</button></div>

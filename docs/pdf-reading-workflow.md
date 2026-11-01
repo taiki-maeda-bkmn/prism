@@ -13,6 +13,10 @@ Open **Prism** from its desktop shortcut. This workflow uses the main app's **No
 
 Click a reference in Read or Split preview to open its page. In Live, use **Ctrl+click** or **⌘+click**; an ordinary click edits its Markdown. In Source, switch to Split, Live, or Read to follow the link. A linked PDF opens beside the note if **Read & write** is active; otherwise Prism switches to PDFs. Returning to Notes retains the draft and selection.
 
+## Reuse PDF tags
+
+To reuse a tag, open a PDF's **Details** and focus **Tags**. Suggestions come from the whole library, including documents outside the current filter. Type part of a tag, then click a suggestion or use Up/Down and Enter. Completion replaces the tag at your cursor and preserves surrounding tags. Existing selections are excluded regardless of case. You can also type new tags separated by commas; tags are stored only when you choose **Save changes**. Escape dismisses the suggestions first, and Tab moves to the next field.
+
 ## Organize PDFs in folders
 
 1. In the PDF library sidebar, choose **New folder**, enter a name, and choose
