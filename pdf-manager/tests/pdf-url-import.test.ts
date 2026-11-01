@@ -94,7 +94,7 @@ test('cancelling before load completion skips download and every PDF mutation, t
   let loads = 0;
   let downloads = 0;
   let saves = 0;
-  const manager = new PDFURLImportManager({ load: async () => { loads++; await gate.promise; return { documents: [], warnings: [] }; },
+  const manager = new PDFURLImportManager({ load: async () => { loads++; await gate.promise; return { documents: [], folders: [], warnings: [] }; },
     importDownloaded: async () => { saves++; throw new Error('Unexpected save'); } }, { download: async () => { downloads++; return download; } });
   const first = manager.start(url);
   try {
@@ -257,7 +257,7 @@ test('library load failures prevent networking and become safe retryable state',
   let downloads = 0;
   const manager = new PDFURLImportManager({ load: async () => {
     if (fail) throw new Error('This PDF library is already open in another Prism window. Close that app, then retry.');
-    return { documents: [], warnings: [] };
+    return { documents: [], folders: [], warnings: [] };
   }, importDownloaded: async () => { throw new Error('storage ' + url); } }, { download: async () => { downloads++; return download; } });
   try {
     assert.equal(manager.start(url).phase, 'downloading');

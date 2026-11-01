@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { ArrowDownUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clock3, FileText, FolderOpen, Grid2X2, HardDrive, Library, Link2, List, LoaderCircle, Maximize2, Minus, MoreHorizontal, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tag, Trash2, X } from 'lucide-react';
-import type { PDFDocument } from '../shared/types';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type FormEvent, type ReactNode } from 'react';
+import { ArrowDownUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clock3, FileText, Folder, FolderOpen, GripVertical, Grid2X2, HardDrive, Library, Link2, List, LoaderCircle, Maximize2, Minus, MoreHorizontal, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tag, Trash2, X } from 'lucide-react';
+import type { DocumentPatch, LibrarySnapshot, PDFDocument, PDFFolder } from '../shared/types';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
 import type { PDFGraphDocument } from '../../../src/shared/pdfGraph';
 import { PdfReader, PdfThumbnail } from './PdfReader';
 import { URLImportDialog } from './URLImportDialog';
+import { mergeFolderSnapshotDocuments } from './folderSnapshots';
 import './styles.css';
 
-type Filter = 'all' | 'recent' | 'favorites' | `tag:${string}`;
-type Patch = Partial<Pick<PDFDocument, 'title' | 'tags' | 'favorite' | 'lastPage' | 'pageCount'>>;
+type Filter = 'all' | 'recent' | 'favorites' | 'unfiled' | `folder:${string}` | `tag:${string}`;
+type FolderDialog = { kind: 'create' } | { kind: 'edit' | 'remove'; id: string };
+const documentDragType = 'application/x-prism-pdf-document';
 const message = (error: unknown) => error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': Error: /, '') : 'Something went wrong. Please try again.';
 export const formatSize = (bytes: number) => bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 const dateLabel = (value: string) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value));
@@ -21,8 +23,11 @@ function savedAppearance() {
 
 function Modal({ title, onClose, children, active }: { title: string; onClose: () => void; children: ReactNode; active: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    if (active) ref.current?.showModal(); else ref.current?.close();
+  useLayoutEffect(() => {
+    const dialog = ref.current;
+    if (active) dialog?.showModal(); else dialog?.close();
+    // Close before unmounting so the browser restores the invoking control.
+    return () => dialog?.close();
   }, [active]);
   return <dialog ref={ref} className="modal" aria-labelledby="modal-title" onCancel={event => { event.preventDefault(); onClose(); }}>
     <header><h2 id="modal-title">{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={18} /></button></header>
@@ -50,6 +55,20 @@ export interface LibraryWorkspaceProps {
 export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks, onOpenNote, onDocumentsChange, onResearch, onArxiv, libraryRevision = 0 }: LibraryWorkspaceProps) {
   const integrated = !!onAppearance;
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
+  const [folders, setFolders] = useState<PDFFolder[]>([]);
+  const foldersRef = useRef<PDFFolder[]>([]);
+  const folderRevision = useRef(0);
+  const [folderDialog, setFolderDialog] = useState<FolderDialog | null>(null);
+  const [folderName, setFolderName] = useState('');
+  const [folderError, setFolderError] = useState('');
+  const [folderBusy, setFolderBusy] = useState(false);
+  const folderBusyRef = useRef(false);
+  const [movingId, setMovingId] = useState<string | null>(null);
+  const movingRef = useRef(false);
+  const dragRef = useRef<{ id: string; token: string } | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const suppressOpen = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -71,6 +90,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
   const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [tags, setTags] = useState('');
+  const [detailFolder, setDetailFolder] = useState('');
   const [modalError, setModalError] = useState('');
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -119,7 +139,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
   useEffect(() => {
     if (!compact || !navigationOpen) return;
     const frame = requestAnimationFrame(() => {
-      if (workspaceRef.current?.contains(document.activeElement)) navigationRef.current?.querySelector<HTMLButtonElement>('nav button')?.focus({ preventScroll: true });
+      if (!dragRef.current && workspaceRef.current?.contains(document.activeElement)) navigationRef.current?.querySelector<HTMLButtonElement>('nav button')?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [compact, navigationOpen]);
@@ -127,33 +147,34 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
   const recordDocumentChange = useCallback((id: string) => {
     documentChanges.current.set(id, (documentChanges.current.get(id) ?? 0) + 1);
   }, []);
+  const snapshotBaseline = useCallback(() => ({ documents: new Map(documentChanges.current), folders: folderRevision.current }), []);
+  const applySnapshot = useCallback((library: LibrarySnapshot, baseline: ReturnType<typeof snapshotBaseline>, mutation?: { folder?: boolean; removedDocument?: string }) => {
+    // Folder mutations invalidate older loads; document edits received while a
+    // snapshot was in flight retain their newer title, tags, and reader state.
+    if (mutation?.folder || baseline.folders === folderRevision.current) {
+      foldersRef.current = library.folders;
+      setFolders(library.folders);
+    }
+    if (mutation?.folder) folderRevision.current += 1;
+    const validFolders = new Set(foldersRef.current.map(folder => folder.id));
+    const receivedChanges = new Map(documentChanges.current);
+    setDocuments(current => mergeFolderSnapshotDocuments(current, library.documents, baseline.documents, receivedChanges, validFolders, mutation?.removedDocument));
+    setWarnings(library.warnings);
+  }, [snapshotBaseline]);
   const load = useCallback(async (quiet = false) => {
     const request = ++loadRequest.current;
-    const changesAtRequest = new Map(documentChanges.current);
+    const baseline = snapshotBaseline();
     if (!quiet) { setLoading(true); setLoadError(''); }
     try {
       const library = await window.prismPdf.loadLibrary();
       if (request !== loadRequest.current) return;
-      // A completed download may refresh while a page link or metadata edit is
-      // updating a document. Preserve results received after this request began.
-      setDocuments(current => {
-        const currentById = new Map(current.map(document => [document.id, document]));
-        const changed = (id: string) => documentChanges.current.get(id) !== changesAtRequest.get(id);
-        const incomingIds = new Set(library.documents.map(document => document.id));
-        const merged = library.documents.flatMap(document => {
-          if (!changed(document.id)) return [document];
-          const latest = currentById.get(document.id);
-          return latest ? [latest] : [];
-        });
-        return merged.concat(current.filter(document => !incomingIds.has(document.id) && changed(document.id)));
-      });
-      setWarnings(library.warnings);
+      applySnapshot(library, baseline);
     } catch (error) {
       if (request !== loadRequest.current) return;
       if (quiet) setNotice({ text: `The PDF library could not be refreshed. ${message(error)}`, error: true });
       else setLoadError(message(error));
     } finally { if (request === loadRequest.current) setLoading(false); }
-  }, []);
+  }, [applySnapshot, snapshotBaseline]);
   useEffect(() => { void load(); }, [load, libraryRevision]);
   useEffect(() => {
     if (!loading && !loadError) onDocumentsChange?.(documents);
@@ -171,6 +192,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
       return;
     }
     setEditingId(null);
+    if (!folderBusyRef.current) setFolderDialog(null);
     setReaderLinkRequest(pageLinkRequest);
     setActiveId(pageLinkRequest.documentId);
   }, [pageLinkRequest, loading, loadError, documents, closeNavigation]);
@@ -179,12 +201,13 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     if (importing || loading || loadError) return;
     cancelPageLink();
     const linkAtImport = latestLink.current?.request;
+    const baseline = snapshotBaseline();
     closeNavigation();
     setImporting(true);
     try {
       const result = await window.prismPdf.importDocuments();
+      applySnapshot(result.library, baseline);
       result.importedIds.forEach(recordDocumentChange);
-      setDocuments(result.library.documents); setWarnings(result.library.warnings);
       if (result.importedIds.length || result.duplicateCount || result.errors.length) {
         const parts: string[] = [];
         if (result.importedIds.length) parts.push(`${result.importedIds.length} PDF${result.importedIds.length === 1 ? '' : 's'} added to your library.`);
@@ -196,7 +219,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
       if (result.importedIds.length && latestLink.current?.request === linkAtImport) { setFilter('all'); setQuery(''); setActiveId(null); }
     } catch (error) { setNotice({ text: message(error), error: true }); }
     finally { setImporting(false); }
-  }, [importing, loading, loadError, closeNavigation, cancelPageLink, recordDocumentChange]);
+  }, [importing, loading, loadError, closeNavigation, cancelPageLink, recordDocumentChange, snapshotBaseline, applySnapshot]);
 
   const completeURLImport = useCallback((document: PDFDocument) => {
     recordDocumentChange(document.id);
@@ -205,9 +228,11 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     void load(true);
   }, [load, recordDocumentChange]);
 
-  const update = useCallback(async (id: string, patch: Patch) => {
+  const update = useCallback(async (id: string, patch: DocumentPatch) => {
     const updated = await window.prismPdf.updateDocument(id, patch);
     recordDocumentChange(id);
+    // A response started before a folder removal must not resurrect membership.
+    if (updated.folderId && !foldersRef.current.some(folder => folder.id === updated.folderId)) delete updated.folderId;
     setDocuments(current => current.map(document => document.id === id ? updated : document));
     return updated;
   }, [recordDocumentChange]);
@@ -239,6 +264,8 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     return documents.filter(document => {
       if (filter === 'favorites' && !document.favorite) return false;
       if (filter === 'recent' && !document.lastOpenedAt) return false;
+      if (filter === 'unfiled' && document.folderId) return false;
+      if (filter.startsWith('folder:') && document.folderId !== filter.slice(7)) return false;
       if (filter.startsWith('tag:') && !document.tags.includes(filter.slice(4))) return false;
       const haystack = `${document.title} ${document.filename} ${document.arxivId || ''} ${document.tags.join(' ')}`.toLocaleLowerCase();
       return terms.every(term => haystack.includes(term));
@@ -250,9 +277,16 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     });
   }, [documents, filter, query, sort]);
 
-  const heading = filter === 'all' ? 'All documents' : filter === 'recent' ? 'Recently opened' : filter === 'favorites' ? 'Favorites' : filter.slice(4);
+  const folderCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const document of documents) counts.set(document.folderId ?? '', (counts.get(document.folderId ?? '') ?? 0) + 1);
+    return counts;
+  }, [documents]);
+  const orderedFolders = useMemo(() => [...folders].sort((a, b) => a.name.localeCompare(b.name)), [folders]);
+  const selectedFolder = filter.startsWith('folder:') ? folders.find(folder => folder.id === filter.slice(7)) : undefined;
+  const heading = filter === 'unfiled' ? 'Unfiled' : filter.startsWith('folder:') ? selectedFolder?.name ?? 'Folder' : filter === 'all'  ? 'All documents' : filter === 'recent' ? 'Recently opened' : filter === 'favorites' ? 'Favorites' : filter.slice(4);
   const selectFilter = (value: Filter) => { setFilter(value); openDocument(null); setQuery(''); closeNavigation(compact && navigationOpen); };
-  const edit = (document: PDFDocument) => { setEditingId(document.id); setTitle(document.title); setTags(document.tags.join(', ')); setRemoving(false); setModalError(''); };
+  const edit = (document: PDFDocument) => { setEditingId(document.id); setTitle(document.title); setTags(document.tags.join(', ')); setDetailFolder(document.folderId ?? ''); setRemoving(false); setModalError(''); };
   const closeModal = () => { if (!saving) { setEditingId(null); setRemoving(false); } };
   const favorite = async (document: PDFDocument) => {
     try { await update(document.id, { favorite: !document.favorite }); }
@@ -261,7 +295,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
   const saveDetails = async (event: FormEvent) => {
     event.preventDefault(); if (!editing || saving) return;
     setSaving(true); setModalError('');
-    try { await update(editing.id, { title: title.trim(), tags: tags.split(',').map(tag => tag.trim()).filter(Boolean) }); setEditingId(null); }
+    try { await update(editing.id, { title: title.trim(), tags: tags.split(',').map(tag => tag.trim()).filter(Boolean), folderId: detailFolder || null }); setEditingId(null); }
     catch (error) { setModalError(message(error)); }
     finally { setSaving(false); }
   };
@@ -269,10 +303,11 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     if (!editing || saving) return;
     setSaving(true); setModalError('');
     try {
+      const baseline = snapshotBaseline();
       const result = await window.prismPdf.removeDocument(editing.id);
+      applySnapshot(result, baseline, { removedDocument: editing.id });
       recordDocumentChange(editing.id);
-      setDocuments(result.documents); setWarnings(result.warnings);
-      if (activeId === editing.id) openDocument(null);
+      setActiveId(current => current === editing.id ? null : current);
       setEditingId(null); setRemoving(false);
       setNotice({ text: 'Removed from your library. Your original PDF and stored copy were kept.', error: false });
     } catch (error) { setModalError(message(error)); }
@@ -282,11 +317,98 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     try { if (kind === 'open') await window.prismPdf.openDocument(id); else await window.prismPdf.revealDocument(id); }
     catch (error) { setModalError(message(error)); }
   };
+  const openFolderDialog = (folder?: PDFFolder) => {
+    if (folderBusyRef.current || movingRef.current || loading || loadError) return;
+    setFolderDialog(folder ? { kind: 'edit', id: folder.id } : { kind: 'create' });
+    setFolderName(folder?.name ?? ''); setFolderError(''); closeNavigation(compact && navigationOpen);
+  };
+  const closeFolderDialog = () => { if (!folderBusyRef.current) setFolderDialog(null); };
+  const saveFolder = async (event?: FormEvent) => {
+    event?.preventDefault();
+    if (!folderDialog || folderBusyRef.current) return;
+    folderBusyRef.current = true; setFolderBusy(true); setFolderError('');
+    const operation = folderDialog;
+    const baseline = snapshotBaseline();
+    try {
+      const result = operation.kind === 'create' ? await window.prismPdf.createFolder(folderName)
+        : operation.kind === 'remove' ? await window.prismPdf.removeFolder(operation.id)
+          : await window.prismPdf.renameFolder(operation.id, folderName);
+      applySnapshot(result, baseline, { folder: true });
+      if (operation.kind === 'remove') setFilter(current => current === `folder:${operation.id}` ? 'unfiled' : current);
+      setFolderDialog(null);
+      setNotice({ text: operation.kind === 'remove' ? 'Folder removed. Its PDFs are now in Unfiled.' : operation.kind === 'create' ? 'Folder created. Drag a PDF into it, or choose Folder in document details.' : 'Folder renamed.', error: false });
+    } catch (error) { setFolderError(message(error)); }
+    finally { folderBusyRef.current = false; setFolderBusy(false); }
+  };
+  const clearDrag = useCallback(() => { dragRef.current = null; setDraggingId(null); setDropTarget(null); }, []);
+  useEffect(() => {
+    if (!workspaceActive) clearDrag();
+    window.addEventListener('blur', clearDrag);
+    window.addEventListener('dragend', clearDrag);
+    window.addEventListener('drop', clearDrag);
+    const cancel = (event: KeyboardEvent) => { if (event.key === 'Escape') clearDrag(); };
+    window.addEventListener('keydown', cancel);
+    return () => {
+      window.removeEventListener('blur', clearDrag);
+      window.removeEventListener('dragend', clearDrag);
+      window.removeEventListener('drop', clearDrag);
+      window.removeEventListener('keydown', cancel);
+    };
+  }, [workspaceActive, clearDrag]);
+  const beginDrag = (event: DragEvent<HTMLElement>, id: string) => {
+    if (movingRef.current || folderBusyRef.current || !workspaceActive || (event.target as Element).closest('.card-actions, .document-tags')) { event.preventDefault(); return; }
+    const token = crypto.randomUUID();
+    dragRef.current = { id, token }; suppressOpen.current = id;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(documentDragType, token);
+    setDraggingId(id);
+  };
+  const internalDrag = (event: DragEvent) => !!dragRef.current && event.dataTransfer.types.includes(documentDragType) && !event.dataTransfer.types.includes('Files');
+  const moveDocument = async (id: string, folderId: string | null) => {
+    const document = documents.find(item => item.id === id);
+    if (!document || (document.folderId ?? null) === folderId || movingRef.current || folderBusyRef.current) return;
+    const destination = folderId ? folders.find(folder => folder.id === folderId) : null;
+    if (folderId && !destination) return;
+    movingRef.current = true; setMovingId(id);
+    try {
+      await update(id, { folderId });
+      setNotice({ text: `Moved “${document.title}” to ${destination?.name ?? 'Unfiled'}.`, error: false });
+    } catch (error) { setNotice({ text: `The PDF could not be moved. ${message(error)}`, error: true }); }
+    finally { movingRef.current = false; setMovingId(null); }
+  };
+  const folderDropProps = (folderId: string | null) => ({
+    onDragOver: (event: DragEvent<HTMLButtonElement>) => {
+      if (!internalDrag(event) || movingRef.current || folderBusyRef.current) return;
+      event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDropTarget(folderId ?? '');
+    },
+    onDragLeave: (event: DragEvent<HTMLButtonElement>) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(current => current === (folderId ?? '') ? null : current);
+    },
+    onDrop: (event: DragEvent<HTMLButtonElement>) => {
+      event.preventDefault(); event.stopPropagation();
+      const drag = dragRef.current;
+      const accepted = internalDrag(event) && drag && event.dataTransfer.getData(documentDragType) === drag.token;
+      clearDrag();
+      if (accepted) void moveDocument(drag.id, folderId);
+    },
+  });
+  const folderItem = (folder: PDFFolder | null) => {
+    const id = folder?.id ?? '';
+    const value: Filter = folder ? `folder:${id}` : 'unfiled';
+    return <div className="pdf-folder-row" key={id}>
+      <button {...folderDropProps(folder?.id ?? null)} className={`nav-item pdf-folder-target ${filter === value && !active ? 'selected' : ''} ${dropTarget === id ? 'pdf-drop-target' : ''}`} onClick={() => selectFilter(value)} aria-current={filter === value && !active ? 'page' : undefined} aria-label={folder ? `Folder ${folder.name}` : 'Unfiled'} title={folder?.name ?? 'Unfiled'}>
+        <Folder size={18} /><span className="truncate">{folder?.name ?? 'Unfiled'}</span><span className="nav-count">{folderCounts.get(id) ?? 0}</span>
+      </button>
+      {folder && <button className="pdf-folder-manage" aria-label={`Manage folder ${folder.name}`} title={`Manage folder ${folder.name}`} disabled={folderBusy || !!movingId || loading} onClick={() => openFolderDialog(folder)}><MoreHorizontal size={17} /></button>}
+    </div>;
+  };
   const navItem = (value: Filter, label: string, icon: ReactNode, count: number) => <button className={`nav-item ${filter === value && !active ? 'selected' : ''}`} onClick={() => selectFilter(value)} aria-current={filter === value && !active ? 'page' : undefined} aria-label={label}>
     {icon}<span>{label}</span><span className="nav-count">{count}</span>
   </button>;
 
   return <div ref={workspaceRef} className={`pdf-workspace ${integrated ? 'pdf-integrated' : 'pdf-standalone app-shell'}`} data-compact={compact} data-transparent={integrated ? undefined : appearance.transparent} style={integrated ? undefined : { '--surface-alpha': appearance.transparent ? appearance.opacity / 100 : 1 } as CSSProperties}
+    onDragOver={event => { if (!internalDrag(event)) { event.preventDefault(); event.dataTransfer.dropEffect = 'none'; } }}
+    onDrop={event => { event.preventDefault(); clearDrag(); }}
     onKeyDownCapture={event => { if (compact && navigationOpen && event.key === 'Escape' && !document.querySelector('dialog[open]')) { event.preventDefault(); event.stopPropagation(); closeNavigation(true); } }}>
     {compact && navigationOpen && <button className="pdf-navigation-dismiss" aria-label="Dismiss library navigation" tabIndex={-1} onClick={() => closeNavigation(true)} />}
     <aside id="pdf-library-navigation" ref={navigationRef} className="sidebar" hidden={compact && !navigationOpen} inert={compact && !navigationOpen}>
@@ -298,6 +420,9 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
         {navItem('all', 'All documents', <Library size={18} />, documents.length)}
         {navItem('recent', 'Recently opened', <Clock3 size={18} />, recentCount)}
         {navItem('favorites', 'Favorites', <Star size={18} />, favorites)}
+        <div className="pdf-folders-heading"><p className="section-label">FOLDERS</p><button aria-label="New folder" title="New folder" disabled={folderBusy || !!movingId || loading || !!loadError || importing} onClick={() => openFolderDialog()}><Plus size={17} /></button></div>
+        <p className="pdf-folder-hint" id="pdf-folder-help">Drag PDFs into folders, or use Folder in document details.</p>
+        <div className={`pdf-folders ${draggingId ? 'pdf-folders-dragging' : ''}`} aria-label="PDF folders">{folderItem(null)}{orderedFolders.map(folderItem)}</div>
         <div className="tags-heading"><p className="section-label">YOUR TAGS</p><Tag size={13} /></div>
         {tagCounts.length ? tagCounts.map(([tag, count], index) => <button key={tag} className={`nav-item tag-item ${filter === `tag:${tag}` && !active ? 'selected' : ''}`} onClick={() => selectFilter(`tag:${tag}`)} aria-label={`Tag ${tag}`}><span className={`tag-dot tone-${index % 4}`} /><span className="truncate">{tag}</span><span className="nav-count">{count}</span></button>) : <p className="tag-hint">Add tags in document details<br />to keep things organized.</p>}
       </nav>
@@ -308,7 +433,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     </aside>
     <div className="workspace">
       <header className={integrated ? "pdf-library-heading" : "titlebar"}>
-        {compact && <button ref={navigationToggle} className="pdf-library-toggle" aria-label="Library navigation" aria-controls="pdf-library-navigation" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(value => !value)}><PanelLeft size={17} /><span>Library</span></button>}
+        {compact && <button ref={navigationToggle} className="pdf-library-toggle" aria-label="Library navigation" aria-controls="pdf-library-navigation" aria-expanded={navigationOpen} onDragEnter={event => { if (internalDrag(event)) setNavigationOpen(true); }} onClick={() => setNavigationOpen(value => !value)}><PanelLeft size={17} /><span>Library</span></button>}
         <div className="breadcrumb"><span>Workspace</span><ChevronRight size={13} /><strong>{active ? active.title : 'My library'}</strong></div>
         <label className="search-box"><Search size={16} /><input ref={searchRef} aria-label="Search library" placeholder="Search your library…" value={query} onChange={event => { setQuery(event.target.value); openDocument(null); }} /><kbd>{window.prismPdf.platform === 'darwin' ? '⌘' : 'Ctrl'} K</kbd></label>
         {!integrated && <div className="window-controls"><button aria-label="Minimize window" onClick={() => window.prismPdf.windowControl('minimize')}><Minus size={14} /></button><button aria-label="Maximize or restore window" onClick={() => window.prismPdf.windowControl('maximize')}><Maximize2 size={13} /></button><button aria-label="Close window" onClick={() => window.prismPdf.windowControl('close')}><X size={16} /></button></div>}
@@ -322,8 +447,9 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
       {active ? <PdfReader key={active.id} workspaceActive={workspaceActive} document={active} onUpdate={readingUpdate} onClose={() => openDocument(null)} pageLinkRequest={readerLinkRequest?.documentId === active.id ? readerLinkRequest : null} onInsertPageLink={onInsertPageLink} canInsertPageLink={canInsertPageLink} backlinks={backlinks?.get(active.id)} onOpenNote={onOpenNote} /> : <main className="library-content">
         <div className="page-heading"><div><div className="eyebrow">A LITTLE ORDER. A LOT OF CLARITY.</div><h1>{heading}</h1><p>{filter === 'all' ? 'Everything you need, all in one place.' : filter === 'favorites' ? 'The documents you come back to.' : filter === 'recent' ? 'Pick up right where you left off.' : 'A collection of things that belong together.'}</p></div><div className="library-heading-actions">{onArxiv && <button className="secondary-button" onClick={onArxiv} disabled={importing || loading}><Search size={17} />Search arXiv</button>}{onResearch && <button className="secondary-button" onClick={onResearch} disabled={importing || loading}><BookOpen size={17} />Rates &amp; Execution</button>}<button className="secondary-button" onClick={() => { closeNavigation(); setURLImportOpen(true); }} disabled={importing || loading || !!loadError}><Link2 size={17} />Import from URL</button><button className="primary-button" onClick={() => void importFiles()} disabled={importing || loading || !!loadError}>{importing ? <LoaderCircle className="spin" size={17} /> : <Plus size={19} />}{importing ? 'Importing…' : 'Import PDFs'}</button></div></div>
         <div className="library-toolbar"><div className="result-label"><FileText size={16} /><strong>{query ? 'Search results' : 'PDF documents'}</strong><span className="count-badge">{filtered.length}</span></div><div className="view-options"><ArrowDownUp size={14} /><select aria-label="Sort documents" value={sort} onChange={event => setSort(event.target.value)}><option value="newest">{filter === 'recent' ? 'Last opened' : 'Date added'}</option><option value="name">Name</option><option value="size">File size</option></select><span className="toolbar-divider" /><div className="layout-buttons"><button className={layout === 'grid' ? 'active' : ''} aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><Grid2X2 size={16} /></button><button className={layout === 'list' ? 'active' : ''} aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={18} /></button></div></div></div>
-        {loading ? <div className="empty-state" role="status"><LoaderCircle className="spin" size={30} /><h2>Opening your library…</h2></div> : loadError ? <div className="empty-state" role="alert"><FolderOpen size={36} /><h2>Your library couldn’t be opened</h2><p>{loadError}</p><button className="secondary-button" onClick={() => void load()}>Try again</button></div> : !documents.length ? <div className="empty-state welcome-state"><div className="paper-stack" aria-hidden="true"><div className="paper-back" /><div className="paper-front"><span className="pdf-badge">PDF</span><FileText size={45} strokeWidth={1} /><div className="paper-lines" /></div><span className="paper-spark"><Sparkles size={22} /></span></div><h2>A home for your PDFs.</h2><p>Bring your research, reading, and everyday documents<br />together in a space that stays yours.</p><button className="primary-button" onClick={() => void importFiles()} disabled={importing}><Plus size={18} />Import your first PDF</button><span className="privacy-note"><ShieldCheck size={14} />Stored on this device. No account needed.</span></div> : !filtered.length ? <div className="empty-state"><Search size={34} /><h2>{query ? 'No matching documents' : 'Nothing here just yet'}</h2><p>{query ? 'Try another title, filename, or tag.' : filter === 'favorites' ? 'Star a document to keep it close at hand.' : filter === 'recent' ? 'Open a PDF and find it here next time.' : 'Add this tag to a document to see it here.'}</p>{query && <button className="secondary-button" onClick={() => setQuery('')}>Clear search</button>}</div> : <div className={`documents documents-${layout}`} aria-label="Documents">
-          {filtered.map((document, index) => <article key={document.id} className="document-card">
+        {loading ? <div className="empty-state" role="status"><LoaderCircle className="spin" size={30} /><h2>Opening your library…</h2></div> : loadError ? <div className="empty-state" role="alert"><FolderOpen size={36} /><h2>Your library couldn’t be opened</h2><p>{loadError}</p><button className="secondary-button" onClick={() => void load()}>Try again</button></div> : !documents.length ? <div className="empty-state welcome-state"><div className="paper-stack" aria-hidden="true"><div className="paper-back" /><div className="paper-front"><span className="pdf-badge">PDF</span><FileText size={45} strokeWidth={1} /><div className="paper-lines" /></div><span className="paper-spark"><Sparkles size={22} /></span></div><h2>A home for your PDFs.</h2><p>Bring your research, reading, and everyday documents<br />together in a space that stays yours.</p><button className="primary-button" onClick={() => void importFiles()} disabled={importing}><Plus size={18} />Import your first PDF</button><span className="privacy-note"><ShieldCheck size={14} />Stored on this device. No account needed.</span></div> : !filtered.length ? <div className="empty-state"><Search size={34} /><h2>{query ? 'No matching documents' : 'Nothing here just yet'}</h2><p>{query ? 'Try another title, filename, or tag.' : filter === 'favorites' ? 'Star a document to keep it close at hand.' : filter === 'recent' ? 'Open a PDF and find it here next time.' : filter === 'unfiled' || filter.startsWith('folder:') ? 'Move a PDF here from All documents by dragging it onto this folder, or use Folder in document details.' : 'Add this tag to a document to see it here.'}</p>{query && <button className="secondary-button" onClick={() => setQuery('')}>Clear search</button>}</div> : <div className={`documents documents-${layout}`} aria-label="Documents">
+          {filtered.map((document, index) => <article key={document.id} data-document-id={document.id} className={`document-card ${draggingId === document.id ? 'pdf-document-dragging' : ''}`} draggable={!movingId && !folderBusy} aria-busy={movingId === document.id} onDragStart={event => beginDrag(event, document.id)} onDragEnd={clearDrag} onPointerDownCapture={() => { suppressOpen.current = null; }} onClickCapture={event => { if (event.detail > 0 && suppressOpen.current === document.id) { event.preventDefault(); event.stopPropagation(); suppressOpen.current = null; } }}>
+            <span className="pdf-drag-handle" title="Drag to a folder. You can also use Folder in document details." aria-hidden="true"><GripVertical size={15} /></span>
             {layout === 'grid' ? <button className={`document-preview preview-tone-${index % 4}`} aria-label={`Open ${document.title}`} onClick={() => openDocument(document.id)}><PdfThumbnail document={document} /><span className="preview-open"><BookOpen size={16} />Read document</span></button> : <button className="list-file-icon" aria-label={`Open ${document.title}`} onClick={() => openDocument(document.id)}><FileText size={24} /></button>}
             <div className="document-info"><button className="document-title" onClick={() => openDocument(document.id)} title={document.title}>{document.title}</button><div className="document-meta"><span>{formatSize(document.size)}</span><span>·</span><span>{document.pageCount ? `${document.pageCount} page${document.pageCount === 1 ? '' : 's'}` : 'PDF document'}</span></div>{document.tags.length > 0 && <div className="document-tags">{document.tags.slice(0, 2).map(tag => <button key={tag} onClick={() => selectFilter(`tag:${tag}`)}>{tag}</button>)}{document.tags.length > 2 && <span>+{document.tags.length - 2}</span>}</div>}</div>
             {layout === 'list' && <span className="document-date">{dateLabel(document.importedAt)}</span>}
@@ -334,10 +460,26 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
       </main>}
     </div>
     {urlImportOpen && <URLImportDialog active={workspaceActive} onClose={() => setURLImportOpen(false)} onComplete={completeURLImport} onRefresh={() => void load(true)} onOpenPDF={id => { setURLImportOpen(false); openDocument(id); }} />}
+    {folderDialog && <Modal title={folderDialog.kind === 'create' ? 'New folder' : folderDialog.kind === 'remove' ? 'Remove folder?' : 'Edit folder'} onClose={closeFolderDialog} active={workspaceActive}>
+      {folderDialog.kind === 'remove' ? <>
+        <p className="modal-description">Remove <strong>{folders.find(folder => folder.id === folderDialog.id)?.name ?? folderName}</strong>? Its PDFs will move to Unfiled. Your PDFs, tags, favorites, reading positions, and note links will be kept.</p>
+        {folderError && <p className="form-error" role="alert">{folderError}</p>}
+        <div className="modal-actions"><button className="secondary-button" disabled={folderBusy} onClick={() => { setFolderDialog({ kind: 'edit', id: folderDialog.id }); setFolderError(''); }}>Keep folder</button><button className="danger-button" disabled={folderBusy} onClick={() => void saveFolder()}>{folderBusy ? 'Removing…' : 'Remove folder'}</button></div>
+      </> : <form onSubmit={saveFolder}>
+        <label className="field-label">Folder name<input autoFocus={workspaceActive} required maxLength={80} value={folderName} onChange={event => setFolderName(event.target.value)} disabled={folderBusy} /></label>
+        {folderError && <p className="form-error" role="alert">{folderError}</p>}
+        <div className="modal-actions">
+          {folderDialog.kind === 'edit' && <button type="button" className="remove-link" disabled={folderBusy} onClick={() => { setFolderDialog({ kind: 'remove', id: folderDialog.id }); setFolderError(''); }}><Trash2 size={16} />Remove folder</button>}
+          <button type="button" className="secondary-button" disabled={folderBusy} onClick={closeFolderDialog}>Cancel</button>
+          <button className="primary-button" disabled={folderBusy || !folderName.trim()}>{folderBusy ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{folderBusy ? 'Saving…' : folderDialog.kind === 'create' ? 'Create folder' : 'Save folder'}</button>
+        </div>
+      </form>}
+    </Modal>}
     {editing && <Modal title={removing ? 'Remove from library?' : 'Edit document'} onClose={closeModal} active={workspaceActive}>
       {removing ? <><p className="modal-description">Remove <strong>{editing.title}</strong> from the library? Your original PDF and stored copy will be kept. This removes its tags, favorite, and reading position from the catalog.</p>{modalError && <p className="form-error" role="alert">{modalError}</p>}<div className="modal-actions"><button className="secondary-button" disabled={saving} onClick={() => setRemoving(false)}>Keep document</button><button className="danger-button" disabled={saving} onClick={() => void remove()}>{saving ? 'Removing…' : 'Remove document'}</button></div></> : <form onSubmit={saveDetails}>
         <label className="field-label">Document title<input autoFocus={workspaceActive} required maxLength={200} value={title} onChange={event => setTitle(event.target.value)} /></label>
         <label className="field-label">Tags (comma-separated)<input placeholder="Research, Reading, Work" maxLength={800} value={tags} onChange={event => setTags(event.target.value)} /></label>
+        <label className="field-label">Folder<select value={detailFolder} onChange={event => setDetailFolder(event.target.value)}><option value="">Unfiled</option>{orderedFolders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
         <div className="file-facts"><span>Original filename<strong>{editing.filename}</strong></span><span>Added<strong>{dateLabel(editing.importedAt)}</strong></span><span>File size<strong>{formatSize(editing.size)}</strong></span></div>
         <div className="native-actions"><button type="button" onClick={() => void nativeAction('open', editing.id)}><ArrowUpRight size={15} />Open in default app</button><button type="button" onClick={() => void nativeAction('reveal', editing.id)}><FolderOpen size={15} />Show library copy</button></div>
         {modalError && <p className="form-error" role="alert">{modalError}</p>}

@@ -40,6 +40,9 @@ export class PDFLibraryService {
   }
 
   load() { return this.run(store => store.load()); }
+  createFolder(name: unknown) { return this.run(store => store.createFolder(name)); }
+  renameFolder(id: unknown, name: unknown) { return this.run(store => store.renameFolder(id, name)); }
+  removeFolder(id: unknown) { return this.run(store => store.removeFolder(id)); }
   import(paths: readonly string[]) { return this.run(store => store.import(paths)); }
   importDownloaded(input: DownloadedPDFImport) { return this.run(store => store.importDownloaded(input)); }
   importArxiv(input: ArxivImportMetadata, download: () => Promise<Uint8Array>) {

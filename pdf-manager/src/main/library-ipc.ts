@@ -7,6 +7,9 @@ import type { PDFURLImportManager } from './pdf-url-import';
 export interface PDFLibraryOperations {
   load(): Promise<LibrarySnapshot>;
   import(paths: readonly string[]): Promise<ImportResult>;
+  createFolder(name: unknown): Promise<LibrarySnapshot>;
+  renameFolder(id: unknown, name: unknown): Promise<LibrarySnapshot>;
+  removeFolder(id: unknown): Promise<LibrarySnapshot>;
   read(id: unknown): Promise<Uint8Array>;
   update(id: unknown, patch: unknown): Promise<PDFDocument>;
   withDocumentPath(id: unknown, action: (filename: string) => Promise<void> | void): Promise<void>;
@@ -43,6 +46,18 @@ export function registerPDFLibraryIPC({ service, urlImports, validateSender, get
   ipcMain.handle('prism-pdf:load', async event => {
     validateSender(event);
     return service.load();
+  });
+  ipcMain.handle('prism-pdf:folder-create', (event, name: unknown) => {
+    validateSender(event);
+    return service.createFolder(name);
+  });
+  ipcMain.handle('prism-pdf:folder-rename', (event, id: unknown, name: unknown) => {
+    validateSender(event);
+    return service.renameFolder(id, name);
+  });
+  ipcMain.handle('prism-pdf:folder-remove', (event, id: unknown) => {
+    validateSender(event);
+    return service.removeFolder(id);
   });
   ipcMain.handle('prism-pdf:import', async event => {
     validateSender(event);
