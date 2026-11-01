@@ -35,6 +35,15 @@ function cancelled(error: unknown): boolean {
   return error instanceof Error && (error.name === 'RenderingCancelledException' || error.name === 'AbortException');
 }
 
+function replacePageCanvas(paper: HTMLElement | null, canvas?: HTMLCanvasElement) {
+  if (!paper) return;
+  const previous = paper.firstElementChild;
+  paper.replaceChildren(...(canvas ? [canvas] : []));
+  // Completed surfaces can be large. Release their backing store as soon as
+  // the replacement is visible, instead of waiting for garbage collection.
+  if (previous instanceof HTMLCanvasElement && previous !== canvas) previous.width = previous.height = 0;
+}
+
 interface PdfReaderProps {
   workspaceActive?: boolean;
   document: PDFDocument;
@@ -75,6 +84,8 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   const handledLink = useRef<number | null>(null);
   const latestLink = useRef(pageLinkRequest);
   const currentPage = useRef(pageNumber);
+  // Numeric zoom is independent of the viewport. Resizing it needs no repaint.
+  const fitWidth = zoom === 'fit' ? availableWidth : null;
   const pendingPageScroll = useRef<{ page: number; edge: 'top' | 'bottom' } | null>(null);
   const wheelGate = useRef(new WheelPageTurnGate());
   const handleWheel = useRef<(event: WheelEvent) => void>(() => {});
@@ -99,13 +110,24 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   useEffect(() => {
     const container = viewportRef.current;
     if (!container) return;
+    let previousWidth: number | undefined;
+    let pending: ReturnType<typeof setTimeout> | undefined;
     const observer = new ResizeObserver(([size]) => {
-      wheelGate.current.reset(performance.now());
       // Hiding the workspace must not replace the retained page with a tiny render.
-      if (size.contentRect.width > 0) setAvailableWidth(Math.max(160, size.contentRect.width - 64));
+      if (size.contentRect.width <= 0) { clearTimeout(pending); previousWidth = undefined; return; }
+      const next = Math.max(160, Math.round(size.contentRect.width - 64));
+      if (next === previousWidth) return;
+      const initial = previousWidth === undefined;
+      previousWidth = next;
+      wheelGate.current.reset(performance.now());
+      clearTimeout(pending);
+      // Show the initial page promptly, then keep its surface during a divider
+      // or window drag and rasterize once the viewport has settled.
+      if (initial) setAvailableWidth(next);
+      else pending = setTimeout(() => setAvailableWidth(next), 120);
     });
     observer.observe(container);
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); clearTimeout(pending); };
   }, []);
 
   useEffect(() => {
@@ -151,7 +173,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
     setRotation(0);
     setZoom('fit');
     lastSavedPage.current = null;
-    paperRef.current?.replaceChildren();
+    replacePageCanvas(paperRef.current);
     void (async () => {
       try {
         const bytes = await window.prismPdf.readDocument(entry.id);
@@ -219,7 +241,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         if (!Number.isFinite(natural.width) || !Number.isFinite(natural.height) || natural.width <= 0 || natural.height <= 0) {
           throw new Error('This page has invalid dimensions.');
         }
-        const requestedScale = zoom === 'fit' ? Math.min(2, availableWidth / natural.width) : zoom;
+        const requestedScale = zoom === 'fit' ? Math.min(2, fitWidth! / natural.width) : zoom;
         // Bound both the displayed surface and backing pixels for unusually large pages.
         const scale = Math.min(requestedScale, 8192 / Math.max(natural.width, natural.height), Math.sqrt(20_000_000 / (natural.width * natural.height)));
         const viewport = page.getViewport({ scale, rotation: combinedRotation });
@@ -243,7 +265,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         });
         await renderTask.promise;
         if (!active) return;
-        paperRef.current?.replaceChildren(canvas);
+        replacePageCanvas(paperRef.current, canvas);
         setRenderedPage(pageNumber);
         setActualZoom(scale);
         if (lastSavedPage.current !== pageNumber) {
@@ -256,7 +278,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         }
       } catch (failure) {
         if (active && !cancelled(failure)) {
-          paperRef.current?.replaceChildren();
+          replacePageCanvas(paperRef.current);
           setRenderedPage(null);
           setError(describeError(failure));
         }
@@ -272,7 +294,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         void renderTask?.promise.catch(() => {}).finally(() => { if (canvas) canvas.width = canvas.height = 0; });
       }
     };
-  }, [pdf, pageNumber, zoom, rotation, availableWidth]);
+  }, [pdf, pageNumber, zoom, rotation, fitWidth]);
 
   function goToPage(next: number, edge: 'top' | 'bottom' = 'top') {
     wheelGate.current.reset(performance.now());

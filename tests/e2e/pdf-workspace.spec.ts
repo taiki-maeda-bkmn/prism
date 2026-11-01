@@ -74,6 +74,7 @@ async function renderedPage(number: number) {
   await expect(canvas).toBeVisible();
   // Verify PDF.js has actually painted the fixture's colored page artwork.
   await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) => {
+    if (!element.isConnected || !element.width || !element.height) return 0;
     const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data;
     let colored = 0;
     for (let offset = 0; offset < pixels.length; offset += 16) {
