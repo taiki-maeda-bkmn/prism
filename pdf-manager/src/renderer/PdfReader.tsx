@@ -4,10 +4,10 @@ import { getDocument, GlobalWorkerOptions, PasswordResponses, type PDFDocumentLo
 import type { PDFDocument } from '../shared/types';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
 import { PdfBacklinks } from './PdfBacklinks';
-import { PAGE_WHEEL_EDGE_PX, WheelPageTurnGate } from './pageNavigation';
 import './reader.css';
 
 GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.mjs', import.meta.url).href;
+const PAGE_SCROLL_EDGE_PX = 2;
 
 function loadPdf(data: Uint8Array): PDFDocumentLoadingTask {
   return getDocument({
@@ -87,8 +87,6 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   // Numeric zoom is independent of the viewport. Resizing it needs no repaint.
   const fitWidth = zoom === 'fit' ? availableWidth : null;
   const pendingPageScroll = useRef<{ page: number; edge: 'top' | 'bottom' } | null>(null);
-  const wheelGate = useRef(new WheelPageTurnGate());
-  const handleWheel = useRef<(event: WheelEvent) => void>(() => {});
   updateRef.current = onUpdate;
   startingPageRef.current = entry.lastPage || 1;
   latestLink.current = pageLinkRequest;
@@ -119,7 +117,6 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
       if (next === previousWidth) return;
       const initial = previousWidth === undefined;
       previousWidth = next;
-      wheelGate.current.reset(performance.now());
       clearTimeout(pending);
       // Show the initial page promptly, then keep its surface during a divider
       // or window drag and rasterize once the viewport has settled.
@@ -129,25 +126,6 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
     observer.observe(container);
     return () => { observer.disconnect(); clearTimeout(pending); };
   }, []);
-
-  useEffect(() => {
-    const container = viewportRef.current;
-    if (!container) return;
-    const wheel = (event: WheelEvent) => handleWheel.current(event);
-    const interrupt = () => wheelGate.current.reset(performance.now());
-    // React's delegated wheel listener is passive. Consume a turn and its
-    // remaining momentum; scrolling within a page stays native.
-    container.addEventListener('wheel', wheel, { passive: false });
-    window.addEventListener('blur', interrupt);
-    window.document.addEventListener('visibilitychange', interrupt);
-    return () => {
-      container.removeEventListener('wheel', wheel);
-      window.removeEventListener('blur', interrupt);
-      window.document.removeEventListener('visibilitychange', interrupt);
-    };
-  }, []);
-
-  useEffect(() => { wheelGate.current.reset(performance.now()); }, [workspaceActive]);
 
   useEffect(() => {
     if (!workspaceActive || !passwordPrompt || window.document.querySelector('dialog[open]')) return;
@@ -167,7 +145,6 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
     setError('');
     setRenderedPage(null);
     pendingPageScroll.current = null;
-    wheelGate.current.reset(performance.now());
     setPassword('');
     setPasswordPrompt(null);
     setRotation(0);
@@ -212,7 +189,6 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
 
   useEffect(() => {
     pendingPageScroll.current = null;
-    wheelGate.current.reset(performance.now());
     if (!pageLinkRequest) { setPageLinkError(''); return; }
     if (!pdf || pageLinkRequest.documentId !== entry.id || handledLink.current === pageLinkRequest.request) return;
     const next = linkedPage(pdf, pageNumber);
@@ -227,7 +203,6 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
     let active = true;
     let renderTask: RenderTask | undefined;
     let canvas: HTMLCanvasElement | undefined;
-    wheelGate.current.reset(performance.now());
     setRendering(true);
     setError('');
     // Retain the previous surface while resizing renders its replacement.
@@ -297,7 +272,6 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   }, [pdf, pageNumber, zoom, rotation, fitWidth]);
 
   function goToPage(next: number, edge: 'top' | 'bottom' = 'top') {
-    wheelGate.current.reset(performance.now());
     const valid = Math.max(1, Math.min(pdf?.numPages || 1, Math.trunc(next) || 1));
     if (valid !== currentPage.current) pendingPageScroll.current = { page: valid, edge };
     currentPage.current = valid;
@@ -309,22 +283,6 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   const pageReady = !!pdf && !loading && !rendering && !error
     && renderedPage === pageNumber && !linkPending;
   const canLinkCurrentPage = canInsertPageLink && pageReady;
-
-  handleWheel.current = event => {
-    const container = viewportRef.current;
-    if (!container) return;
-    const direction = wheelGate.current.consume({
-      now: performance.now(), deltaX: event.deltaX, deltaY: event.deltaY, deltaMode: event.deltaMode,
-      ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, shiftKey: event.shiftKey,
-      scrollTop: container.scrollTop, scrollHeight: container.scrollHeight, clientHeight: container.clientHeight,
-      ready: pageReady && renderedPage === currentPage.current && !event.defaultPrevented
-        && !container.closest('[hidden], [inert]') && !window.document.hidden
-        && !window.document.querySelector('dialog[open]'),
-      canPrevious: currentPage.current > 1, canNext: currentPage.current < (pdf?.numPages || 1),
-    });
-    if (wheelGate.current.shouldPreventScroll) event.preventDefault();
-    if (direction) goToPage(currentPage.current + direction, direction < 0 ? 'bottom' : 'top');
-  };
 
   function submitPassword(event: FormEvent) {
     event.preventDefault();
@@ -380,7 +338,6 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
           && event.target instanceof Node && paperRef.current?.contains(event.target)) event.currentTarget.focus({ preventScroll: true });
       }}
-      onBlur={() => wheelGate.current.reset(performance.now())}
       onKeyDown={event => {
         if (event.target !== event.currentTarget || !pdf || event.ctrlKey || event.metaKey || event.altKey
           || event.nativeEvent.isComposing || (event.shiftKey && event.key !== ' ')) return;
@@ -392,11 +349,10 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         if (event.key === 'Home') goToPage(1);
         if (event.key === 'End') goToPage(pdf.numPages);
         if (event.key === ' ') {
-          wheelGate.current.reset(performance.now());
           const container = event.currentTarget;
           const direction = event.shiftKey ? -1 : 1;
-          const atEdge = direction < 0 ? container.scrollTop <= PAGE_WHEEL_EDGE_PX
-            : container.scrollTop >= container.scrollHeight - container.clientHeight - PAGE_WHEEL_EDGE_PX;
+          const atEdge = direction < 0 ? container.scrollTop <= PAGE_SCROLL_EDGE_PX
+            : container.scrollTop >= container.scrollHeight - container.clientHeight - PAGE_SCROLL_EDGE_PX;
           if (atEdge) goToPage(currentPage.current + direction, direction < 0 ? 'bottom' : 'top');
           else container.scrollBy({ top: direction * Math.max(1, container.clientHeight * 0.85) });
         }
@@ -422,7 +378,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         <span className="pdf-page-position" role="status" aria-live="polite" aria-atomic="true">{pdf ? `Page ${pageNumber} of ${pdf.numPages}` : 'PDF reader'}</span>
         <button aria-label="Next PDF page" title="Next page (→ or Page Down)" disabled={!pdf || loading || pageNumber >= pdf.numPages}
           onClick={() => { goToPage(currentPage.current + 1); viewportRef.current?.focus({ preventScroll: true }); }}><span>Next</span><ChevronRight size={20} /></button>
-        <span className="pdf-navigation-hint">Scroll at page edges to turn · ← → · Space{pdf ? ` · ${Math.round(actualZoom * 100)}% zoom` : ''}</span>
+        <span className="pdf-navigation-hint">← → to turn pages · Space to scroll{pdf ? ` · ${Math.round(actualZoom * 100)}% zoom` : ''}</span>
       </nav>
     </footer>
   </section>;

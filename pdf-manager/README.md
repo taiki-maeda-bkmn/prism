@@ -45,7 +45,7 @@ The app opens a native Electron window. Import PDFs using the system file picker
 
 Use **New folder** in the library sidebar to organize existing PDFs. Drag a document from the grid or list onto a folder, or choose a **Folder** in its details and save. **Unfiled** contains documents without a folder; **All documents**, tags, Favorites, and Recently opened span the whole library. Folder management supports rename and removal; removing a folder returns its PDFs to Unfiled. These library folders keep managed files and document links at their existing paths. Dropping files from Windows Explorer is a later increment; use **Import PDFs** first.
 
-Use **Ctrl+O / ⌘O** to import and **Ctrl+K / ⌘K** to search. **Previous / Next** buttons stay below the page while you scroll. At a page's top or bottom, pause and scroll again to turn backward or forward. Scrolling within a zoomed page stays normal, and one wheel gesture turns at most one page.
+Use **Ctrl+O / ⌘O** to import and **Ctrl+K / ⌘K** to search. **Previous / Next** buttons stay below the page while you scroll. Mouse-wheel and trackpad scrolling stay within the current page, including at its top and bottom, and never turn pages.
 
 Click the PDF page to use **Left / Right**, **Page Up / Page Down**, or **Home / End** for the first/last page. **Space** scrolls down a screen and turns at the bottom; **Shift+Space** scrolls up and turns at the top. These shortcuts stay inside the page viewport so typing in notes, search, page-number, and password fields is unaffected.
 

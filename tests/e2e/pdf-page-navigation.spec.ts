@@ -96,47 +96,14 @@ async function pointAtPage() {
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 }
 
-// The reader deliberately requires 250 ms without wheel input and a 350 ms
-// cooldown after turning. This pause represents the user starting a new gesture.
+// Include a pause between gestures so this also catches the former edge-turn
+// behavior, which ignored continuous momentum but flipped after a quiet gap.
 async function freshWheel(deltaY: number, deltaX = 0) {
   await page.waitForTimeout(450);
   await pointAtPage();
   await page.mouse.wheel(deltaX, deltaY);
-}
-
-async function turnWithMomentum(number: number, deltaY: number) {
-  const wheelEvents = await viewport().evaluateHandle(element => {
-    const times: number[] = [];
-    const record = () => times.push(performance.now());
-    element.addEventListener('wheel', record);
-    return { times, dispose: () => element.removeEventListener('wheel', record) };
-  });
-  try {
-    await freshWheel(deltaY);
-    let renderedPulses = 0;
-    // Keep sending real wheel input through rendering and for several frames
-    // after it finishes. Waiting for the canvas first would start a new gesture
-    // on slow renders and miss momentum moving the newly displayed page.
-    for (let pulse = 0; pulse < 60 && renderedPulses < 4; pulse++) {
-      await page.mouse.wheel(0, deltaY);
-      const ready = await pdf().locator('.pdf-paper').evaluate((element, expectedPage) => (
-        element.getAttribute('aria-busy') === 'false'
-        && element.querySelector('canvas')?.getAttribute('data-page-number') === String(expectedPage)
-      ), number);
-      renderedPulses = ready ? renderedPulses + 1 : 0;
-      await page.waitForTimeout(40);
-    }
-    expect(renderedPulses).toBe(4);
-    const times = await wheelEvents.evaluate(value => value.times);
-    expect(times.length).toBeGreaterThanOrEqual(5);
-    for (let index = 1; index < times.length; index++) {
-      expect(times[index] - times[index - 1], 'Wheel momentum must remain one gesture').toBeLessThan(250);
-    }
-    await renderedPage(number);
-  } finally {
-    await wheelEvents.evaluate(value => value.dispose());
-    await wheelEvents.dispose();
-  }
+  // Wheel dispatch returns before native scrolling and its paint have finished.
+  await page.waitForTimeout(100);
 }
 
 async function expectInsidePane(control: Locator) {
@@ -177,44 +144,59 @@ test.afterEach(async ({}, testInfo) => {
   if (temporary) await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
-test('turns with a fresh wheel gesture at page edges while preserving zoomed scrolling and reverse landing', async () => {
+test('scrolls within the current page without turning at either edge or when the whole page fits', async () => {
   await openDocument();
   await renderedPage(1);
   await zoom().selectOption('0.5');
   await renderedPage(1);
   await expect.poll(async () => (await scrollPosition()).bottom).toBeLessThanOrEqual(1);
   await expect(previous()).toBeDisabled();
-  await freshWheel(160);
-  // Reversing the same wheel gesture must not bounce straight back a page.
-  // Send it before waiting for rendering, which may outlast the gesture gap.
-  await page.mouse.wheel(0, -160);
+  for (const delta of [160, -160, 640]) {
+    await freshWheel(delta);
+    await renderedPage(1);
+  }
+  await next().click();
   await renderedPage(2);
   await expect(next()).toBeDisabled();
-  await freshWheel(-160);
-  await renderedPage(1);
+  for (const delta of [-160, 160, -640]) {
+    await freshWheel(delta);
+    await renderedPage(2);
+  }
 
+  await previous().click();
+  await renderedPage(1);
   await zoom().selectOption('2');
   await renderedPage(1);
   await freshWheel(360);
   await expect.poll(async () => (await scrollPosition()).top).toBeGreaterThan(100);
   await expect(pageNumber()).toHaveValue('1');
-  await page.mouse.wheel(0, 5_000);
+  await freshWheel(5_000);
   await expect.poll(async () => (await scrollPosition()).bottom).toBeLessThanOrEqual(1);
-  // Reaching the edge during a scrolling gesture still needs a release before
-  // page turning. A final momentum event must leave the current page in place.
-  await page.mouse.wheel(0, 160);
-  await expect(pageNumber()).toHaveValue('1');
-  await turnWithMomentum(2, 160);
-  await expect.poll(async () => (await scrollPosition()).top).toBe(0);
-  await turnWithMomentum(1, -160);
-  await expect.poll(async () => (await scrollPosition()).bottom).toBeLessThanOrEqual(1);
-  await freshWheel(20, 240);
-  await expect(pageNumber()).toHaveValue('1');
-  await freshWheel(160);
+  for (const delta of [160, 640, 5_000]) {
+    await freshWheel(delta);
+    await renderedPage(1);
+    await expect.poll(async () => (await scrollPosition()).bottom).toBeLessThanOrEqual(1);
+  }
+  await freshWheel(-360);
+  await expect.poll(async () => (await scrollPosition()).bottom).toBeGreaterThan(100);
+  await renderedPage(1);
+  const horizontalRoom = await viewport().evaluate(element => element.scrollWidth - element.clientWidth);
+  expect(horizontalRoom).toBeGreaterThan(0);
+  await freshWheel(0, 240);
+  await expect.poll(() => viewport().evaluate(element => element.scrollLeft)).toBe(Math.min(240, horizontalRoom));
+  await renderedPage(1);
+
+  await next().click();
   await renderedPage(2);
-  await expect(next()).toBeDisabled();
-  await freshWheel(160);
-  await expect(pageNumber()).toHaveValue('2');
+  await expect.poll(async () => (await scrollPosition()).top).toBe(0);
+  for (const delta of [-160, -640, -5_000]) {
+    await freshWheel(delta);
+    await renderedPage(2);
+    await expect.poll(async () => (await scrollPosition()).top).toBe(0);
+  }
+  await freshWheel(360);
+  await expect.poll(async () => (await scrollPosition()).top).toBeGreaterThan(100);
+  await renderedPage(2);
   expect(rendererErrors).toEqual([]);
   expect(remoteRequests).toEqual([]);
 });
@@ -257,12 +239,13 @@ test('focuses clicked pages for keys, scrolls with Space, and retains current-pa
   await expect(pageNumber()).toHaveValue('2');
   await editor().focus();
   await editor().press('ControlOrMeta+End');
-  // Hovering the PDF to turn a page must preserve the note's typing focus.
+  // Hovering and scrolling the PDF preserves both its page and the note's typing focus.
   await freshWheel(-160);
-  await renderedPage(1);
+  await renderedPage(2);
   await expect(editor()).toBeFocused();
   await expect(page.locator('.app-body')).toHaveAttribute('data-active', 'true');
-  await freshWheel(160);
+  await freshWheel(360);
+  await expect.poll(async () => (await scrollPosition()).top).toBeGreaterThan(100);
   await renderedPage(2);
   await expect(editor()).toBeFocused();
   await expect(page.locator('.app-body')).toHaveAttribute('data-active', 'true');
