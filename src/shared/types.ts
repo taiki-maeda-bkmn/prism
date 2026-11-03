@@ -28,6 +28,7 @@ export interface PrismAPI {
   onWindowStateChanged(callback: (state: WindowState) => void): () => void;
   onCloseRequested(callback: () => void): () => void;
   confirmClose(): void;
+  cancelClose(): void;
   platform: string;
 }
 

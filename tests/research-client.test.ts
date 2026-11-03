@@ -243,3 +243,74 @@ test('network requests carry bounded abort signals', async () => {
     assert.equal(signals.length, 2); assert.ok(signals.every(signal => signal.aborted));
   } finally { clearTimeout(keepAlive); }
 });
+
+test('closing cancels active research requests and rejects late responses and future cached access', { timeout: 2000 }, async () => {
+  const waiting: { signal: AbortSignal; resolve: (response: Response) => void }[] = [];
+  let started!: () => void;
+  const allStarted = new Promise<void>(resolve => { started = resolve; });
+  const client = new ResearchClient({ fetchImpl: fetcher((_url, init) => new Promise(resolve => {
+    waiting.push({ signal: init!.signal!, resolve });
+    if (waiting.length === 3) started();
+  })) });
+  const pending = [client.catalogue(), client.review({ editionId, arxivId: firstId }), client.downloadPDF(firstId)];
+  await allStarted;
+  const rejected = pending.map(operation => assert.rejects(operation, /Prism is closing/));
+  client.close(); client.close();
+  await Promise.all(rejected);
+  assert.ok(waiting.every(request => request.signal.aborted));
+  let cancelled = 0;
+  for (const request of waiting) request.resolve(new Response(new ReadableStream({ cancel() { cancelled++; } })));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(cancelled, 3, 'late transport responses release their bodies instead of publishing results');
+  for (const operation of [() => client.catalogue(), () => client.review({ editionId, arxivId: firstId }), () => client.downloadPDF(firstId)]) {
+    await assert.rejects(operation(), /Prism is closing/);
+  }
+  assert.equal(waiting.length, 3);
+
+  const cached = new ResearchClient({ fetchImpl: fetcher(url => url.endsWith('papers.json') ? json(catalogue()) : json(archive())) });
+  await cached.catalogue(); await cached.review({ editionId, arxivId: firstId });
+  cached.close();
+  await assert.rejects(cached.catalogue(), /Prism is closing/);
+  await assert.rejects(cached.review({ editionId, arxivId: firstId }), /Prism is closing/);
+});
+
+test('closing interrupts a stalled research response body without waiting for its cancellation hook', { timeout: 2000 }, async () => {
+  let requested!: () => void;
+  const started = new Promise<void>(resolve => { requested = resolve; });
+  let cancelled = false;
+  const client = new ResearchClient({ fetchImpl: fetcher(() => {
+    requested();
+    return new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('{')); },
+      cancel() { cancelled = true; return new Promise<void>(() => {}); },
+    }));
+  }) });
+  const operation = client.catalogue();
+  await started;
+  await new Promise(resolve => setImmediate(resolve));
+  const rejected = assert.rejects(operation, /Prism is closing/);
+  client.close();
+  await rejected;
+  assert.equal(cancelled, true);
+});
+
+test('closing interrupts a queued PDF rate delay and prevents later downloads from starting', { timeout: 2000 }, async () => {
+  let sleeping!: () => void;
+  const waiting = new Promise<void>(resolve => { sleeping = resolve; });
+  let finishSleep!: () => void;
+  let calls = 0;
+  const client = new ResearchClient({ now: () => 0,
+    sleep: () => { sleeping(); return new Promise<void>(resolve => { finishSleep = resolve; }); },
+    fetchImpl: fetcher(() => { calls++; return pdf(); }),
+  });
+  await client.downloadPDF(firstId);
+  const second = client.downloadPDF(secondId);
+  const third = client.downloadPDF('hep-th/9901001v1');
+  await waiting;
+  const rejected = [second, third].map(operation => assert.rejects(operation, /Prism is closing/));
+  client.close();
+  await Promise.all(rejected);
+  finishSleep();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 1);
+});

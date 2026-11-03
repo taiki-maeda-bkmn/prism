@@ -21,6 +21,7 @@ const library = new PDFLibraryService(path.join(app.getPath('userData'), 'librar
 const pdfURLImports = new PDFURLImportManager(library);
 let quitting = false;
 let quitReady = false;
+let openingWindow: Promise<void> | undefined;
 
 function validateSender(event: IpcMainEvent | IpcMainInvokeEvent): void {
   if (quitting) throw new Error('Prism PDF is closing. Reopen it before continuing.');
@@ -76,25 +77,34 @@ async function createWindow(): Promise<void> {
       spellcheck: false, navigateOnDragDrop: false,
     },
   });
+  const nativeWindow = window;
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.on('will-frame-navigate', event => event.preventDefault());
   window.webContents.on('will-attach-webview', event => event.preventDefault());
   window.webContents.on('render-process-gone', () => { void pdfURLImports.cancelActive(); });
-  window.on('closed', () => { void pdfURLImports.cancelActive(); window = null; });
-  window.once('ready-to-show', () => window?.show());
-  await window.loadFile(rendererPath);
+  window.on('closed', () => { void pdfURLImports.cancelActive(); if (window === nativeWindow) window = null; });
+  try { await nativeWindow.loadFile(rendererPath); }
+  catch (error) { if (quitting || nativeWindow.isDestroyed()) return; throw error; }
+  // Unmapped transparent Wayland windows may never emit ready-to-show.
+  if (!quitting && !nativeWindow.isDestroyed()) {
+    nativeWindow.show();
+    if (/^[a-f0-9]{32,64}$/.test(process.env.PRISM_STARTUP_TOKEN ?? '')) console.log(`\nPRISM_READY:${process.env.PRISM_STARTUP_TOKEN}`);
+  }
 }
 
 async function showOrCreateWindow(): Promise<void> {
   if (quitting) return;
-  if (!window) { await createWindow(); return; }
+  if (!window || window.isDestroyed()) openingWindow ??= createWindow().finally(() => { openingWindow = undefined; });
+  await openingWindow;
+  if (quitting || !window || window.isDestroyed()) return;
   if (window.isMinimized()) window.restore();
   window.show();
   window.focus();
 }
 
 function handleStartupError(error: unknown): void {
+  if (quitting) return;
   dialog.showErrorBox('Prism PDF could not start', error instanceof Error ? error.message : 'An unexpected error occurred.');
   app.exit(1);
 }
@@ -109,11 +119,13 @@ else {
     window?.setEnabled(false);
     void pdfURLImports.close().then(() => library.close()).then(() => {
       quitReady = true;
+      session.defaultSession.flushStorageData();
+      setTimeout(() => app.exit(0), 2000).unref();
       app.quit();
-    }).catch(handleStartupError);
+    }).catch(error => { console.error('Prism PDF could not close:', error); app.exit(1); });
   });
-  app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-  app.whenReady().then(async () => {
+  app.on('window-all-closed', () => app.quit());
+  const startup = app.whenReady().then(async () => {
     Menu.setApplicationMenu(process.platform === 'darwin'
       ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'fileMenu' }, { role: 'editMenu' }])
       : null);
@@ -125,9 +137,10 @@ else {
       void allowedResource(details.url, rendererRoot, details.resourceType).then(allowed => callback({ cancel: !allowed }));
     });
     registerIPC();
-    await createWindow();
-    const showWindow = () => { void showOrCreateWindow().catch(handleStartupError); };
-    app.on('second-instance', showWindow);
-    app.on('activate', showWindow);
-  }).catch(handleStartupError);
+    await showOrCreateWindow();
+  });
+  const showWindow = () => { void startup.then(showOrCreateWindow).catch(handleStartupError); };
+  app.on('second-instance', showWindow);
+  app.on('activate', showWindow);
+  void startup.catch(handleStartupError);
 }

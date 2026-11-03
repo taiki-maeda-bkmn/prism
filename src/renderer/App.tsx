@@ -370,8 +370,8 @@ export function App() {
   }, []);
 
   const runIntent = useCallback(async (intent: Intent) => {
-    if (operation.current) return;
     if (intent === 'close') { window.prism.confirmClose(); return; }
+    if (operation.current) return;
     operation.current = true;
     setWorking(true);
     setError('');
@@ -384,11 +384,17 @@ export function App() {
   }, [acceptWorkspace]);
 
   const requestIntent = useCallback((intent: Intent) => {
-    if (operation.current) return;
     if (intent === 'close') { window.prism.windowControl('close'); return; }
+    if (operation.current) return;
     if (Object.keys(latest.current.drafts).length) setPending(intent);
     else void runIntent(intent);
   }, [runIntent]);
+
+  const cancelIntent = () => {
+    if (busy && pending !== 'close') return;
+    if (pending === 'close') window.prism.cancelClose();
+    setPending(null);
+  };
 
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
@@ -630,12 +636,12 @@ export function App() {
 
     {creating && <Modal title="A new place for an idea" onClose={() => !busy && setCreating(false)}><form onSubmit={event => { event.preventDefault(); void create(); }}><label className="field-label" htmlFor="new-note-name">Note name</label><input id="new-note-name" className="text-input" autoFocus value={newName} onChange={event => setNewName(event.target.value)} placeholder="An idea worth keeping" disabled={busy} maxLength={220} /><p className="field-help">Use a path like <code>Ideas/My note</code> to organize it in a folder. The .md extension is added for you.</p>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="subtle-button" disabled={busy} onClick={() => setCreating(false)}>Cancel</button><button className="primary-button" type="submit" disabled={busy || !newName.trim()}><Plus size={16} />{busy ? 'Creating…' : 'Create note'}</button></div></form></Modal>}
 
-    {researchOpen && workspace && (!pending || busy) && <ResearchBrowser notebookName={workspace.name} notebookPath={workspace.path}
+    {researchOpen && workspace && (!pending || busy || pending === 'close') && <ResearchBrowser notebookName={workspace.name} notebookPath={workspace.path}
       onClose={() => { if (!operation.current) setResearchOpen(false); }} onImport={importResearch}
       onOpenNote={path => { setResearchOpen(false); requestAnimationFrame(() => openPDFBacklink(path)); }}
       onOpenPDF={documentId => { setResearchOpen(false); requestAnimationFrame(() => openPDFPage({ documentId, page: 1 })); }} />}
 
-    {arxivOpen && (!pending || busy) && <ArxivBrowser
+    {arxivOpen && (!pending || busy || pending === 'close') && <ArxivBrowser
       onClose={() => { if (!operation.current) setArxivOpen(false); }} onImport={importArxiv}
       onOpenPDF={documentId => { setArxivOpen(false); requestAnimationFrame(() => openPDFPage({ documentId, page: 1 })); }} />}
 
@@ -666,7 +672,7 @@ export function App() {
       <div className="modal-actions"><button className="primary-button" onClick={() => setSettings(false)}><Check size={16} />Done</button></div>
     </Modal>}
 
-    {pending && (!(researchOpen || arxivOpen) || !busy) && <Modal title="Keep your latest thoughts?" onClose={() => !busy && setPending(null)}><p className="modal-description">You have changes in {dirtyCount} {dirtyCount === 1 ? 'note' : 'notes'}. Save them before {pending === 'close' ? 'closing Prism' : pending === 'open' ? 'opening another notebook' : 'reloading from disk'}.</p><ul className="unsaved-list">{Object.keys(drafts).map(path => <li key={path}><FileText size={14} />{path}</li>)}</ul>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button className="subtle-button discard-button" disabled={busy} onClick={() => { const intent = pending; setPending(null); void runIntent(intent); }}>Discard changes</button><button className="subtle-button" disabled={busy} onClick={() => setPending(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={async () => { const intent = pending; if (await save(true)) { setPending(null); await runIntent(intent); } }}>{busy ? 'Saving…' : 'Save & continue'}</button></div></Modal>}
+    {pending && <Modal title="Keep your latest thoughts?" onClose={cancelIntent}><p className="modal-description">You have changes in {dirtyCount} {dirtyCount === 1 ? 'note' : 'notes'}. Save them before {pending === 'close' ? 'closing Prism' : pending === 'open' ? 'opening another notebook' : 'reloading from disk'}.</p><ul className="unsaved-list">{Object.keys(drafts).map(path => <li key={path}><FileText size={14} />{path}</li>)}</ul>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button className="subtle-button discard-button" disabled={busy && pending !== 'close'} onClick={() => { const intent = pending; setPending(null); void runIntent(intent); }}>Discard changes</button><button className="subtle-button" disabled={busy && pending !== 'close'} onClick={cancelIntent}>Cancel</button><button className="primary-button" disabled={busy} onClick={async () => { const intent = pending; if (await save(true)) { setPending(null); await runIntent(intent); } }}>{busy ? 'Working…' : 'Save & continue'}</button></div></Modal>}
   </div>;
 }
 

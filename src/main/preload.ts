@@ -25,6 +25,7 @@ const api: PrismAPI = {
     return () => { ipcRenderer.removeListener('prism:close-requested', listener); };
   },
   confirmClose: () => ipcRenderer.send('prism:confirm-close'),
+  cancelClose: () => ipcRenderer.send('prism:cancel-close'),
   platform: process.platform,
 };
 
