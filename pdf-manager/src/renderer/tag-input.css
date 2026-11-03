@@ -1,0 +1,36 @@
+.pdf-workspace .pdf-tag-input { min-width: 0; }
+.pdf-workspace .pdf-tag-input input { box-sizing: border-box; min-width: 0; max-width: 100%; }
+.pdf-workspace .pdf-tag-help {
+  margin: 7px 0 0;
+  color: #68795c;
+  font-size: calc(11px * var(--pdf-text-scale, 1));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.pdf-workspace .pdf-tag-options {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 4px;
+  max-height: 180px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #dce4d2;
+  border-radius: 5px;
+  background: #fff;
+  color: #4c5d40;
+  font-size: calc(12px * var(--pdf-text-scale, 1));
+}
+.pdf-workspace .pdf-tag-options [role="option"] {
+  padding: 8px;
+  border-radius: 3px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.pdf-workspace .pdf-tag-options [role="option"]:is(:hover, [aria-selected="true"]) {
+  background: #edf2e8;
+  color: #314b30;
+}
+.pdf-workspace.pdf-integrated .pdf-tag-help { color: var(--muted); }
+.pdf-workspace.pdf-integrated .pdf-tag-options { background: var(--background); color: var(--text); border-color: var(--border); }
+.pdf-workspace.pdf-integrated .pdf-tag-options [role="option"]:is(:hover, [aria-selected="true"]) { background: var(--hover); color: var(--text); }
