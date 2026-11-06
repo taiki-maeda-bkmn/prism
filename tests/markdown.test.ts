@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { JSDOM } from 'jsdom';
-import { extractLinks, getBacklinks, getNoteLinks, getTitle, renderMarkdown, renderMarkdownDocument, resolveLink, resolveNoteLink } from '../src/renderer/markdown';
+import katex from 'katex';
+import { extractLinks, getBacklinks, getMarkdownMetadata, getNoteLinks, getTitle, renderMarkdown, renderMarkdownDocument, resolveLink, resolveNoteLink } from '../src/renderer/markdown';
+import { mathTextContent } from '../src/renderer/math';
 import type { Note } from '../src/shared/types';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -261,6 +263,65 @@ test('editable heading indices follow Markdown H1–H3 while raw HTML and smalle
     { title: 'Last', level: 3, index: 3 },
   ]);
   assert.equal(rendered.html, renderMarkdown(content));
+});
+
+test('metadata-only headings retain rendered IDs, labels, and indices in Source and Live', () => {
+  const content = String.raw`# **日本語** $x_1 + x_2$
+
+<h2 onclick="alert(1)">Raw <em>HTML</em> heading</h2>
+
+#### Repeated
+
+## Repeated
+
+> ## Quoted [reference][target] and [[Other|Alias]]
+
+- ### A list heading
+
+Setext heading
+--------------
+
+## Invalid $\unknownPrism{1}$
+
+~~~md
+## Not a heading
+~~~
+
+<script><h1>Unsafe heading</h1></script>
+
+[target]: Other.md
+
+Body math $\frac{a}{b}$.
+`;
+  const rendered = renderMarkdownDocument(content);
+  const live = getMarkdownMetadata(content);
+  assert.deepEqual(live.headings, rendered.headings);
+  assert.deepEqual(live.allHeadings, rendered.allHeadings);
+  assert.deepEqual(live.outline, rendered.headings);
+  assert.deepEqual(live.allHeadings.filter(heading => heading.title === 'Repeated').map(heading => heading.id), ['repeated', 'repeated-1']);
+  assert.equal(live.outline.some(heading => heading.title.includes('Raw')), false);
+
+  const source = getMarkdownMetadata(content, { includeHTMLHeadings: true });
+  const fragment = JSDOM.fragment(rendered.html);
+  const readingOutline = [...fragment.querySelectorAll('h1,h2,h3')].map((heading, index) => ({
+    title: mathTextContent(heading), level: Number(heading.tagName.slice(1)), index,
+  }));
+  assert.deepEqual(source.headings, rendered.headings);
+  assert.deepEqual(source.allHeadings, rendered.allHeadings);
+  assert.deepEqual(source.outline, readingOutline);
+  assert.ok(source.outline.some(heading => heading.title === 'Raw HTML heading'));
+  assert.ok(source.outline.some(heading => heading.title === String.raw`Invalid $\unknownPrism{1}$`));
+  assert.equal(source.outline.some(heading => heading.title.includes('Unsafe')), false);
+});
+
+test('metadata does not compile body equations and Live does not compile heading equations', context => {
+  const content = '# Formula $x^2$\n\n' + Array.from({ length: 40 }, (_, index) => `Body $\\frac{${index + 1}}{2}$\n\n`).join('');
+  const compile = context.mock.method(katex, 'renderToString');
+  getMarkdownMetadata(content);
+  assert.equal(compile.mock.callCount(), 0, 'Live only needs source-aware heading labels');
+  getMarkdownMetadata(content, { includeHTMLHeadings: true });
+  assert.equal(compile.mock.callCount(), 1, 'Source only renders its heading formula, never the 40 body equations');
+  assert.equal(compile.mock.calls[0].arguments[0], 'x^2');
 });
 
 test('GFM task lists preserve checked state as disabled checkboxes', () => {

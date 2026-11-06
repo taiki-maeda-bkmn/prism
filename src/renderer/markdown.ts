@@ -2,7 +2,7 @@ import createDOMPurify from 'dompurify';
 import { Marked, Renderer, type Links, type Token, type Tokens } from 'marked';
 import type { Note } from '../shared/types';
 import { parsePDFPageLink, type PDFPageTarget } from '../shared/pdfLinks';
-import { renderMath, scanMarkdownMath, type MathRange } from './math';
+import { mathTextContent, renderMath, scanMarkdownMath, type MathRange } from './math';
 
 interface WikiToken extends Tokens.Generic {
   type: 'wikilink';
@@ -113,7 +113,7 @@ function mathPlainText(fragment: DocumentFragment, formulas: Map<string, MathRan
   return fragment.textContent || '';
 }
 
-function restoreMath(fragment: DocumentFragment, formulas: Map<string, MathRange>): void {
+function restoreMath(fragment: ParentNode, formulas: Map<string, MathRange>): void {
   for (const placeholder of fragment.querySelectorAll('[data-prism-math]')) {
     const math = formulas.get(placeholder.getAttribute('data-prism-math') || '');
     if (!math) continue;
@@ -141,8 +141,10 @@ export function getMarkdownReferences(content: string): Links {
   return markdown.lexer(prepareMath(content).source).links;
 }
 
+interface MarkdownRenderOptions { passive?: boolean }
+
 /** Keep editable heading metadata separate from user-supplied HTML attributes. */
-export function renderMarkdownDocument(content: string, references?: Links, options: { passive?: boolean } = {}): { html: string; headings: MarkdownHeading[]; allHeadings: MarkdownAnchorHeading[] } {
+function parseMarkdownDocument(content: string, references?: Links, options: MarkdownRenderOptions = {}) {
   const prepared = prepareMath(content);
   const headingIds = new Set<string>();
   const headings: MarkdownHeading[] = [];
@@ -174,16 +176,44 @@ export function renderMarkdownDocument(content: string, references?: Links, opti
   } else {
     html = markdown.parse(prepared.source, { async: false, renderer });
   }
-  const fragment = getPurifier().sanitize(html, {
+  return { html, prepared, headings, allHeadings };
+}
+
+function sanitizeMarkdownHTML(html: string, options: MarkdownRenderOptions = {}): DocumentFragment {
+  return getPurifier().sanitize(html, {
     RETURN_DOM_FRAGMENT: true,
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|prism-note|prism-pdf):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
     FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form', 'button', ...(options.passive ? ['img', 'audio', 'video', 'source'] : [])],
     FORBID_ATTR: ['style', ...(options.passive ? ['href', 'xlink:href', 'target', 'tabindex'] : [])],
   });
+}
+
+export function renderMarkdownDocument(content: string, references?: Links, options: MarkdownRenderOptions = {}): { html: string; headings: MarkdownHeading[]; allHeadings: MarkdownAnchorHeading[] } {
+  const { html, prepared, headings, allHeadings } = parseMarkdownDocument(content, references, options);
+  const fragment = sanitizeMarkdownHTML(html, options);
   restoreMath(fragment, prepared.formulas);
   const container = window.document.createElement('div');
   container.append(fragment);
   return { html: container.innerHTML, headings, allHeadings };
+}
+
+/**
+ * Source and Live need navigation metadata, not an unseen rendered document.
+ * Live retains trusted Markdown heading indices; Source also includes raw HTML
+ * headings, matching the reading view it opens when an outline item is clicked.
+ * Only formulas inside Source headings need rendering to retain error labels.
+ */
+export function getMarkdownMetadata(content: string, options: { includeHTMLHeadings?: boolean } = {}): {
+  headings: MarkdownHeading[]; allHeadings: MarkdownAnchorHeading[]; outline: MarkdownHeading[];
+} {
+  const { html, prepared, headings, allHeadings } = parseMarkdownDocument(content);
+  if (!options.includeHTMLHeadings) return { headings, allHeadings, outline: headings };
+  const fragment = sanitizeMarkdownHTML(html);
+  const outline = [...fragment.querySelectorAll('h1,h2,h3')].map((heading, index) => {
+    restoreMath(heading, prepared.formulas);
+    return { title: mathTextContent(heading), level: Number(heading.tagName.slice(1)), index };
+  });
+  return { headings, allHeadings, outline };
 }
 
 /** Markdown is user content: sanitize after rendering, including raw HTML. */
