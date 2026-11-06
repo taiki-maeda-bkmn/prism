@@ -636,7 +636,7 @@ export function App() {
     pdfVisited && <div key="pdfs" className="pdf-panel" id="pdfs-workspace" ref={pdfPanel} tabIndex={-1} aria-label="PDFs workspace" hidden={!split.visible && activeWorkspace !== 'pdfs'} inert={busy || (!split.visible && activeWorkspace !== 'pdfs')} aria-busy={busy} data-active={activeWorkspace === 'pdfs'}
       onPointerDownCapture={() => setActiveWorkspace('pdfs')}
       onFocusCapture={event => { workspaceFocus.current.pdfs = event.target as HTMLElement; setActiveWorkspace('pdfs'); }}>
-      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} onAppearance={() => setSettings(true)} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} onDocumentsChange={pdfGraph.updateDocuments}
+      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} visible={(split.visible || activeWorkspace === 'pdfs') && !busy} onAppearance={() => setSettings(true)} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} onDocumentsChange={pdfGraph.updateDocuments}
         onResearch={workspace ? () => setResearchOpen(true) : undefined} onArxiv={() => setArxivOpen(true)} libraryRevision={libraryRevision} />
     </div>,
     ])}

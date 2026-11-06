@@ -26,6 +26,16 @@ const workspaceButton = (name: 'Notes' | 'PDFs') => page.getByRole('navigation',
 const modeButton = (name: 'Source' | 'Split' | 'Live' | 'Read') => page.getByRole('group', { name: 'Editor mode', exact: true }).getByRole('button', { name, exact: true });
 const viewport = () => pdf().getByLabel('PDF page viewport', { exact: true });
 
+async function readPublishedNote() {
+  try { return await readFile(noteFile(), 'utf8'); }
+  catch (error) {
+    // Publication can briefly remove the destination on Windows. Keep polling
+    // for the exact saved bytes; persistent absence still fails the assertion.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
 async function launch() {
   const applicationRoot = path.resolve(process.env.PRISM_TEST_APP_ROOT || process.cwd());
   desktop = await electron.launch({
@@ -235,7 +245,7 @@ test('retains Japanese selection, undo and the unlocked reader across layouts an
   await editor().press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+z');
   await expect(editor()).toContainText(draft);
   await editor().press('ControlOrMeta+s');
-  await expect.poll(() => readFile(noteFile(), 'utf8')).toBe(welcome + draft);
+  await expect.poll(readPublishedNote).toBe(welcome + draft);
   expect(errors).toEqual([]);
   expect(remoteRequests).toEqual([]);
 });
@@ -270,7 +280,7 @@ test('routes shortcuts by the focused pane and keeps both note and library navig
   await editor().focus();
   await expect(notesPanel()).toHaveAttribute('data-active', 'true');
   await page.keyboard.press('ControlOrMeta+s');
-  await expect.poll(() => readFile(noteFile(), 'utf8')).toBe(welcome + draft);
+  await expect.poll(readPublishedNote).toBe(welcome + draft);
   await expect(notesPanel()).toHaveAttribute('aria-busy', 'false');
   await expect(editor()).toBeFocused();
   await page.keyboard.press('ControlOrMeta+o');

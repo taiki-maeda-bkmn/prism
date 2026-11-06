@@ -2,11 +2,12 @@ import { dialog, ipcMain, shell } from 'electron';
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import type { ImportResult, LibrarySnapshot, PDFDocument } from '../shared/types';
 import type { PDFURLImportManager } from './pdf-url-import';
+import { validateImportPaths } from './file-imports';
 
 /** Storage operations only; application and window lifecycle belong to the host. */
 export interface PDFLibraryOperations {
   load(): Promise<LibrarySnapshot>;
-  import(paths: readonly string[]): Promise<ImportResult>;
+  import(paths: readonly string[], folderId?: unknown): Promise<ImportResult>;
   createFolder(name: unknown): Promise<LibrarySnapshot>;
   renameFolder(id: unknown, name: unknown): Promise<LibrarySnapshot>;
   removeFolder(id: unknown): Promise<LibrarySnapshot>;
@@ -59,7 +60,7 @@ export function registerPDFLibraryIPC({ service, urlImports, validateSender, get
     validateSender(event);
     return service.removeFolder(id);
   });
-  ipcMain.handle('prism-pdf:import', async event => {
+  ipcMain.handle('prism-pdf:import', async (event, folderId: unknown) => {
     validateSender(event);
     if (importing) throw new Error('Finish the current import before starting another.');
     importing = true;
@@ -73,8 +74,16 @@ export function registerPDFLibraryIPC({ service, urlImports, validateSender, get
         title: 'Add PDFs to your library', buttonLabel: 'Import PDFs',
         properties: ['openFile', 'multiSelections'], filters: [{ name: 'PDF documents', extensions: ['pdf'] }],
       });
-      return await service.import(result.canceled ? [] : result.filePaths);
+      return await service.import(result.canceled ? [] : result.filePaths, folderId);
     } finally { importing = false; }
+  });
+  ipcMain.handle('prism-pdf:import-dropped', async (event, paths: unknown, folderId: unknown) => {
+    validateSender(event);
+    if (importing) throw new Error('Finish the current import before starting another.');
+    validateImportPaths(paths);
+    importing = true;
+    try { return await service.import(paths, folderId); }
+    finally { importing = false; }
   });
   ipcMain.handle('prism-pdf:read', async (event, id: unknown) => {
     validateSender(event);

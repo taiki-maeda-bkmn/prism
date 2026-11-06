@@ -43,7 +43,7 @@ export class PDFLibraryService {
   createFolder(name: unknown) { return this.run(store => store.createFolder(name)); }
   renameFolder(id: unknown, name: unknown) { return this.run(store => store.renameFolder(id, name)); }
   removeFolder(id: unknown) { return this.run(store => store.removeFolder(id)); }
-  import(paths: readonly string[]) { return this.run(store => store.import(paths)); }
+  import(paths: readonly string[], folderId?: unknown) { return this.run(store => store.import(paths, folderId)); }
   importDownloaded(input: DownloadedPDFImport) { return this.run(store => store.importDownloaded(input)); }
   importArxiv(input: ArxivImportMetadata, download: () => Promise<Uint8Array>) {
     return this.run(store => store.importArxiv(input, download));
