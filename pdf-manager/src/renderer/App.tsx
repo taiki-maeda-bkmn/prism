@@ -39,7 +39,10 @@ function Modal({ title, onClose, children, active }: { title: string; onClose: (
 export function App() { return <LibraryWorkspace />; }
 
 export interface LibraryWorkspaceProps {
+  /** Whether PDF shortcuts currently own the keyboard focus. */
   workspaceActive?: boolean;
+  /** Whether the pane is shown and interactive, including beside focused notes. */
+  workspaceVisible?: boolean;
   onAppearance?: () => void;
   pageLinkRequest?: PDFPageLinkRequest | null;
   onInsertPageLink?: (reference: PDFPageReference) => void;
@@ -53,7 +56,7 @@ export interface LibraryWorkspaceProps {
 }
 
 /** Mounted once per workspace visit session so filters and password sessions survive hiding. */
-export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks, onOpenNote, onDocumentsChange, onResearch, onArxiv, libraryRevision = 0 }: LibraryWorkspaceProps) {
+export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = workspaceActive, onAppearance, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks, onOpenNote, onDocumentsChange, onResearch, onArxiv, libraryRevision = 0 }: LibraryWorkspaceProps) {
   const integrated = !!onAppearance;
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [folders, setFolders] = useState<PDFFolder[]>([]);
@@ -80,8 +83,8 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
   const [importing, setImporting] = useState(false);
   const importingRef = useRef(false);
   const navigationRevision = useRef(0);
-  const workspaceVisible = useRef(workspaceActive);
-  workspaceVisible.current = workspaceActive;
+  const visibleRef = useRef(workspaceVisible);
+  visibleRef.current = workspaceVisible;
   const [urlImportOpen, setURLImportOpen] = useState(false);
   const loadRequest = useRef(0);
   const documentChanges = useRef(new Map<string, number>());
@@ -205,11 +208,11 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     setActiveId(pageLinkRequest.documentId);
   }, [pageLinkRequest, loading, loadError, documents, closeNavigation]);
 
-  const canImportFiles = useCallback(() => workspaceActive && !importingRef.current && !loading && !loadError
+  const canImportFiles = useCallback((forDrop = false) => (forDrop ? workspaceVisible : workspaceActive) && !importingRef.current && !loading && !loadError
     && !movingRef.current && !folderBusyRef.current && !editingId && !folderDialog && !urlImportOpen
-    && !document.querySelector('dialog[open]'), [workspaceActive, loading, loadError, editingId, folderDialog, urlImportOpen]);
+    && !document.querySelector('dialog[open]'), [workspaceActive, workspaceVisible, loading, loadError, editingId, folderDialog, urlImportOpen]);
   const importFiles = useCallback(async (files?: File[], requestedFolderId?: string | null) => {
-    if (!canImportFiles()) return;
+    if (!canImportFiles(files !== undefined)) return;
     importingRef.current = true;
     const folderId = requestedFolderId === undefined ? (filter.startsWith('folder:') ? filter.slice(7) : null) : requestedFolderId;
     const destination = folderId ? foldersRef.current.find(folder => folder.id === folderId)?.name ?? 'the selected folder' : 'Unfiled';
@@ -234,7 +237,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
       }
       // Finishing an older import must not replace newer reader/filter navigation.
       if (result.importedIds.length && latestLink.current?.request === linkAtImport
-        && navigationRevision.current === navigationAtImport && workspaceVisible.current) {
+        && navigationRevision.current === navigationAtImport && visibleRef.current) {
         setFilter(folderId && !foldersRef.current.some(folder => folder.id === folderId) ? 'unfiled' : destinationFilter);
         setQuery(''); setActiveId(null);
       }
@@ -367,7 +370,10 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     setDraggingId(null); setDropTarget(null); setDraggingFiles(false); setLibraryDropTarget(false);
   }, []);
   useEffect(() => {
-    if (!workspaceActive) { navigationRevision.current++; clearDrag(); }
+    // Focus changes count as newer navigation, but a shown PDF pane can accept
+    // an external file drop while the adjacent note retains keyboard focus.
+    if (!workspaceActive) navigationRevision.current++;
+    if (!workspaceVisible) clearDrag();
     window.addEventListener('blur', clearDrag);
     window.addEventListener('dragend', clearDrag);
     window.addEventListener('drop', clearDrag);
@@ -379,7 +385,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
       window.removeEventListener('drop', clearDrag);
       window.removeEventListener('keydown', cancel);
     };
-  }, [workspaceActive, clearDrag]);
+  }, [workspaceActive, workspaceVisible, clearDrag]);
   const beginDrag = (event: DragEvent<HTMLElement>, id: string) => {
     if (movingRef.current || folderBusyRef.current || importingRef.current || !workspaceActive || (event.target as Element).closest('.card-actions, .document-tags')) { event.preventDefault(); return; }
     const token = crypto.randomUUID();
@@ -405,7 +411,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
   };
   const folderDropProps = (folderId: string | null) => ({
     onDragOver: (event: DragEvent<HTMLButtonElement>) => {
-      const fileDrop = externalDrag(event) && canImportFiles();
+      const fileDrop = externalDrag(event) && canImportFiles(true);
       if (!fileDrop && (!internalDrag(event) || movingRef.current || folderBusyRef.current || importingRef.current || !workspaceActive || document.querySelector('dialog[open]'))) return;
       event.preventDefault(); event.stopPropagation();
       event.dataTransfer.dropEffect = fileDrop ? 'copy' : 'move';
@@ -419,7 +425,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
       event.preventDefault(); event.stopPropagation();
       // Read File objects while the drop data store is accessible; the preload
       // resolves their native paths before starting the asynchronous import.
-      const files = externalDrag(event) && canImportFiles() ? Array.from(event.dataTransfer.files) : null;
+      const files = externalDrag(event) && canImportFiles(true) ? Array.from(event.dataTransfer.files) : null;
       const drag = dragRef.current;
       const accepted = internalDrag(event) && drag && event.dataTransfer.getData(documentDragType) === drag.token && !document.querySelector('dialog[open]');
       clearDrag();
@@ -442,7 +448,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
   </button>;
 
   return <div ref={workspaceRef} className={`pdf-workspace ${integrated ? 'pdf-integrated' : 'pdf-standalone app-shell'}`} data-compact={compact} data-transparent={integrated ? undefined : appearance.transparent} style={integrated ? undefined : { '--surface-alpha': appearance.transparent ? appearance.opacity / 100 : 1 } as CSSProperties}
-    onDragEnter={event => { if (externalDrag(event) && canImportFiles()) rememberFileDrag(); }}
+    onDragEnter={event => { if (externalDrag(event) && canImportFiles(true)) rememberFileDrag(); }}
     onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'none'; setDropTarget(null); setLibraryDropTarget(false); }}
     onDragLeave={event => {
       if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
@@ -477,7 +483,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     <div className="workspace">
       <header className={integrated ? "pdf-library-heading" : "titlebar"}>
         {compact && <button ref={navigationToggle} className="pdf-library-toggle" aria-label="Library navigation" aria-controls="pdf-library-navigation" aria-expanded={navigationOpen} onDragEnter={event => {
-          if (externalDrag(event) && canImportFiles()) { rememberFileDrag(); setNavigationOpen(true); }
+          if (externalDrag(event) && canImportFiles(true)) { rememberFileDrag(); setNavigationOpen(true); }
           else if (internalDrag(event)) setNavigationOpen(true);
         }} onClick={() => setNavigationOpen(value => !value)}><PanelLeft size={17} /><span>Library</span></button>}
         <div className="breadcrumb"><span>Workspace</span><ChevronRight size={13} /><strong>{active ? active.title : 'My library'}</strong></div>
@@ -492,14 +498,14 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
       {warnings.length > 0 && <details className="warnings"><summary>{warnings.length} library warning{warnings.length === 1 ? '' : 's'}</summary>{warnings.map((warning, index) => <p key={index}>{warning}</p>)}</details>}
       {active ? <PdfReader key={active.id} workspaceActive={workspaceActive} document={active} onUpdate={readingUpdate} onClose={() => openDocument(null)} pageLinkRequest={readerLinkRequest?.documentId === active.id ? readerLinkRequest : null} onInsertPageLink={onInsertPageLink} canInsertPageLink={canInsertPageLink} backlinks={backlinks?.get(active.id)} onOpenNote={onOpenNote} /> : <main className={`library-content ${libraryDropTarget ? 'pdf-file-drop-target' : ''}`} aria-describedby="pdf-file-drop-help"
         onDragOver={event => {
-          if (!externalDrag(event) || !canImportFiles()) return;
+          if (!externalDrag(event) || !canImportFiles(true)) return;
           event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy';
           rememberFileDrag(); setDropTarget(null); setLibraryDropTarget(true);
         }}
         onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setLibraryDropTarget(false); }}
         onDrop={event => {
           event.preventDefault(); event.stopPropagation();
-          const files = externalDrag(event) && canImportFiles() ? Array.from(event.dataTransfer.files) : null;
+          const files = externalDrag(event) && canImportFiles(true) ? Array.from(event.dataTransfer.files) : null;
           clearDrag();
           if (files) void importFiles(files);
         }}>

@@ -16,6 +16,7 @@ class LoadBoundary extends Component<{ children: ReactNode; retry: () => void },
 
 interface PDFWorkspaceLoaderProps {
   active: boolean;
+  visible: boolean;
   onAppearance: () => void;
   pageLinkRequest?: PDFPageLinkRequest | null;
   onInsertPageLink?: (reference: PDFPageReference) => void;

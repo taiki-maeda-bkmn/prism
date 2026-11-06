@@ -4,6 +4,7 @@ import type { PDFGraphDocument } from '../../../src/shared/pdfGraph';
 
 interface PDFWorkspaceProps {
   active: boolean;
+  visible: boolean;
   onAppearance: () => void;
   pageLinkRequest?: PDFPageLinkRequest | null;
   onInsertPageLink?: (reference: PDFPageReference) => void;
@@ -16,6 +17,6 @@ interface PDFWorkspaceProps {
   libraryRevision?: number;
 }
 
-export default function PDFWorkspace({ active, ...props }: PDFWorkspaceProps) {
-  return <LibraryWorkspace workspaceActive={active} {...props} />;
+export default function PDFWorkspace({ active, visible, ...props }: PDFWorkspaceProps) {
+  return <LibraryWorkspace workspaceActive={active} workspaceVisible={visible} {...props} />;
 }

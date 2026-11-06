@@ -47,7 +47,9 @@ test('standalone folders preserve documents, metadata and reading positions thro
     const event = { x: box!.x + box!.width / 2, y: box!.y + Math.min(box!.height / 2, 160),
       data: { items: [], files: [filename], dragOperationsMask: 1 } };
     try {
-      for (const type of ['dragEnter', 'dragOver', 'drop'] as const) await session.send('Input.dispatchDragEvent', { type, ...event });
+      for (const type of ['dragEnter', 'dragOver', 'dragOver'] as const) await session.send('Input.dispatchDragEvent', { type, ...event });
+      await expect(target).toHaveClass(/pdf-file-drop-target|pdf-drop-target/);
+      await session.send('Input.dispatchDragEvent', { type: 'drop', ...event });
     } finally { await session.detach(); }
   }
   try {

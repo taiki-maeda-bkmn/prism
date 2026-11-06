@@ -58,7 +58,9 @@ explicit destination. **Import PDFs** and Ctrl/⌘+O use the selected folder too
 - Highlight the destination with a copy cue, expose folders from compact Library
   navigation, clear cancelled drags, and retain existing internal drag moves.
   Guard imports while another file import, loading, or a modal is active. Drops
-  onto the reader itself do not import files.
+  onto the reader itself do not import files. A visible library pane in
+  **Read & write** accepts file drops while the adjacent note retains keyboard
+  focus, selection, undo, and save shortcuts; hidden or busy panes reject them.
 
 Both integrated and standalone hosts share the change. No AI API is involved;
 GitHub CI remains unchecked.
@@ -73,7 +75,7 @@ publication, duplicate and source preservation, partial results, unavailable
 folder rejection and queue order, publication retry, invalid/sparse path batches,
 native File resolution, and import completion before library shutdown.
 
-Twelve integrated native Windows journeys pass together: four new file-drop
+Thirteen integrated native Windows journeys pass together: five new file-drop
 journeys, four existing folder journeys, and four side-by-side reading journeys.
 The standalone folder journey also passes with dropped files and restart. These
 checks use disk-backed Chromium drag events through the actual preload and IPC
@@ -81,15 +83,21 @@ boundary, rather than mocking the import bridge. They cover Japanese filenames,
 mixed valid/invalid files, unchanged duplicates/originals, current-folder picker
 imports, Markdown drafts/undo and exact saves, reader retention, restart,
 rejected synthetic/text/reader/modal drops, cancelled drags, busy-import guards,
-and newer navigation during import. The compact folder highlight was visually
+newer navigation during import, and drops beside a focused note while retaining
+its selection, undo, and save shortcuts. The compact folder highlight was visually
 checked at 420 pixels wide and 150% text size. Physical Explorer mouse gestures
 are not automated by these tests. All profiles, notebooks, and source PDFs are
 disposable fixtures; tests do not modify the user's library.
 
+Drag fixtures use continued hovering and check the acceptance cue before release,
+following [Playwright's drag guidance](https://playwright.dev/docs/input#drag-and-drop).
+Save polls tolerate only transient `ENOENT` during publication, while retaining
+exact BOM/CRLF byte assertions and failing if publication never completes.
+
 The native launcher regression also passes real Windows mouse delivery,
 Japanese BOM/CRLF save/readback, dirty-close cancellation, repeated relaunch with
 retained drafts, complete process exit, and reopen. The verified native release
-`20261106T125248644Z-b7152e89` was activated through the existing desktop and Start
+`20261106T130357944Z-22234e93` was activated through the existing desktop and Start
 Menu shortcuts and opened successfully. Shortcut backups and the previous
 release remain available; existing Windows notebooks and PDFs remain in place.
 

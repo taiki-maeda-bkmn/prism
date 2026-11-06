@@ -1,4 +1,4 @@
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -67,6 +67,16 @@ async function moveWithDetails(document: PDFDocument, target: string) {
   await dialog.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(dialog).toHaveCount(0);
 }
+async function dragDocument(source: Locator, target: Locator) {
+  await source.hover(); await page.mouse.down();
+  try {
+    // Two moves deliver dragover after dragenter across Chromium/native hosts.
+    // See https://playwright.dev/docs/input#drag-and-drop.
+    await target.hover(); await target.hover();
+    await expect(source).toHaveClass(/pdf-document-dragging/);
+    await expect(target).toHaveClass(/pdf-drop-target/);
+  } finally { await page.mouse.up(); }
+}
 
 test.beforeEach(async () => {
   temporary = await mkdtemp(path.join(os.tmpdir(), 'prism-folders-'));
@@ -100,12 +110,12 @@ test('moves PDFs by dragging in grid/list, persists folders, and keeps draft und
   const research = await createFolder('研究資料');
   const trading = await createFolder('Trading');
   await pdf().getByRole('button', { name: 'All documents', exact: true }).click();
-  await card(first.id).dragTo(folder(research.name));
+  await dragDocument(card(first.id), folder(research.name));
   await expect.poll(async () => (await findDocument(first.id)).folderId).toBe(research.id);
   await expect(pdf().locator('.pdf-reader')).toHaveCount(0);
   await folder(research.name).click(); await expect(card(first.id)).toBeVisible(); await expect(card(second.id)).toHaveCount(0);
   await pdf().getByRole('button', { name: 'List view', exact: true }).click();
-  await card(first.id).dragTo(folder(trading.name));
+  await dragDocument(card(first.id), folder(trading.name));
   await expect.poll(async () => (await findDocument(first.id)).folderId).toBe(trading.id);
   await expect(card(first.id)).toHaveCount(0);
   await folder(trading.name).click();
@@ -143,7 +153,7 @@ test('folder details support keyboard moves, duplicate-name errors, and safe rem
   await creation.press('Escape'); await expect(creation).toHaveCount(0);
   expect((await catalog()).folders).toHaveLength(1);
   await folder(target.name).click();
-  await card(first.id).dragTo(pdf().getByRole('button', { name: 'Unfiled', exact: true }));
+  await dragDocument(card(first.id), pdf().getByRole('button', { name: 'Unfiled', exact: true }));
   await expect.poll(async () => (await findDocument(first.id)).folderId).toBeUndefined();
   await pdf().getByRole('button', { name: 'Unfiled', exact: true }).click();
   await moveWithDetails(first, target.name);
@@ -189,12 +199,12 @@ test('failed and unrelated drops keep organization intact, then allow a move to 
   await expect(pdf().getByRole('button', { name: 'Import PDFs', exact: true })).toBeEnabled();
   expect(await readFile(catalogPath(), 'utf8')).toBe(before);
   await writeFile(catalogPath(), before + '\n');
-  await card(first.id).dragTo(folder(target.name));
+  await dragDocument(card(first.id), folder(target.name));
   await expect(pdf().getByRole('alert')).toContainText('changed outside');
   await expect(card(first.id)).toBeVisible();
   expect((await findDocument(first.id)).folderId).toBeUndefined();
   await writeFile(catalogPath(), before);
-  await card(first.id).dragTo(folder(target.name));
+  await dragDocument(card(first.id), folder(target.name));
   await expect.poll(async () => (await findDocument(first.id)).folderId).toBe(target.id);
   expect(errors).toEqual([]);
 });

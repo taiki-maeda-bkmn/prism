@@ -28,6 +28,15 @@ const documents = async () => (await catalog()).documents;
 const byFilename = async (filename: string) => (await documents()).find(document => document.filename === filename)!;
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
+async function readPublishedNote() {
+  try { return await readFile(path.join(notebook, 'Drop notes.md'), 'utf8'); }
+  catch (error) {
+    // A Windows publication gap is a pending save, not a completed assertion.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
 async function launch() {
   const env: Record<string, string> = {
     ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
@@ -74,9 +83,16 @@ async function dragFiles(filenames: string[]) {
     drop: (target: Locator) => send('drop', target), cancel: () => send('dragCancel') };
 }
 
-async function dropFiles(target: Locator, filenames: string[]) {
+async function dropFiles(target: Locator, filenames: string[], accepted = true) {
   const drag = await dragFiles(filenames);
-  try { await drag.enter(target); await drag.over(target); await drag.drop(target); }
+  try {
+    await drag.enter(target);
+    // A move can only enter a new DOM target. Continue hovering so Chromium
+    // also delivers dragover, then confirm acceptance before releasing files.
+    await drag.over(target); await drag.over(target);
+    if (accepted) await expect(target).toHaveClass(/pdf-file-drop-target|pdf-drop-target/);
+    await drag.drop(target);
+  }
   finally { await drag.session.detach(); }
 }
 
@@ -142,7 +158,7 @@ test('imports real disk files into a folder with partial results, unchanged dupl
   await editor().press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+z');
   await expect(editor()).toContainText(draft);
   await editor().press('ControlOrMeta+s');
-  await expect.poll(() => readFile(path.join(notebook, 'Drop notes.md'), 'utf8')).toBe(original + draft);
+  await expect.poll(readPublishedNote).toBe(original + draft);
   await expect(page.locator('.statusbar')).toContainText('All changes saved');
   await workspace('PDFs').click();
   await expect(pdf().locator('.pdf-paper canvas[data-page-number="2"]')).toBeVisible();
@@ -197,14 +213,14 @@ test('rejects pathless and unrelated drops and ignores file drops on a reader or
   await pdf().getByRole('button', { name: 'New folder', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New folder', exact: true });
   await expect(dialog).toBeVisible();
-  await dropFiles(dialog.getByRole('textbox', { name: 'Folder name', exact: true }), ['Second paper.pdf']);
+  await dropFiles(dialog.getByRole('textbox', { name: 'Folder name', exact: true }), ['Second paper.pdf'], false);
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(await readFile(catalogPath(), 'utf8')).toBe(before);
   await folder(archive.name).click();
   await pdf().getByRole('button', { name: 'Open Saved research', exact: true }).click();
   await expect(pdf().locator('.pdf-paper canvas[data-page-number="2"]')).toBeVisible();
   const retained = await pdf().locator('.pdf-paper canvas').elementHandle();
-  await dropFiles(pdf().getByLabel('PDF page viewport', { exact: true }), ['Second paper.pdf']);
+  await dropFiles(pdf().getByLabel('PDF page viewport', { exact: true }), ['Second paper.pdf'], false);
   await expect(pdf().locator('.pdf-paper canvas[data-page-number="2"]')).toBeVisible();
   expect(await pdf().locator('.pdf-paper canvas').evaluate((node, previous) => node === previous, retained)).toBe(true);
   expect(await documents()).toHaveLength(1);
@@ -241,7 +257,7 @@ test('opens compact navigation during a file drag, clears cancellation, and igno
   });
   await importButton().click();
   await expect(pdf().getByRole('button', { name: 'Importing…', exact: true })).toBeDisabled();
-  await dropFiles(folder(archive.name), ['Second paper.pdf']);
+  await dropFiles(folder(archive.name), ['Second paper.pdf'], false);
   expect(await documents()).toHaveLength(1);
   await folder(archive.name).click();
   await desktop!.evaluate((_, filename) => {
@@ -251,5 +267,59 @@ test('opens compact navigation during a file drag, clears cancellation, and igno
   await expect.poll(async () => (await byFilename('価格の研究 100%.PDF'))?.folderId).toBe(research.id);
   await expect(library().getByRole('heading', { name: archive.name, exact: true })).toBeVisible();
   expect(await documents()).toHaveLength(2);
+  await expectOriginals(); expect(errors).toEqual([]);
+});
+
+test('accepts file drops beside a focused note without taking its selection, undo or save shortcuts', async () => {
+  await page.getByRole('group', { name: 'Editor mode', exact: true }).getByRole('button', { name: 'Source', exact: true }).click();
+  await editor().focus(); await editor().press('ControlOrMeta+End'); await page.keyboard.insertText(draft);
+  await editor().press('Shift+Home');
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(draft);
+  const originalEditor = await editor().elementHandle();
+  await page.getByRole('button', { name: 'Read & write', exact: true }).click();
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-layout', 'split');
+  await expect(page.locator('.pdf-panel')).toBeVisible();
+  await expect(importButton()).toBeEnabled();
+  await expect(editor()).toBeFocused();
+  await expect(page.locator('.app-body')).toHaveAttribute('data-active', 'true');
+  await expect(page.locator('.pdf-panel')).toHaveAttribute('data-active', 'false');
+
+  // No click or focus is sent to the PDF pane before either native file drop.
+  await dropFiles(library(), ['価格の研究 100%.PDF']);
+  await expect.poll(async () => (await documents()).length).toBe(2);
+  expect((await byFilename('価格の研究 100%.PDF')).folderId).toBeUndefined();
+  await expect(importButton()).toBeEnabled();
+  await expect(editor()).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(draft);
+
+  const navigation = pdf().getByRole('button', { name: 'Library navigation', exact: true });
+  const drag = await dragFiles(['Second paper.pdf']);
+  try {
+    await drag.enter(navigation); await drag.over(navigation);
+    await expect(navigation).toHaveAttribute('aria-expanded', 'true');
+    await expect(editor()).toBeFocused();
+    await drag.over(folder(research.name)); await drag.over(folder(research.name));
+    await expect(folder(research.name)).toHaveClass(/pdf-drop-target/);
+    await drag.drop(folder(research.name));
+  } finally { await drag.session.detach(); }
+  await expect.poll(async () => (await byFilename('Second paper.pdf'))?.folderId).toBe(research.id);
+  await expect(importButton()).toBeEnabled();
+  await expect(navigation).toHaveAttribute('aria-expanded', 'false');
+  await expect(editor()).toBeFocused();
+  await expect(page.locator('.app-body')).toHaveAttribute('data-active', 'true');
+  await expect(page.locator('.pdf-panel')).toHaveAttribute('data-active', 'false');
+  expect(await editor().evaluate((node, previous) => node === previous, originalEditor)).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(draft);
+  expect(await readFile(path.join(notebook, 'Drop notes.md'), 'utf8')).toBe(original);
+
+  // Global keyboard input deliberately does not refocus the editor: drop
+  // handling must leave the note as shortcut owner throughout the operation.
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect.poll(readPublishedNote).toBe(original + draft);
+  await expect(page.locator('.statusbar')).toContainText('All changes saved');
+  await expect(editor()).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+z'); await expect(editor()).not.toContainText(draft);
+  await page.keyboard.press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+z');
+  await expect(editor()).toContainText(draft);
   await expectOriginals(); expect(errors).toEqual([]);
 });

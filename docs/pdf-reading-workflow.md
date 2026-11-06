@@ -39,7 +39,8 @@ manager onto a sidebar folder or **Unfiled**. Dropping onto the library area
 uses the currently selected folder; in All documents, tag, Favorites, and Recent
 views it uses Unfiled. In a narrow window, hover over **Library** while dragging
 to expose the folder destinations. **Import PDFs** and Ctrl/⌘+O use the selected
-folder as a keyboard alternative.
+folder as a keyboard alternative. In **Read & write**, the visible PDF pane also
+accepts drops while your note keeps its selection and keyboard focus.
 
 Prism copies files and keeps the originals. You can import up to 100 files at
 once, each up to 100 MiB. The result reports added PDFs, existing copies, and
