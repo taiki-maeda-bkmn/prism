@@ -39,7 +39,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Prism
 
 Activation updates the desktop and Start Menu **Prism** shortcuts to the selected native release. It only replaces shortcuts marked as managed Prism launchers, backs them up under `shortcut-backups`, creates both replacement shortcuts before promoting either, and restores the previous shortcuts if promotion fails. The `active.json` selection is replaced atomically. Activation does not launch the app or change its data.
 
-Future source updates use the same build, stage, verify, and activate sequence. Selecting an earlier staged release rolls back the app version; restoring the backed-up shortcuts returns to the former WSLg launcher. Do not run both app versions against the same active notebook or PDF library.
+Future source updates use the same build, stage, verify, and activate sequence. Selecting an earlier staged release rolls back the app version. Restoring old WSLg shortcuts also requires the corresponding Ubuntu storage; if that storage has been retired, restore it into separate folders from its backup before using a legacy launcher. Do not run both app versions against the same active notebook or PDF library.
+
+## Retiring the old WSL storage
+
+Once the native app and migrated data have been verified, old WSL storage can be retired at the user's request. Recheck for newer WSL work and running legacy processes first. Back up the complete old profiles and notebook, including historical PDF backups, starter notes, settings, and recovery files that are outside the active library migration. Verify every archived file before deleting the original directories. Back up and remove obsolete managed launchers so they cannot accidentally create fresh, empty WSL profiles.
+
+The local WSL copies were retired on 6 November 2026 after explicit user approval. The two old application profiles (`~/.config/Prism` and `~/.config/prism-pdf`) and the migrated notebook (`~/practice/problem_solving`) contained 293 files, totaling about 210 MiB. All matched a verified Windows backup before removal. The Windows desktop and Start Menu **Prism PDF** shortcuts and both Linux Prism application entries were also backed up and removed; the native **Prism** shortcuts and source repository were retained.
+
+The archive, per-file hashes, original paths, and retirement record are under `%LOCALAPPDATA%\PrismNative\backups\wsl-storage-20261106-193024`. The active Windows notebook and all 69 PDFs remain in their native storage. Restore archived files into a separate folder when recovering old material, so newer native work is preserved. Source changes still need the native build, stage, verify, and activate workflow above; this storage cleanup does not require an application release.
 
 ## Validation
 
@@ -55,6 +63,6 @@ The harness also works with a script path in the source repository's WSL UNC loc
 
 The original WSLg session had a responsive renderer with no dirty notes but no Windows host window. Repeated launch and both immediate and delayed hide/show failed to restore that session. A normal close and fresh process restored access. Native Windows deployment removes the WSLg display connection from subsequent desktop launches; the Linux window recovery code is unchanged.
 
-On Windows x64 with Electron 44.7.2, the regression harness passed, including real mouse delivery, retained drafts, native save/readback, and process cleanup. The build/typecheck and 360 existing unit tests passed (five platform skips), as did the three installer checks. The actual managed desktop and Start Menu shortcuts were backed up, replaced, and opened successfully. Migration verified 34 notebook/recovery files and 78 PDF library files by SHA256, preserved all 69 document IDs and metadata, and verified a rendered PDF plus a native save in the new notebook. Original notebook hashes remained unchanged. Original Ubuntu data and shortcut backups are retained.
+On Windows x64 with Electron 44.7.2, the regression harness passed, including real mouse delivery, retained drafts, native save/readback, and process cleanup. The build/typecheck and 360 existing unit tests passed (five platform skips), as did the three installer checks. The actual managed desktop and Start Menu shortcuts were backed up, replaced, and opened successfully. Migration verified 34 notebook/recovery files and 78 PDF library files by SHA256, preserved all 69 document IDs and metadata, and verified a rendered PDF plus a native save in the new notebook. Original notebook hashes remained unchanged. Ubuntu originals were retained until the subsequent verified retirement described above; Windows archive and shortcut backups remain available.
 
 The observed WSLg failure is bypassed by the native launcher. This is not a guarantee against every Windows, driver, or Electron failure; startup failures produce a Windows error dialog and a per-launch log. GitHub CI was not checked.
