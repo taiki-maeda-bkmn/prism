@@ -2,6 +2,8 @@
 
 A local Markdown notebook and PDF library with live preview, connected notes, and a transparent desktop window. Built with Electron, React, TypeScript, and CodeMirror.
 
+Supported platforms are **Windows and Linux**. macOS is no longer supported or included in GitHub Actions checks.
+
 Prism includes **Notes** and **PDFs** workspaces in the same window. Use the buttons in the title bar to switch between them, or choose **Read & write** to keep a note and PDF visible together.
 
 Follow the [reading and writing guide](docs/pdf-reading-workflow.md) to import a PDF, add page references to a note, save, and resume later. It also covers keyboard focus and recovery when a note or PDF cannot be opened or saved.
@@ -23,7 +25,7 @@ npm start
 
 Prism opens a starter notebook with four connected notes. Use **Open notebook** to choose your own folder. Existing files are never seeded or overwritten. The chosen folder and appearance preferences are remembered when you reopen the app.
 
-On Linux and macOS, the starter folder is a symbolic link to a complete notebook in an adjacent `.prism-notebook-…` folder. If the filesystem cannot create links, Prism opens and remembers that complete notebook directly. When backing it up, copy the actual note files, not just a link. The **Open notebook** button's tooltip shows the resolved folder path. Windows uses an ordinary starter folder.
+On Linux, the starter folder is a symbolic link to a complete notebook in an adjacent `.prism-notebook-…` folder. If the filesystem cannot create links, Prism opens and remembers that complete notebook directly. When backing it up, copy the actual note files, not just a link. The **Open notebook** button's tooltip shows the resolved folder path. Windows uses an ordinary starter folder.
 
 This is a desktop application; opening the HTML file in a browser does not provide notebook access.
 
@@ -111,31 +113,31 @@ Prism checks for external changes before saving and keeps your draft if it detec
 
 Saves retain recovery files beside the note in a hidden `.prism-recovery/save-…` directory: `original.md`, `draft.md`, and a manifest. A `complete` marker identifies a settled save. On loading a notebook, Prism can restore a missing note from an unfinished save; it never replaces an existing destination or restores deliberately deleted notes from completed saves. If an existing file cannot be verified as a complete known version, Prism leaves every copy untouched, withholds that note from the list, and shows a recovery warning with the copies' location. See [manual recovery](docs/save-recovery.md#manual-recovery) before choosing which version to keep. Recovery copies are not automatically pruned in this release.
 
-Saves preserve supported file metadata, including extended attributes and access controls. This uses GNU `/bin/cp` on Linux, the native copy API through system `/usr/bin/osascript` on macOS, and Windows PowerShell for Windows permissions. If those helpers are unavailable or permissions cannot be preserved, Prism reports a save error and retains recovery copies. See [save recovery](docs/save-recovery.md) for platform details.
+Saves preserve supported file metadata, including extended attributes and access controls. This uses GNU `/bin/cp` on Linux and Windows PowerShell for Windows permissions. If those helpers are unavailable or permissions cannot be preserved, Prism reports a save error and retains recovery copies. See [save recovery](docs/save-recovery.md) for platform details.
 
-| Action | Windows / Linux | macOS |
-| --- | --- | --- |
-| Save current note | Ctrl+S | ⌘S |
-| Save all changed notes | Ctrl+Shift+S | ⌘Shift+S |
-| New note | Ctrl+N | ⌘N |
-| Open notebook | Ctrl+O | ⌘O |
-| Find a note | Ctrl+P | ⌘P |
-| Source / Split / Read | Ctrl+1 / 2 / 3 | ⌘1 / 2 / 3 |
-| Live editing | Ctrl+4 | ⌘4 |
-| Toggle graph | Ctrl+Shift+G | ⌘Shift+G |
-| Find text in the editor | Ctrl+F | ⌘F |
+| Action | Windows / Linux |
+| --- | --- |
+| Save current note | Ctrl+S |
+| Save all changed notes | Ctrl+Shift+S |
+| New note | Ctrl+N |
+| Open notebook | Ctrl+O |
+| Find a note | Ctrl+P |
+| Source / Split / Read | Ctrl+1 / 2 / 3 |
+| Live editing | Ctrl+4 |
+| Toggle graph | Ctrl+Shift+G |
+| Find text in the editor | Ctrl+F |
 
 ## Desktop behavior and limits
 
-Prism creates a native transparent window and uses alpha backgrounds. Actual composition depends on the operating system and desktop compositor. Use **Maximize window** in the title bar to maximize within the desktop work area, keeping the taskbar and window controls available. The same button becomes **Restore window** and returns to the previous size and position. This uses the operating system’s maximized state, not fullscreen. Linux and macOS also allow normal window resizing. Windows keeps the normal window size fixed to retain transparent-window behavior. The initial size fits the current screen. Opening DevTools can disable native transparency. See [Electron's transparent-window documentation](https://www.electronjs.org/docs/latest/tutorial/custom-window-styles#transparent-windows).
+Prism creates a native transparent window and uses alpha backgrounds. Actual composition depends on the operating system and desktop compositor. Use **Maximize window** in the title bar to maximize within the desktop work area, keeping the taskbar and window controls available. The same button becomes **Restore window** and returns to the previous size and position. This uses the operating system’s maximized state, not fullscreen. Linux also allows normal window resizing. Windows keeps the normal window size fixed to retain transparent-window behavior. The initial size fits the current screen. Opening DevTools can disable native transparency. See [Electron's transparent-window documentation](https://www.electronjs.org/docs/latest/tutorial/custom-window-styles#transparent-windows).
 
 On Windows with WSLg, the desktop shortcut and `npm start` automatically use native Wayland when its socket is available. This avoids [WSLg's displaced content in maximized borderless X11 windows](https://github.com/microsoft/wslg/issues/1015). Remote X displays and isolated test displays retain their existing backend. An explicit backend flag is respected, for example `npm start -- --ozone-platform=x11`.
 
-Prism remembers its normal size and maximized state when reopened. Native Windows, macOS, and X11 also restore the previous position and fit saved bounds to a connected screen after monitor changes. Native Wayland desktops, including WSLg, choose the window's position themselves. The former WSLg host-position helper was removed because moving only the visible Windows window could prevent clicks from reaching the displayed controls. Its old preference file is left untouched. Closing while minimized still reopens a visible window. See [window placement](docs/window-placement.md) for the fix and the deferred WSLg position-restoration plan.
+Prism remembers its normal size and maximized state when reopened. Native Windows and X11 also restore the previous position and fit saved bounds to a connected screen after monitor changes. Native Wayland desktops, including WSLg, choose the window's position themselves. The former WSLg host-position helper was removed because moving only the visible Windows window could prevent clicks from reaching the displayed controls. Its old preference file is left untouched. Closing while minimized still reopens a visible window. See [window placement](docs/window-placement.md) for the fix and the deferred WSLg position-restoration plan.
 
 The first release supports UTF-8 `.md` and `.markdown` files (new files use `.md`). An existing UTF-8 byte-order mark is preserved on save and excluded from the editor text. Existing newline styles are preserved; editing a file with mixed line endings normalizes it to its first newline style. Each note can be up to 2 MB; a notebook can load up to 2,000 notes and 64 MB of text. Hidden folders, `node_modules`, symbolic links, and unsupported filenames are skipped, with scan warnings shown in the app. Preview HTML is sanitized; scripts, forms, external image loading, and arbitrary local file access are blocked. Task-list checkboxes in Read and Split previews are read-only. Use the Live editor’s checkboxes or edit the Markdown source to change them. Code blocks are displayed and edited; code is never executed.
 
-Attachments, embedded notes, file renaming/deletion, synchronization, plugins, and signed installers are outside this first release. Linux and WSLg desktop launchers use the source checkout. Native Windows releases contain their own runtime and built app; updating them requires staging and activating a new release. macOS compositor behavior still needs testing on that desktop.
+Attachments, embedded notes, file renaming/deletion, synchronization, plugins, and signed installers are outside this first release. Linux and WSLg desktop launchers use the source checkout. Native Windows releases contain their own runtime and built app; updating them requires staging and activating a new release.
 
 ## Development and checks
 
@@ -143,6 +145,8 @@ Attachments, embedded notes, file renaming/deletion, synchronization, plugins, a
 npm run check       # TypeScript, Markdown/filesystem tests, production build
 npm run test:e2e    # Playwright against the actual Electron app
 ```
+
+GitHub Actions runs build and unit checks for both launchers on Windows and Linux, plus their Linux desktop journeys. See the [CI audit](docs/ci-status.md) for the last inspected results and outstanding failures.
 
 Linux CI runs `scripts/test-desktop-with-wm.sh` inside Xvfb with Openbox, so native maximize and restore are tested with a real window manager. The test suite uses temporary notebooks and user profiles, and captures a desktop screenshot in `test-results/`. Electron's sandbox is disabled only for automated test launches; normal `npm start` keeps it enabled.
 
