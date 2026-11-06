@@ -4,7 +4,7 @@ import type { Note, Workspace } from '../shared/types';
 import { Editor, type EditorHandle } from './Editor';
 import { formatPDFPageLink, isPDFPageLink, parsePDFPageLink, type PDFPageLinkRequest, type PDFPageReference, type PDFPageTarget } from '../shared/pdfLinks';
 import { Graph, type GraphPoint } from './Graph';
-import { getBacklinks, getTitle, renderMarkdownDocument, resolveNoteLink } from './markdown';
+import { getBacklinks, getMarkdownMetadata, getTitle, renderMarkdownDocument, resolveNoteLink } from './markdown';
 import { mathTextContent } from './math';
 import { appearanceStyle, parsePreferences, selectTheme, themes, textSize, type Mode, type Preferences } from './appearance';
 import { ColorSettings } from './ColorSettings';
@@ -265,13 +265,18 @@ export function App() {
   const pdfBacklinks = useMemo(() => pdfVisited || (view === 'graph' && showGraphPDFs) ? getPDFBacklinks(notes) : undefined, [notes, pdfVisited, view, showGraphPDFs]);
   const pdfGraph = usePDFGraphCatalog(view === 'graph' && showGraphPDFs && !!pdfBacklinks?.size);
   const previewNote = useDeferredValue(active);
-  const rendered = useMemo(() => renderMarkdownDocument(previewNote?.content || ''), [previewNote?.content]);
+  const rendered = useMemo(() => {
+    const content = previewNote?.content || '';
+    if (preferences.mode === 'live' || preferences.mode === 'source') {
+      return { ...getMarkdownMetadata(content, { includeHTMLHeadings: preferences.mode === 'source' }), html: '' };
+    }
+    const result = renderMarkdownDocument(content);
+    const document = new DOMParser().parseFromString(result.html, 'text/html');
+    const outline = [...document.querySelectorAll('h1,h2,h3')].map((heading, index) => ({ title: mathTextContent(heading), level: Number(heading.tagName.slice(1)), index }));
+    return { ...result, outline };
+  }, [previewNote?.content, preferences.mode]);
   const html = rendered.html;
-  const outline = useMemo(() => {
-    if (preferences.mode === 'live') return rendered.headings;
-    const document = new DOMParser().parseFromString(html, 'text/html');
-    return [...document.querySelectorAll('h1,h2,h3')].map((heading, index) => ({ title: mathTextContent(heading), level: Number(heading.tagName.slice(1)), index }));
-  }, [html, rendered.headings, preferences.mode]);
+  const outline = rendered.outline;
   const words = active?.content.trim().split(/\s+/u).filter(Boolean).length || 0;
   const dirtyCount = Object.keys(drafts).length;
 
