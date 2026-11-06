@@ -27,6 +27,9 @@ let dirty = false;
 let allowClose = false;
 let pendingClose = false;
 let closingIntent: 'close' | 'quit' = 'close';
+let rendererUnavailable = false;
+let nativeClosePrompt = false;
+let openingWindow: Promise<void> | undefined;
 let workspace: WorkspaceStore | undefined;
 let operations: Promise<unknown> = Promise.resolve();
 // Constructing the service does not open or lock the library. The first PDF
@@ -105,7 +108,24 @@ async function getWorkspace(): Promise<WorkspaceStore> {
 function requestClose(intent: 'close' | 'quit'): void {
   closingIntent = intent;
   pendingClose = true;
+  if (rendererUnavailable) { showUnavailableClosePrompt(); return; }
   window?.webContents.send('prism:close-requested');
+}
+
+function showUnavailableClosePrompt(): void {
+  const target = window;
+  if (!target || target.isDestroyed() || nativeClosePrompt || quitting) return;
+  nativeClosePrompt = true;
+  void dialog.showMessageBox(target, {
+    type: 'warning', buttons: ['Keep open', 'Close Prism'], defaultId: 0, cancelId: 0, noLink: true,
+    message: 'The editor is not responding.',
+    detail: 'Unsaved changes cannot be saved right now. Keep Prism open to wait, or close it and discard those changes. Saved files will be kept.',
+  }).then(({ response }) => {
+    if (window !== target || target.isDestroyed() || quitting) return;
+    pendingClose = false;
+    if (response === 1) { allowClose = true; dirty = false; app.quit(); }
+  }).catch(error => { console.error('Prism close confirmation failed:', error); })
+    .finally(() => { nativeClosePrompt = false; });
 }
 
 function windowState(): WindowState {
@@ -210,12 +230,17 @@ function registerIPC(): void {
       if (closingIntent === 'quit') app.quit(); else window?.close();
     } catch { /* Ignore untrusted close confirmations. */ }
   });
+  ipcMain.on('prism:cancel-close', event => {
+    try { validateSender(event); pendingClose = false; }
+    catch { /* Ignore untrusted close cancellations. */ }
+  });
 }
 
 async function createWindow(): Promise<void> {
   dirty = false;
   allowClose = false;
   pendingClose = false;
+  rendererUnavailable = false;
   const workArea = screen.getPrimaryDisplay().workArea;
   const width = Math.min(1320, workArea.width);
   const height = Math.min(860, workArea.height);
@@ -252,7 +277,14 @@ async function createWindow(): Promise<void> {
   window.webContents.on('will-navigate', (event) => event.preventDefault());
   window.webContents.on('will-frame-navigate', (event) => event.preventDefault());
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
-  window.webContents.on('render-process-gone', () => { void pdfURLImports.cancelActive(); });
+  const unavailable = () => {
+    rendererUnavailable = true;
+    if (pendingClose) showUnavailableClosePrompt();
+  };
+  window.webContents.on('render-process-gone', () => { unavailable(); void pdfURLImports.cancelActive(); });
+  window.on('unresponsive', unavailable);
+  window.on('responsive', () => { rendererUnavailable = false; });
+  window.webContents.on('did-finish-load', () => { rendererUnavailable = false; });
   const publishWindowState = () => window?.webContents.send('prism:window-state', windowState());
   window.on('maximize', publishWindowState);
   window.on('unmaximize', publishWindowState);
@@ -276,12 +308,17 @@ async function createWindow(): Promise<void> {
     // stop downloads, while an already-started atomic save is allowed to finish.
     void pdfURLImports.cancelActive();
     placementTracker?.dispose();
-    window = null;
+    if (window === nativeWindow) window = null;
   });
-  await window.loadFile(rendererPath);
+  try { await nativeWindow.loadFile(rendererPath); }
+  catch (error) { if (quitting || nativeWindow.isDestroyed()) return; throw error; }
+  if (quitting || nativeWindow.isDestroyed()) return;
   // Wayland can defer the first paint of an unmapped transparent surface, so
   // waiting for ready-to-show can leave the application permanently hidden.
   if (!nativeWindow.isDestroyed()) nativeWindow.show();
+  if (!nativeWindow.isDestroyed() && /^[a-f0-9]{32,64}$/.test(process.env.PRISM_STARTUP_TOKEN ?? '')) {
+    console.log(`\nPRISM_READY:${process.env.PRISM_STARTUP_TOKEN}`);
+  }
   if (!nativeWindow.isDestroyed()) {
     nativeWindow.setTitle('Prism');
     nativeWindow.removeListener('maximize', maximizedDuringStartup);
@@ -295,9 +332,26 @@ async function createWindow(): Promise<void> {
   }
 }
 
+async function showOrCreateWindow(): Promise<void> {
+  if (quitting) return;
+  if (!window || window.isDestroyed()) {
+    openingWindow ??= createWindow().finally(() => { openingWindow = undefined; });
+  }
+  await openingWindow;
+  if (quitting || !window || window.isDestroyed()) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+
+function startupFailed(error: unknown): void {
+  if (quitting) return;
+  dialog.showErrorBox('Prism could not start', error instanceof Error ? error.message : 'An unexpected error occurred.');
+  app.exit(1);
+}
+
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', () => { if (quitting) return; if (window?.isMinimized()) window.restore(); window?.focus(); });
   app.on('before-quit', (event) => {
     if (quitReady) return;
     event.preventDefault();
@@ -306,26 +360,34 @@ else {
     if (dirty && !allowClose && window) { requestClose('quit'); return; }
     window?.setEnabled(false);
     quitting = true;
-    void Promise.all([operations, pdfURLImports.close()]).then(() => pdfLibrary.close()).then(() => {
+    // Stop read-only network work immediately; accepted note/PDF publications
+    // still drain before ownership is released and Electron exits.
+    researchClient.close();
+    arxivClient.close();
+    void Promise.allSettled([operations, pdfURLImports.close()]).then(() => pdfLibrary.close()).then(() => {
       quitReady = true;
+      session.defaultSession.flushStorageData();
+      // File writes and library ownership have settled. Give Electron a normal
+      // window/storage shutdown, with a fallback for an unresponsive renderer.
+      setTimeout(() => app.exit(0), 2000).unref();
       app.quit();
     }).catch((error: unknown) => {
-      dialog.showErrorBox('Prism could not close', error instanceof Error ? error.message : 'An unexpected error occurred.');
+      console.error('Prism could not close:', error);
       app.exit(1);
     });
   });
-  app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-  app.whenReady().then(async () => {
+  app.on('window-all-closed', () => app.quit());
+  const startup = app.whenReady().then(async () => {
     Menu.setApplicationMenu(null);
     session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
     session.defaultSession.on('will-download', event => event.preventDefault());
     await restrictRendererResources();
     registerIPC();
-    await createWindow();
-    app.on('activate', () => { if (!quitting && !window) void createWindow(); });
-  }).catch((error: unknown) => {
-    dialog.showErrorBox('Prism could not start', error instanceof Error ? error.message : 'An unexpected error occurred.');
-    app.exit(1);
+    await showOrCreateWindow();
   });
+  const showWindow = () => { void startup.then(showOrCreateWindow).catch(startupFailed); };
+  app.on('second-instance', showWindow);
+  app.on('activate', showWindow);
+  void startup.catch(startupFailed);
 }

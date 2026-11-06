@@ -271,3 +271,68 @@ test('request timeout aborts the metadata operation with a useful retry message'
     await assert.rejects(client.search(request()), /arXiv search timed out/);
   } finally { clearTimeout(keepAlive); }
 });
+
+test('closing aborts active and queued arXiv requests and refuses cached metadata', { timeout: 2000 }, async () => {
+  const pending = deferred<Response>();
+  const started = deferred<void>();
+  let calls = 0;
+  let signal: AbortSignal | undefined;
+  const client = new ArxivClient({ fetchImpl: async (_url, options) => {
+    calls++; signal = options!.signal!; started.resolve(); return pending.promise;
+  } });
+  const first = client.search(request());
+  const second = client.search(request({ query: 'other paper' }));
+  await started.promise;
+  const rejected = [first, second].map(operation => assert.rejects(operation, /Prism is closing/));
+  client.close(); client.close();
+  await Promise.all(rejected);
+  assert.equal(signal?.aborted, true);
+  assert.equal(calls, 1);
+  let cancelled = false;
+  pending.resolve(new Response(new ReadableStream({ cancel() { cancelled = true; } })));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(cancelled, true);
+  await assert.rejects(client.search(request()), /Prism is closing/);
+  await assert.rejects(client.resolve('2610.01234v2'), /Prism is closing/);
+
+  const cached = new ArxivClient({ fetchImpl: async () => response() });
+  await cached.search(request());
+  cached.close();
+  await assert.rejects(cached.search(request()), /Prism is closing/);
+  await assert.rejects(cached.resolve('2610.01234v2'), /Prism is closing/);
+});
+
+test('closing interrupts a stalled arXiv feed body and an injected rate delay', { timeout: 2000 }, async () => {
+  const started = deferred<void>();
+  let cancelled = false;
+  const streaming = new ArxivClient({ fetchImpl: async () => {
+    started.resolve();
+    return new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('<feed')); },
+      cancel() { cancelled = true; return new Promise<void>(() => {}); },
+    }));
+  } });
+  const read = streaming.search(request());
+  await started.promise;
+  await new Promise(resolve => setImmediate(resolve));
+  const rejectedRead = assert.rejects(read, /Prism is closing/);
+  streaming.close();
+  await rejectedRead;
+  assert.equal(cancelled, true);
+
+  const sleeping = deferred<void>();
+  const wait = deferred<void>();
+  let calls = 0;
+  const queued = new ArxivClient({ now: () => 0, sleep: () => { sleeping.resolve(); return wait.promise; },
+    fetchImpl: async () => { calls++; return response(); } });
+  await queued.search(request());
+  const second = queued.search(request({ query: 'other paper' }));
+  const third = queued.search(request({ query: 'third paper' }));
+  await sleeping.promise;
+  const rejected = [second, third].map(operation => assert.rejects(operation, /Prism is closing/));
+  queued.close();
+  await Promise.all(rejected);
+  wait.resolve();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 1);
+});

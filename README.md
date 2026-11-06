@@ -82,6 +82,8 @@ Prism stores notes and PDFs locally. Rates & Execution and arXiv discovery retri
 
 Saving is explicit. Unsaved drafts survive switching between notes within the current session. Closing Prism, refreshing the notebook, or opening another folder asks you to save or discard those drafts. Drafts are kept in memory until saved, so save before terminating the process or shutting down the computer.
 
+Closing the last window ends the app session, cancels research downloads, finishes accepted file writes, and releases the PDF library. **Cancel** keeps Prism open. If the editor crashes, a native prompt lets you keep waiting or close and discard unsaved changes. Launching Prism again brings an existing hidden window forward. See [startup and shutdown](docs/session-lifecycle.md).
+
 In **PDFs**, **Ctrl+O / ⌘O** imports documents and **Ctrl+K / ⌘K** focuses library search. In **Notes**, **Ctrl+O / ⌘O** opens a notebook. In **Read & write**, these shortcuts follow the pane you last focused; **Ctrl+S / ⌘S** saves while Notes is focused. Closing from either workspace still asks about unsaved notes. PDFs remain in the existing managed library, separate from your Markdown notebook; see [library storage and backup](pdf-manager/README.md#your-library). Switching workspaces neither saves nor discards a draft, and PDF passwords are never persisted. All four note modes remain available; the note's own Split preview stacks vertically when its pane is narrow.
 
 Built-in snippets insert ordinary Markdown:

@@ -1,6 +1,7 @@
 import { marked, type Tokens } from 'marked';
 import { baseArxivId, normalizeArxivId } from '../shared/arxiv';
 import type { ResearchCatalog, ResearchIdentity, ResearchPaper, ResearchReview } from '../shared/research';
+import { NetworkLifecycle } from './network-lifecycle';
 
 export const RESEARCH_SITE_URL = 'https://beautysamurai.github.io/public-page/';
 export const MAX_RESEARCH_JSON_BYTES = 12 * 1024 * 1024;
@@ -146,9 +147,10 @@ interface ResearchClientOptions {
 
 /** Fixed-origin, bounded networking owned by the desktop process. */
 export class ResearchClient {
+  private readonly lifecycle = new NetworkLifecycle();
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
-  private readonly sleep: (milliseconds: number) => Promise<void>;
+  private readonly sleep?: (milliseconds: number) => Promise<void>;
   private readonly jsonByteLimit: number;
   private readonly pdfByteLimit: number;
   private readonly jsonTimeout: number;
@@ -165,7 +167,7 @@ export class ResearchClient {
   constructor(options: ResearchClientOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
     this.now = options.now ?? Date.now;
-    this.sleep = options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
+    this.sleep = options.sleep;
     const bound = (value: number | undefined, limit: number) => value !== undefined && Number.isSafeInteger(value) && value > 0 ? Math.min(value, limit) : limit;
     this.jsonByteLimit = bound(options.jsonByteLimit, MAX_RESEARCH_JSON_BYTES);
     this.pdfByteLimit = bound(options.pdfByteLimit, MAX_RESEARCH_PDF_BYTES);
@@ -173,9 +175,16 @@ export class ResearchClient {
     this.pdfTimeout = bound(options.pdfTimeoutMs, 120000);
   }
 
-  private async bytes(response: Response, limit: number, name: string): Promise<Uint8Array> {
+  close(): void {
+    this.lifecycle.close();
+    this.generation++;
+    this.catalog = undefined;
+    this.editions.clear();
+  }
+
+  private async bytes(response: Response, limit: number, name: string, signal: AbortSignal): Promise<Uint8Array> {
     if (Number(response.headers.get('content-length')) > limit) {
-      await response.body?.cancel().catch(() => undefined);
+      if (response.body) await this.lifecycle.wait(response.body.cancel(), signal).catch(() => undefined);
       throw new Error(`${name} is too large.`);
     }
     if (!response.body) throw new Error(`${name} is empty.`);
@@ -184,7 +193,7 @@ export class ResearchClient {
     let size = 0;
     try {
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await this.lifecycle.wait(reader.read(), signal);
         if (done) break;
         size += value.byteLength;
         if (size > limit) throw new Error(`${name} is too large.`);
@@ -195,31 +204,35 @@ export class ResearchClient {
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
       return bytes;
     } catch (error) {
-      await reader.cancel().catch(() => undefined);
+      await this.lifecycle.wait(reader.cancel(), signal).catch(() => undefined);
       throw error;
     } finally { reader.releaseLock(); }
   }
 
   private async json(relative: string): Promise<unknown> {
-    const response = await this.fetchImpl(new URL(relative, RESEARCH_SITE_URL).href, {
-      signal: AbortSignal.timeout(this.jsonTimeout), redirect: 'error',
+    const signal = this.lifecycle.requestSignal(this.jsonTimeout);
+    const response = await this.lifecycle.fetch(this.fetchImpl, new URL(relative, RESEARCH_SITE_URL).href, {
+      signal, redirect: 'error',
       headers: { Accept: 'application/json', 'User-Agent': 'Prism/0.1 (local research reader)' },
     });
     if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined);
+      if (response.body) await this.lifecycle.wait(response.body.cancel(), signal).catch(() => undefined);
       throw new Error(`Rates & Execution returned HTTP ${response.status}.`);
     }
-    const bytes = await this.bytes(response, this.jsonByteLimit, 'The research response');
+    const bytes = await this.bytes(response, this.jsonByteLimit, 'The research response', signal);
+    this.lifecycle.assertOpen();
     try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
     catch { throw new Error('Rates & Execution returned invalid JSON.'); }
   }
 
   async catalogue(refresh = false): Promise<ResearchCatalog> {
+    this.lifecycle.assertOpen();
     if (typeof refresh !== 'boolean') throw new Error('Invalid research refresh request.');
     if (this.catalogPending) return structuredClone(await this.catalogPending);
     if (!refresh && this.catalog && this.now() - this.catalog.time < cacheAge) return structuredClone(this.catalog.value);
     if (refresh) { this.generation++; this.editions.clear(); this.editionPending.clear(); }
     const pending = this.json('data/papers.json').then(value => {
+      this.lifecycle.assertOpen();
       const catalog = normalizeResearchCatalogue(value);
       this.catalog = { time: this.now(), value: catalog };
       return catalog;
@@ -230,6 +243,7 @@ export class ResearchClient {
   }
 
   async review(value: unknown): Promise<ResearchReview> {
+    this.lifecycle.assertOpen();
     const identity = researchIdentity(value);
     const cached = this.editions.get(identity.editionId);
     let edition: Edition;
@@ -239,6 +253,7 @@ export class ResearchClient {
       if (!pending) {
         const generation = this.generation;
         pending = this.json(`data/archive/${identity.editionId}.json`).then(raw => {
+          this.lifecycle.assertOpen();
           const result = normalizeEdition(raw, identity.editionId);
           if (generation === this.generation) {
             if (this.editions.size >= 50) this.editions.delete(this.editions.keys().next().value!);
@@ -251,28 +266,32 @@ export class ResearchClient {
       try { edition = await pending; }
       finally { if (this.editionPending.get(identity.editionId) === pending) this.editionPending.delete(identity.editionId); }
     }
+    this.lifecycle.assertOpen();
     const paper = edition.papers.find(item => item.arxivId === identity.arxivId);
     if (!paper) throw new Error('This paper is not present in the selected review edition.');
     return structuredClone({ ...paper, ...publishedReview(edition, paper), sourceUrl: researchReviewURL(identity.editionId) });
   }
 
   async downloadPDF(value: string): Promise<Uint8Array> {
+    this.lifecycle.assertOpen();
     const id = normalizeArxivId(value);
     if (!id) throw new Error('Invalid arXiv identifier.');
     const existing = this.downloads.get(id);
     if (existing) return existing;
     const result = this.downloadQueue.then(async () => {
+      this.lifecycle.assertOpen();
       const delay = 3000 - (this.now() - this.lastDownloadStart);
-      if (delay > 0) await this.sleep(delay);
+      if (delay > 0) await this.lifecycle.delay(delay, this.sleep);
       this.lastDownloadStart = this.now();
-      const signal = AbortSignal.timeout(this.pdfTimeout);
+      const signal = this.lifecycle.requestSignal(this.pdfTimeout);
       let url = new URL(`https://arxiv.org/pdf/${id.split('/').map(encodeURIComponent).join('/')}`);
       for (let redirects = 0; ; redirects++) {
-        const response = await this.fetchImpl(url.href, {
+        const response = await this.lifecycle.fetch(this.fetchImpl, url.href, {
           signal, redirect: 'manual', headers: { Accept: 'application/pdf', 'User-Agent': 'Prism/0.1 (local research reader)' },
         });
         if ([301, 302, 303, 307, 308].includes(response.status)) {
-          await response.body?.cancel().catch(() => undefined);
+          if (response.body) await this.lifecycle.wait(response.body.cancel(), signal).catch(() => undefined);
+          signal.throwIfAborted();
           const location = response.headers.get('location');
           if (!location || redirects >= 3) throw new Error('arXiv returned too many or invalid PDF redirects.');
           const next = new URL(location, url);
@@ -285,10 +304,11 @@ export class ResearchClient {
           continue;
         }
         if (response.status !== 200) {
-          await response.body?.cancel().catch(() => undefined);
+          if (response.body) await this.lifecycle.wait(response.body.cancel(), signal).catch(() => undefined);
           throw new Error(`arXiv returned HTTP ${response.status}.`);
         }
-        const bytes = await this.bytes(response, this.pdfByteLimit, 'The PDF');
+        const bytes = await this.bytes(response, this.pdfByteLimit, 'The PDF', signal);
+        this.lifecycle.assertOpen();
         if (!/^%PDF-[0-9]\.[0-9]/.test(new TextDecoder('ascii').decode(bytes.subarray(0, 8)))) throw new Error('arXiv did not return a PDF document.');
         return bytes;
       }

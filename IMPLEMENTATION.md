@@ -5,6 +5,7 @@
 Build the brief in `AGENTS.md` as a local desktop application. Notes remain ordinary Markdown files in a folder chosen by the user. Electron supplies the native transparent window, and React with CodeMirror supplies the editing interface.
 
 - [x] Desktop foundation: isolated renderer, narrow filesystem bridge, native folder picker, window controls, and a starter notebook.
+- [x] [Desktop session lifecycle](docs/session-lifecycle.md): cancel network waits on accepted close, drain file writes and release library ownership, recover hidden windows, provide a native crashed-editor close prompt, and stop failed launcher startups.
 - [x] [Remember window placement](docs/window-placement.md): restore normal size and maximized state across launches, restore position on native Windows/macOS/X11, fit disconnected-monitor bounds to a connected work area, and reopen visibly after a minimized quit. Native Wayland placement is compositor-controlled. The WSLg host-position helper was removed after real mouse-input checks exposed a coordinate mismatch.
 - [ ] [Exact WSLg position restoration](docs/window-placement.md#follow-up-exact-position-on-wslg): require supported compositor-aware placement and real Windows-pointer validation before restoring this capability. Existing host-position preferences remain untouched.
 - [x] Note workspace: folder navigation, search, create, explicit save, refresh, conflict detection, and protection for unsaved edits when closing or switching folders.
@@ -63,6 +64,8 @@ Implementation branch: `feat/prism-desktop`. Commit and push changes automatical
 Run appropriate local build, type, unit, and desktop checks. Per the user's instruction, do not check or wait for GitHub CI. Before reporting the work complete, check the Codex review against the current PR commit. Wait for the review summary to show that commit as completed, address any new findings, and check for unresolved threads. A new push requires checking the new commit's review again; resolved comments on an earlier commit do not complete this check.
 
 ## Verification
+
+- Desktop session lifecycle: both builds/typechecks pass, with 358 main unit passes (five platform skips), 107 PDF unit passes, and 24 targeted desktop journeys on isolated Xvfb/Openbox. New coverage verifies stalled-download cancellation, dirty Cancel and native crash confirmation, hidden-window recovery, process exit and library reuse, actual launcher readiness/exit, and scoped startup timeout escalation. Existing imports, saves, placement, and standalone ownership remain covered. See [session lifecycle evidence and limits](docs/session-lifecycle.md). GitHub CI was not checked.
 
 - PDF tag suggestions: both builds/typechecks and 107 PDF unit tests pass, including five completion cases for duplicates, caret ranges, surrounding text, Japanese matches, and the field length limit. Four desktop journeys cover mouse/keyboard completion, composition-event guards, Escape/Tab, custom tags, explicit cancel/save, suggestions after restart, unchanged source files, existing metadata/reading workflows, and the standalone editor. The suggestion list was visually checked at 150% text size in a narrow Sci-fi window.
 

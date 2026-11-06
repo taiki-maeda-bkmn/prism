@@ -1,6 +1,7 @@
 import { DOMParser, onWarningStopParsing, type Element, type Node } from '@xmldom/xmldom';
 import { baseArxivId, normalizeArxivId } from '../shared/arxiv';
 import { ARXIV_CATEGORIES, ARXIV_MAX_START, ARXIV_PAGE_SIZE, type ArxivPaper, type ArxivSearchRequest, type ArxivSearchResult } from '../shared/arxivSearch';
+import { NetworkLifecycle } from './network-lifecycle';
 
 export const ARXIV_API_URL = 'https://export.arxiv.org/api/query';
 export const MAX_ARXIV_FEED_BYTES = 5 * 1024 * 1024;
@@ -176,9 +177,10 @@ interface ArxivClientOptions {
 
 /** A single metadata connection with bounded caches and no arbitrary feed URLs. */
 export class ArxivClient {
+  private readonly lifecycle = new NetworkLifecycle();
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
-  private readonly sleep: (milliseconds: number) => Promise<void>;
+  private readonly sleep?: (milliseconds: number) => Promise<void>;
   private readonly byteLimit: number;
   private readonly timeout: number;
   private queue: Promise<unknown> = Promise.resolve();
@@ -190,15 +192,21 @@ export class ArxivClient {
   constructor(options: ArxivClientOptions = {}) {
     this.fetchImpl = options.fetchImpl ?? ((...args) => globalThis.fetch(...args));
     this.now = options.now ?? Date.now;
-    this.sleep = options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
+    this.sleep = options.sleep;
     this.byteLimit = Math.max(1, Math.min(MAX_ARXIV_FEED_BYTES, options.feedByteLimit ?? MAX_ARXIV_FEED_BYTES));
     this.timeout = Math.max(1, Math.min(25_000, options.timeoutMs ?? 25_000));
   }
 
-  private async read(response: Response): Promise<string> {
+  close(): void {
+    this.lifecycle.close();
+    this.cache.clear();
+    this.papers.clear();
+  }
+
+  private async read(response: Response, signal: AbortSignal): Promise<string> {
     const length = response.headers.get('content-length');
     if (length && (!/^\d+$/.test(length) || Number(length) > this.byteLimit)) {
-      await response.body?.cancel().catch(() => undefined);
+      if (response.body) await this.lifecycle.wait(response.body.cancel(), signal).catch(() => undefined);
       throw new Error('The arXiv search feed is too large.');
     }
     if (!response.body) throw invalidFeed();
@@ -208,7 +216,7 @@ export class ArxivClient {
     let size = 0;
     try {
       while (true) {
-        const { value, done } = await reader.read();
+        const { value, done } = await this.lifecycle.wait(reader.read(), signal);
         if (done) break;
         size += value.byteLength;
         if (size > this.byteLimit) throw new Error('The arXiv search feed is too large.');
@@ -217,13 +225,14 @@ export class ArxivClient {
       parts.push(decoder.decode());
       return parts.join('');
     } catch (error) {
-      await reader.cancel().catch(() => undefined);
+      await this.lifecycle.wait(reader.cancel(), signal).catch(() => undefined);
       if (error instanceof TypeError) throw invalidFeed();
       throw error;
     } finally { reader.releaseLock(); }
   }
 
   async search(value: unknown): Promise<ArxivSearchResult> {
+    this.lifecycle.assertOpen();
     const request = normalizeArxivSearch(value);
     const url = arxivSearchURL(request);
     const cached = this.cache.get(url);
@@ -232,19 +241,21 @@ export class ArxivClient {
     if (!result) {
       if (this.pending.size >= 20) throw new Error('Too many arXiv searches are waiting. Wait for the current search to finish.');
       result = this.queue.then(async () => {
+        this.lifecycle.assertOpen();
         const wait = interval - (this.now() - this.lastRequest);
-        if (wait > 0) await this.sleep(wait);
+        if (wait > 0) await this.lifecycle.delay(wait, this.sleep);
         this.lastRequest = this.now();
-        const signal = AbortSignal.timeout(this.timeout);
+        const signal = this.lifecycle.requestSignal(this.timeout);
         try {
-          const response = await this.fetchImpl(url, {
+          const response = await this.lifecycle.fetch(this.fetchImpl, url, {
             signal, redirect: 'error', headers: { Accept: 'application/atom+xml, application/xml;q=0.9', 'User-Agent': 'Prism/0.1 (local research reader)' },
           });
           if (response.status !== 200) {
-            await response.body?.cancel().catch(() => undefined);
+            if (response.body) await this.lifecycle.wait(response.body.cancel(), signal).catch(() => undefined);
             throw new Error(`arXiv search returned HTTP ${response.status}. Try again later.`);
           }
-          const feed = parseArxivFeed(await this.read(response));
+          const feed = parseArxivFeed(await this.read(response, signal));
+          this.lifecycle.assertOpen();
           if (feed.start !== request.start) throw invalidFeed();
           if (request.field === 'id' && (feed.papers.length > 1 || feed.papers.some(paper => paper.baseId !== baseArxivId(request.query)
             || (/v\d+$/.test(request.query) && paper.arxivId !== request.query)))) throw invalidFeed();
@@ -262,6 +273,7 @@ export class ArxivClient {
           }
           return value;
         } catch (error) {
+          this.lifecycle.assertOpen();
           if (signal.aborted) throw new Error('arXiv search timed out. Try again.');
           throw error;
         }
@@ -274,6 +286,7 @@ export class ArxivClient {
   }
 
   async resolve(value: unknown): Promise<ArxivPaper> {
+    this.lifecycle.assertOpen();
     const id = normalizeArxivId(value);
     if (!id || value !== id) throw new Error('Choose a valid arXiv paper from the search results.');
     const cached = this.papers.get(id);
