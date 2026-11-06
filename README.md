@@ -29,6 +29,8 @@ This is a desktop application; opening the HTML file in a browser does not provi
 
 ### Open from your desktop
 
+On Windows, use the [native Windows installation](docs/native-windows.md) to open Prism without WSLg. It stages a verified Windows Electron runtime and the built app, then installs desktop and Start Menu shortcuts after validation. When moving from WSL, copy and verify your current notebook and PDF library first; the Windows and Ubuntu profiles are separate.
+
 On Linux or Windows with WSLg, install the launcher once after installing dependencies:
 
 ```sh
@@ -132,7 +134,7 @@ Prism remembers its normal size and maximized state when reopened. Native Window
 
 The first release supports UTF-8 `.md` and `.markdown` files (new files use `.md`). An existing UTF-8 byte-order mark is preserved on save and excluded from the editor text. Existing newline styles are preserved; editing a file with mixed line endings normalizes it to its first newline style. Each note can be up to 2 MB; a notebook can load up to 2,000 notes and 64 MB of text. Hidden folders, `node_modules`, symbolic links, and unsupported filenames are skipped, with scan warnings shown in the app. Preview HTML is sanitized; scripts, forms, external image loading, and arbitrary local file access are blocked. Task-list checkboxes in Read and Split previews are read-only. Use the Live editor’s checkboxes or edit the Markdown source to change them. Code blocks are displayed and edited; code is never executed.
 
-Attachments, embedded notes, file renaming/deletion, synchronization, plugins, and signed installers are outside this first release. The desktop launchers use the source checkout; they are not standalone installers. Windows and macOS compositor behavior needs testing on those desktops; automated Linux desktop tests verify the app's native window and editing flows.
+Attachments, embedded notes, file renaming/deletion, synchronization, plugins, and signed installers are outside this first release. Linux and WSLg desktop launchers use the source checkout. Native Windows releases contain their own runtime and built app; updating them requires staging and activating a new release. macOS compositor behavior still needs testing on that desktop.
 
 ## Development and checks
 
