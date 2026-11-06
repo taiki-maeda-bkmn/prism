@@ -13,6 +13,7 @@
     "start": "npm run build && node scripts/start-markdown.mjs",
     "install:desktop": "npm run build && node scripts/install-markdown-launcher.mjs",
     "install:markdown": "npm run install:desktop",
+    "stage:windows": "node scripts/install-native-windows.mjs",
     "dev": "npm start",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/test.mjs",
