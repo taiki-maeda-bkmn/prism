@@ -8,6 +8,7 @@ import { fixturePdf } from '../fixtures/pdf';
 const original = '# Working note\n\nOriginal notebook text.\n';
 const draft = '# Working note\n\nAn unsaved thought beside the reader.\n';
 const external = '# Working note\n\nAn external revision to reload.\n';
+const applicationRoot = path.resolve(process.env.PRISM_TEST_APP_ROOT || process.cwd());
 let temporary: string;
 let notebook: string;
 let nextNotebook: string;
@@ -61,7 +62,7 @@ async function cancelIntent(button: 'Refresh notebook' | 'Open notebook') {
   await editor().press('ControlOrMeta+z');
   await expect(editor()).toContainText('Original notebook text.');
   await expect(page.locator('.statusbar')).toContainText('All changes saved');
-  await editor().press('ControlOrMeta+Shift+z');
+  await editor().press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+z');
   await expect(editor()).toContainText('An unsaved thought beside the reader.');
   await expect(page.locator('.statusbar')).toContainText('1 unsaved note');
   await expectReaderRetained();
@@ -72,7 +73,7 @@ async function expectEmptyUndo(expectedParagraph: string) {
   await editor().press('ControlOrMeta+z');
   await expect(editor()).toContainText(expectedParagraph);
   await expect(page.locator('.statusbar')).toContainText('All changes saved');
-  await editor().press('ControlOrMeta+Shift+z');
+  await editor().press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+z');
   await expect(editor()).toContainText(expectedParagraph);
   await expect(page.locator('.statusbar')).toContainText('All changes saved');
 }
@@ -87,7 +88,8 @@ test.beforeEach(async () => {
   await Promise.all([mkdir(notebook), mkdir(nextNotebook), mkdir(userData)]);
   await writeFile(noteFile(), original);
   desktop = await electron.launch({
-    args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(),
+    executablePath: process.env.PRISM_TEST_ELECTRON,
+    args: electronLaunchArguments(['--no-sandbox', applicationRoot]), cwd: applicationRoot,
     env: { ...process.env, PRISM_USER_DATA: userData, PRISM_WORKSPACE: notebook, PRISM_PDF_USER_DATA: pdfProfile },
   });
   page = await desktop.firstWindow();

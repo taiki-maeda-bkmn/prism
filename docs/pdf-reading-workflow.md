@@ -123,7 +123,7 @@ The inspector's compact **Connections** graph shows the current note and up to f
 
 A compact PDF node opens the lowest page cited by the current note, including unsaved references. **Load PDF titles** fills in document names without opening the reader; until then, references show shortened IDs. Already loaded titles are reused. Merely opening a note does not open or take ownership of the PDF library. **Refresh PDF titles** retries a failure, and PDF nodes remain usable while titles are unavailable.
 
-Draft text survives navigating to other notes or the full graph. Undo history stays available while visiting PDFs and returning to the same mounted note; switching notes or entering the full graph currently starts a fresh editor history. Save explicitly to keep edits after restarting Prism.
+Draft text survives navigating to other notes or the full graph. Recent notes also retain their own undo/redo history, selection, and editor scroll position across those transitions. Ordinary saves and cancelled dialogs retain history; accepted refreshes and notebook replacement reset it. The session cache is bounded, so older or oversized inactive histories may be evicted without discarding drafts. Save explicitly to keep edits after restarting Prism. See [editor sessions](editor-history.md) for the limits.
 
 ## Focus and window controls
 

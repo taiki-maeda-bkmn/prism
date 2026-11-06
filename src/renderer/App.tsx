@@ -2,6 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, ty
 import { ArrowLeft, ArrowLeftRight, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Code2, Columns2, Copy, FilePlus2, FileText, Folder, FolderOpen, GitFork, Layers3, Link2, LoaderCircle, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Square, X } from 'lucide-react';
 import type { Note, Workspace } from '../shared/types';
 import { Editor, type EditorHandle } from './Editor';
+import { EditorSessions } from './editorSessions';
 import { formatPDFPageLink, isPDFPageLink, parsePDFPageLink, type PDFPageLinkRequest, type PDFPageReference, type PDFPageTarget } from '../shared/pdfLinks';
 import { Graph, type GraphPoint } from './Graph';
 import { getBacklinks, getMarkdownMetadata, getTitle, renderMarkdownDocument, resolveNoteLink } from './markdown';
@@ -89,6 +90,7 @@ export function App() {
   };
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  const [editorSessions] = useState(() => new EditorSessions());
   const [activePath, setActivePath] = useState('');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [preferences, setPreferences] = useState(readPreferences);
@@ -200,6 +202,9 @@ export function App() {
     });
     latest.current.workspace = next;
     latest.current.drafts = {};
+    // Retired editors may unmount after this reset. Their generation prevents
+    // cleanup from returning discarded history to the new notebook session.
+    editorSessions.clear();
     setWorkspace(next);
     // A fresh workspace must not inherit undo history from discarded drafts or
     // a different notebook that happens to contain the same relative note path.
@@ -215,7 +220,7 @@ export function App() {
     setHeadingTarget(undefined);
     setNotice(next.warnings.join(' '));
     window.prism.setDirty(false);
-  }, []);
+  }, [editorSessions]);
 
   const initialize = useCallback(async () => {
     setError('');
@@ -596,7 +601,7 @@ export function App() {
         </section> : active ? <>
           <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source', 1], ['split', Columns2, 'Split', 2], ['live', Sparkles, 'Live', 4], ['preview', BookOpen, 'Read', 3]] as const).map(([mode, Icon, label, shortcut]) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl/⌘+${shortcut})`} onClick={() => chooseMode(mode)}><Icon size={15} /><span>{label}</span></button>)}</div></div>
           <div className={`editor-layout mode-${preferences.mode}`}>
-            <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit. Ctrl+click links to open.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor ref={editor} key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} customSnippets={customSnippets} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onOpenLink={href => openHref(href, active.path)} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
+            <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit. Ctrl+click links to open.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor ref={editor} key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} sessions={editorSessions} sessionGeneration={editorSessions.generation} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} customSnippets={customSnippets} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onOpenLink={href => openHref(href, active.path)} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
             {(preferences.mode === 'split' || preferences.mode === 'preview') && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
           </div>
         </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><FilePlus2 size={17} />Create your first note</button></div>}
