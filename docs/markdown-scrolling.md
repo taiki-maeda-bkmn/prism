@@ -3,7 +3,9 @@
 The typing optimization did not resolve the reported scrolling lag. The earlier
 profile covered only 2,160 pixels near the top of a note in a 1440×1000 window.
 On 2026-11-06, full-note scrolling at the user's maximized display size reproduced
-a much larger problem. This document records a diagnosis, not a completed fix.
+a much larger problem. An approved WSL restart restored graphics redirection
+and substantially improved the same maximized test. Physical scrolling
+confirmation and long-term recurrence remain unverified.
 
 ## Reproduction and evidence
 
@@ -33,45 +35,80 @@ widgets as the maximized one while scrolling much more smoothly. These results
 point beyond Markdown parsing as the primary cause of this reproduced stall.
 Animation-frame measurements do not directly measure Windows presentation.
 
-## Current WSLg failure
+## WSLg failure before recovery
 
-The current compositor log contains:
+The compositor log before restarting contained:
 
 ```text
 [11:38:18.437] rdp_allocate_shared_memory: Failed to open "/mnt/shared_memory/{...}" with error: Input/output error
 [11:38:18.437] RDP backend: use_gfxredir = 0
 ```
 
-A read-only check in the WSL system distribution also reports an I/O error when
-accessing `/mnt/shared_memory`; the path remains mounted as `virtiofs`. The
+A directory metadata check in the WSL system distribution also returned an I/O
+error for `/mnt/shared_memory`, which was mounted as `virtiofs`. That check alone
+is not a reliable transport health test: it still returns an error after the
+successful recovery described below. The concrete pre-restart failure was the
+compositor's attempt to allocate a shared-memory file. The
 [exact installed Weston implementation](https://raw.githubusercontent.com/microsoft/weston/2318fecaeac1f1a2d5a7a042c34d931c71dae04c/libweston/backend-rdp/rdprail.c)
 disables graphics redirection when its startup shared-memory probe fails and
 uses the ordinary RDP surface copy path. Electron also reports software GPU
 compositing and rasterization. GPU status alone does not prove repeated crashes
 or identify their cause.
 
-This is a strong environmental lead, but a successful restart and repeat
-measurement are required before attributing all lag to that failure. No graphics
-flags, user preferences, system packages, or notebook files have been changed.
+## Approved recovery and repeat measurements
+
+The user approved restarting WSL. On 2026-11-06 at 13:39 JST, the host-side
+recovery helper stopped WSL, started Ubuntu-24.04, waited for its Wayland socket,
+and reopened Prism through the existing desktop shortcut. The new compositor
+log reports `use_gfxredir = 1` and successful client capability negotiation
+(`0x2000`), without shared-memory allocation errors. The installed implementation
+enables redirection after an allocation, mapping, and write/read probe succeeds.
+
+The same synthetic fixture, maximized 3840×2088 viewport, DPR, translucent
+appearance, wheel input, and two down/up cycles were repeated:
+
+| Mode | Before: p95 frame-gap range | After: p95 frame-gap range |
+| --- | ---: | ---: |
+| Source | 133–267 ms | 22–26 ms |
+| Live | 133–183 ms | 23–28 ms |
+| Read | 133–268 ms | 22–26 ms |
+
+The recovered run reported no errors and preserved exact fixture contents. Its
+maximum individual frame gap was 33.3 ms. Electron still reported the same
+software GPU feature status, so the recovered WSLg presentation path—not a newly
+enabled Electron GPU feature—is the observed graphics change. No application
+code, graphics flags, preferences, packages, or notebook files changed during
+recovery. The reopened user app was left running; the profiler closed only its
+own disposable app.
+
+This verifies recovery of the reproduced stall in automated scrolling. It does
+not establish what originally triggered the allocation failure, prevent a future
+recurrence, or substitute for the user's physical mouse/touchpad confirmation.
+The helper's transport-check log entry was blank because its directory `stat`
+check gated the subsequent log read. Recovery was verified independently using
+the new compositor log and scrolling measurements, not that helper entry.
 
 ## Next steps
 
 - [x] Reproduce whole-note scrolling, compare Source/Live/Read, and compare
   maximized, smaller, opaque, and translucent windows.
-- [x] Verify the current graphics shared-memory failure without modifying it.
-- [ ] With explicit approval, restart WSL, which closes all Ubuntu applications
-  and terminals. Reopen Prism, then check that shared memory is accessible and
-  the new compositor log enables graphics redirection.
-- [ ] Repeat the same maximized profile and have the user check physical mouse
-  or touchpad scrolling. Do not call recovery successful from socket readiness
-  or app startup alone. If graphics redirection remains disabled, investigate
-  host WSL/graphics components separately.
+- [x] Verify the compositor's shared-memory allocation failure and disabled
+  redirection without modifying the graphics configuration.
+- [x] With explicit approval, restart WSL and reopen Prism. Verify redirection
+  and client negotiation in the new compositor log.
+- [x] Repeat the same maximized profile; verify improved frame timing, clean
+  renderer state, and unchanged fixture contents.
+- [ ] Have the user confirm physical mouse or touchpad scrolling. If the stall
+  recurs, capture new allocation errors/redirection state and investigate host
+  WSL/graphics components. Directory `stat` errors alone do not establish a
+  recurrence.
 - [ ] If material editor lag remains after graphics recovery, measure caching
   of virtualized table/formula rendering and better block-height estimates.
   Full traversal confirmed repeated widget compilation and cold height changes;
   neither explains the equally slow Read view in this session.
 
-Restoring Prism to a smaller window is a measured temporary workaround.
+Restoring Prism to a smaller window was a measured temporary workaround while
+redirection was disabled.
 
 ## Repeat the measurements
 
