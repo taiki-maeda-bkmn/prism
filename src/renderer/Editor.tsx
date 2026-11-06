@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useRef, type Ref } from 'react';
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react';
 import { Compartment, EditorState, Transaction } from '@codemirror/state';
 import { closeCompletion } from '@codemirror/autocomplete';
 import { isolateHistory } from '@codemirror/commands';
@@ -14,6 +14,7 @@ import { liveMath } from './liveMath';
 import { liveTables } from './liveTables';
 import { liveLinks } from './liveLinks';
 import type { ThemeId } from './appearance';
+import { editorHistoryFields, type EditorSessions } from './editorSessions';
 
 // A theme facet change also invalidates cached font/caret measurements when
 // the surrounding Live-mode CSS changes the editor's typography and gutters.
@@ -43,6 +44,8 @@ interface Props {
   ref?: Ref<EditorHandle>;
   path: string;
   content: string;
+  sessions: EditorSessions;
+  sessionGeneration: number;
   textScale: number;
   customSnippets: readonly MarkdownSnippet[];
   theme: ThemeId;
@@ -57,7 +60,7 @@ function detectLineEnding(content: string, fallback = '\n'): string {
   return /\r\n|\r|\n/.exec(content)?.[0] ?? fallback;
 }
 
-export function Editor({ ref, path, content, textScale, customSnippets, theme, live = false, headingTarget, onOpenLink, onChange, onCursor }: Props) {
+export function Editor({ ref, path, content, sessions, sessionGeneration, textScale, customSnippets, theme, live = false, headingTarget, onOpenLink, onChange, onCursor }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const textSize = useRef(new Compartment());
@@ -65,7 +68,7 @@ export function Editor({ ref, path, content, textScale, customSnippets, theme, l
   const presentation = useRef(new Compartment());
   const lastHeadingRequest = useRef<number | null>(null);
   const lineEnding = useRef('\n');
-  const synchronizing = useRef(false);
+  const lastScroll = useRef<ReturnType<EditorView['scrollSnapshot']> | undefined>(undefined);
   const handlers = useRef({ onChange, onCursor, onOpenLink });
   handlers.current = { onChange, onCursor, onOpenLink };
 
@@ -86,12 +89,9 @@ export function Editor({ ref, path, content, textScale, customSnippets, theme, l
     },
   }), []);
 
-  useEffect(() => {
-    if (!host.current) return;
-    lineEnding.current = detectLineEnding(content);
-    const editor = new EditorView({
-      state: EditorState.create({
-        doc: content,
+  const createState = (value: string, json?: Record<string, unknown>) => {
+    const configuration = {
+        doc: value,
         // Leave lineSeparator unset so typed/pasted LF, CRLF and CR all become
         // real lines. Serialize using the note's convention instead of forcing
         // a facet that would only recognize one exact input separator.
@@ -109,7 +109,8 @@ export function Editor({ ref, path, content, textScale, customSnippets, theme, l
           ]),
           keymap.of([{ key: 'Mod-s', run: () => true }]),
           EditorView.updateListener.of(update => {
-            if (update.docChanged && !synchronizing.current) {
+            if (update.docChanged) {
+              lastScroll.current = lastScroll.current?.map(update.changes);
               handlers.current.onChange(update.state.doc.sliceString(0, update.state.doc.length, lineEnding.current));
             }
             if (update.selectionSet || update.docChanged) {
@@ -148,13 +149,41 @@ export function Editor({ ref, path, content, textScale, customSnippets, theme, l
             '.cm-snippetFieldPosition': { borderLeftColor: 'var(--accent)' },
           }),
         ],
-      }),
-      parent: host.current,
-    });
+    };
+    return json ? EditorState.fromJSON(json, configuration, editorHistoryFields) : EditorState.create(configuration);
+  };
+
+  useLayoutEffect(() => {
+    if (!host.current) return;
+    const restored = sessions.restore(path, sessionGeneration, content);
+    lineEnding.current = detectLineEnding(content, restored?.lineEnding);
+    let state: EditorState;
+    try { state = createState(content, restored?.json); }
+    catch { state = createState(content); }
+    const editor = new EditorView({ state, parent: host.current, scrollTo: restored?.scrollTo });
     view.current = editor;
-    return () => { editor.destroy(); view.current = null; };
-    // A note gets its own undo history. Content updates are applied below.
-  }, [path]);
+    lastScroll.current = restored?.scrollTo as ReturnType<EditorView['scrollSnapshot']> | undefined;
+    const rememberScroll = () => {
+      // A source editor hidden by Read/PDF mode reports zero DOM dimensions.
+      // Keep its last visible position instead of capturing that hidden zero.
+      if (editor.scrollDOM.clientHeight > 0) lastScroll.current = editor.scrollSnapshot();
+    };
+    editor.scrollDOM.addEventListener('scroll', rememberScroll, { passive: true });
+    const head = editor.state.selection.main.head;
+    const line = editor.state.doc.lineAt(head);
+    handlers.current.onCursor(line.number, head - line.from + 1);
+    return () => {
+      // Parent reconciliation may already have resized this still-connected
+      // editor and clamped scrollTop. Use its last visible scroll event, not
+      // that transient cleanup geometry.
+      sessions.capture(path, sessionGeneration, editor.state, lineEnding.current, lastScroll.current);
+      editor.scrollDOM.removeEventListener('scroll', rememberScroll);
+      editor.destroy();
+      view.current = null;
+    };
+    // Retain state in layout cleanup; scroll is tracked while mounted.
+    // Each mounted view gets fresh extensions and handlers, even after restore.
+  }, [path, sessions, sessionGeneration]);
 
   useEffect(() => {
     const editor = view.current;
@@ -163,12 +192,12 @@ export function Editor({ ref, path, content, textScale, customSnippets, theme, l
     // Keep the existing convention if an edit temporarily removes every break.
     lineEnding.current = detectLineEnding(content, lineEnding.current);
     if (content.replace(/\r\n?/g, '\n') !== editor.state.doc.toString()) {
-      synchronizing.current = true;
-      try {
-        editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: content } });
-      } finally {
-        synchronizing.current = false;
-      }
+      // A replacement coming from outside this editor is a new baseline. It
+      // must not become an undo step that can revive discarded/external text.
+      editor.setState(createState(content));
+      lastScroll.current = undefined;
+      editor.scrollDOM.scrollTop = 0;
+      handlers.current.onCursor(1, 1);
     }
   }, [content]);
 

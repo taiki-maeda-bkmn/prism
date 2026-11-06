@@ -27,8 +27,10 @@ const modeButton = (name: 'Source' | 'Split' | 'Live' | 'Read') => page.getByRol
 const viewport = () => pdf().getByLabel('PDF page viewport', { exact: true });
 
 async function launch() {
+  const applicationRoot = path.resolve(process.env.PRISM_TEST_APP_ROOT || process.cwd());
   desktop = await electron.launch({
-    args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(),
+    executablePath: process.env.PRISM_TEST_ELECTRON,
+    args: electronLaunchArguments(['--no-sandbox', applicationRoot]), cwd: applicationRoot,
     env: { ...process.env, PRISM_USER_DATA: userData, PRISM_WORKSPACE: notebook, PRISM_PDF_USER_DATA: pdfProfile },
   });
   page = await desktop.firstWindow();
@@ -230,7 +232,7 @@ test('retains Japanese selection, undo and the unlocked reader across layouts an
   await editor().press('ControlOrMeta+z');
   await expect(editor()).not.toContainText(draft);
   await expect(page.locator('.statusbar')).toContainText('All changes saved');
-  await editor().press('ControlOrMeta+Shift+z');
+  await editor().press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+z');
   await expect(editor()).toContainText(draft);
   await editor().press('ControlOrMeta+s');
   await expect.poll(() => readFile(noteFile(), 'utf8')).toBe(welcome + draft);

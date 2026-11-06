@@ -88,7 +88,7 @@ All three [stage 2 increments](pdf-stage-2.md) are complete: the **Read & write*
 
 Goal: make PDF references part of Prism's connected-notes workflow.
 
-All three increments in the [stage 3 breakdown](pdf-stage-3.md) are complete: **Linked notes**, cited PDFs in the full graph, and bounded compact connections with combined workflow checks. Compact PDF nodes use the current note's cited pages and load titles explicitly; the full graph uses citations across the notebook. The reading guide documents draft retention and the existing editor-history boundary when changing notes or entering the full graph.
+All three increments in the [stage 3 breakdown](pdf-stage-3.md) are complete: **Linked notes**, cited PDFs in the full graph, and bounded compact connections with combined workflow checks. Compact PDF nodes use the current note's cited pages and load titles explicitly; the full graph uses citations across the notebook. The reading guide documents draft retention and the subsequent [per-note editor history](editor-history.md) increment across notes and the full graph.
 
 - Extend link resolution with distinct note and PDF identities; use stage 2's document links rather than guessing from display titles.
 - Show backlinks from a PDF to notes that reference it, including page destinations where available.
