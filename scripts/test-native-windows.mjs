@@ -357,8 +357,13 @@ try {
   await expect(editor).toContainText(savedText);
   await editor.press('Control+s');
   await expect.poll(() => readFile(noteFile, 'utf8')).toBe(original + savedText);
+  // The atomic rename precedes the renderer's save acknowledgement. The
+  // editor is inert until that acknowledgement; do not inject the next draft
+  // into a deliberately disabled input and mistake it for a lost draft.
+  await expect(page.locator('.statusbar')).toContainText('All changes saved');
   evidence.phases.push({ phase: 'Japanese keyboard save', preservedBOM: true, preservedCRLF: true });
   await editor.press('Control+End'); await page.keyboard.insertText(draft);
+  await expect(editor).toContainText(draft);
   await page.getByRole('button', { name: 'Close window', exact: true }).click();
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
