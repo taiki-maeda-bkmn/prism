@@ -129,3 +129,9 @@ GPU/display state, and a CPU profile, then closes only its own Electron session
 and deletes its temporary notebook/profiles. CDP duration counters use seconds;
 frame and phase timings use milliseconds. Probes and automation add overhead.
 Chromium wheel injection does not test physical Windows input delivery.
+
+The selected `Profile.md` must be loaded and active before and after each
+traversal. A note skipped by the app (for example, exceeding its 2 MB limit)
+fails the run instead of silently profiling the small related note. Both an
+ordinary fixture run and an oversized-copy rejection were checked after adding
+this guard; the rejected run recorded no profiling phases.

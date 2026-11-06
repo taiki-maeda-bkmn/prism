@@ -125,7 +125,15 @@ async function metrics() {
   return Object.fromEntries(metrics.map(({ name, value }) => [name, value]));
 }
 
+async function assertFixtureActive() {
+  // Workspace loading may skip unsupported/unreadable notes and select the
+  // small Related.md fallback. Never report that as a profile of this fixture.
+  await expect(page.locator('.note-item[title="Profile.md"]'), 'The copied Profile.md fixture must be loaded and selected')
+    .toHaveAttribute('aria-current', 'page');
+}
+
 async function traverse(name, selector, direction) {
+  await assertFixtureActive();
   const before = await metrics();
   await page.evaluate(({ name, selector, direction }) => window.__prismScrollProfile.begin(name, selector, direction), { name, selector, direction });
   const scroller = page.locator(selector);
@@ -171,6 +179,7 @@ async function traverse(name, selector, direction) {
   result.renderer = Object.fromEntries(['LayoutDuration', 'RecalcStyleDuration', 'ScriptDuration', 'TaskDuration', 'LayoutCount', 'RecalcStyleCount']
     .map(key => [key, (after[key] ?? 0) - (before[key] ?? 0)]));
   report.phases.push(result);
+  await assertFixtureActive();
   console.log(`${name}: ${Math.round(result.wallMs)}ms; frame p95 ${result.frames.p95Ms.toFixed(1)}ms, max ${result.frames.maxMs.toFixed(1)}ms; `
     + `${result.liveMathAssignments} Live formulas, ${result.tableTemplateAssignments} tables; ${result.reverseFrames} reverse frames; height Δ ${result.maxHeightChange}px`);
   if (!reachedEnd) throw new Error(`${name} did not reach the scroll endpoint ${timedOut ? 'within 60 seconds' : 'within 400 steps'}`);
@@ -186,9 +195,9 @@ try {
   child.stderr?.on('data', bytes => { if (electronStderr.length < 2_000_000) electronStderr += String(bytes); });
   page = await desktop.firstWindow(); page.setDefaultTimeout(30000);
   page.on('pageerror', error => report.errors.push(error.message));
-  await expect(page.locator('.note-heading h1')).toBeVisible();
+  await assertFixtureActive();
   await page.evaluate(transparent => localStorage.setItem('prism.preferences', JSON.stringify({ mode: 'source', transparent, opacity: 65 })), transparent);
-  await page.reload(); await expect(page.locator('.note-heading h1')).toBeVisible();
+  await page.reload(); await assertFixtureActive();
   if (maximize) {
     await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].maximize());
     await expect.poll(() => desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized())).toBe(true);
