@@ -69,12 +69,19 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
   const dragRef = useRef<{ id: string; token: string } | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const fileDragRef = useRef(false);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const [libraryDropTarget, setLibraryDropTarget] = useState(false);
   const suppressOpen = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [warnings, setWarnings] = useState<string[]>([]);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
   const [importing, setImporting] = useState(false);
+  const importingRef = useRef(false);
+  const navigationRevision = useRef(0);
+  const workspaceVisible = useRef(workspaceActive);
+  workspaceVisible.current = workspaceActive;
   const [urlImportOpen, setURLImportOpen] = useState(false);
   const loadRequest = useRef(0);
   const documentChanges = useRef(new Map<string, number>());
@@ -135,12 +142,12 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     setReaderLinkRequest(null);
     setMissingLink(null);
   }, []);
-  const openDocument = (id: string | null) => { cancelPageLink(); setActiveId(id); };
+  const openDocument = (id: string | null) => { navigationRevision.current++; cancelPageLink(); setActiveId(id); };
 
   useEffect(() => {
     if (!compact || !navigationOpen) return;
     const frame = requestAnimationFrame(() => {
-      if (!dragRef.current && workspaceRef.current?.contains(document.activeElement)) navigationRef.current?.querySelector<HTMLButtonElement>('nav button')?.focus({ preventScroll: true });
+      if (!dragRef.current && !fileDragRef.current && workspaceRef.current?.contains(document.activeElement)) navigationRef.current?.querySelector<HTMLButtonElement>('nav button')?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [compact, navigationOpen]);
@@ -198,29 +205,42 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     setActiveId(pageLinkRequest.documentId);
   }, [pageLinkRequest, loading, loadError, documents, closeNavigation]);
 
-  const importFiles = useCallback(async () => {
-    if (importing || loading || loadError) return;
+  const canImportFiles = useCallback(() => workspaceActive && !importingRef.current && !loading && !loadError
+    && !movingRef.current && !folderBusyRef.current && !editingId && !folderDialog && !urlImportOpen
+    && !document.querySelector('dialog[open]'), [workspaceActive, loading, loadError, editingId, folderDialog, urlImportOpen]);
+  const importFiles = useCallback(async (files?: File[], requestedFolderId?: string | null) => {
+    if (!canImportFiles()) return;
+    importingRef.current = true;
+    const folderId = requestedFolderId === undefined ? (filter.startsWith('folder:') ? filter.slice(7) : null) : requestedFolderId;
+    const destination = folderId ? foldersRef.current.find(folder => folder.id === folderId)?.name ?? 'the selected folder' : 'Unfiled';
+    const destinationFilter: Filter = folderId ? `folder:${folderId}` : requestedFolderId === null || filter === 'unfiled' ? 'unfiled' : 'all';
     cancelPageLink();
     const linkAtImport = latestLink.current?.request;
+    const navigationAtImport = navigationRevision.current;
     const baseline = snapshotBaseline();
     closeNavigation();
     setImporting(true);
+    if (files) setNotice({ text: `Importing PDFs into ${destination}…`, error: false });
     try {
-      const result = await window.prismPdf.importDocuments();
+      const result = files ? await window.prismPdf.importDroppedDocuments(files, folderId) : await window.prismPdf.importDocuments(folderId);
       applySnapshot(result.library, baseline);
       result.importedIds.forEach(recordDocumentChange);
       if (result.importedIds.length || result.duplicateCount || result.errors.length) {
         const parts: string[] = [];
-        if (result.importedIds.length) parts.push(`${result.importedIds.length} PDF${result.importedIds.length === 1 ? '' : 's'} added to your library.`);
-        if (result.duplicateCount) parts.push(`${result.duplicateCount} already in your library.`);
+        if (result.importedIds.length) parts.push(`${result.importedIds.length} PDF${result.importedIds.length === 1 ? '' : 's'} added to ${destination}. Originals were kept.`);
+        if (result.duplicateCount) parts.push(`${result.duplicateCount} already in your library. Existing folders and details are unchanged.`);
         parts.push(...result.errors);
         setNotice({ text: parts.join(' '), error: result.errors.length > 0 });
       }
-      // Finishing an older import must not close a PDF opened by a newer link.
-      if (result.importedIds.length && latestLink.current?.request === linkAtImport) { setFilter('all'); setQuery(''); setActiveId(null); }
+      // Finishing an older import must not replace newer reader/filter navigation.
+      if (result.importedIds.length && latestLink.current?.request === linkAtImport
+        && navigationRevision.current === navigationAtImport && workspaceVisible.current) {
+        setFilter(folderId && !foldersRef.current.some(folder => folder.id === folderId) ? 'unfiled' : destinationFilter);
+        setQuery(''); setActiveId(null);
+      }
     } catch (error) { setNotice({ text: message(error), error: true }); }
-    finally { setImporting(false); }
-  }, [importing, loading, loadError, closeNavigation, cancelPageLink, recordDocumentChange, snapshotBaseline, applySnapshot]);
+    finally { importingRef.current = false; setImporting(false); }
+  }, [canImportFiles, filter, closeNavigation, cancelPageLink, recordDocumentChange, snapshotBaseline, applySnapshot]);
 
   const completeURLImport = useCallback((document: PDFDocument) => {
     recordDocumentChange(document.id);
@@ -288,7 +308,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
   const selectedFolder = filter.startsWith('folder:') ? folders.find(folder => folder.id === filter.slice(7)) : undefined;
   const heading = filter === 'unfiled' ? 'Unfiled' : filter.startsWith('folder:') ? selectedFolder?.name ?? 'Folder' : filter === 'all'  ? 'All documents' : filter === 'recent' ? 'Recently opened' : filter === 'favorites' ? 'Favorites' : filter.slice(4);
   const selectFilter = (value: Filter) => { setFilter(value); openDocument(null); setQuery(''); closeNavigation(compact && navigationOpen); };
-  const edit = (document: PDFDocument) => { setEditingId(document.id); setTitle(document.title); setTags(document.tags.join(', ')); setDetailFolder(document.folderId ?? ''); setRemoving(false); setModalError(''); };
+  const edit = (document: PDFDocument) => { navigationRevision.current++; setEditingId(document.id); setTitle(document.title); setTags(document.tags.join(', ')); setDetailFolder(document.folderId ?? ''); setRemoving(false); setModalError(''); };
   const closeModal = () => { if (!saving) { setEditingId(null); setRemoving(false); } };
   const favorite = async (document: PDFDocument) => {
     try { await update(document.id, { favorite: !document.favorite }); }
@@ -320,7 +340,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     catch (error) { setModalError(message(error)); }
   };
   const openFolderDialog = (folder?: PDFFolder) => {
-    if (folderBusyRef.current || movingRef.current || loading || loadError) return;
+    if (folderBusyRef.current || movingRef.current || importingRef.current || loading || loadError) return;
     setFolderDialog(folder ? { kind: 'edit', id: folder.id } : { kind: 'create' });
     setFolderName(folder?.name ?? ''); setFolderError(''); closeNavigation(compact && navigationOpen);
   };
@@ -342,9 +362,12 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     } catch (error) { setFolderError(message(error)); }
     finally { folderBusyRef.current = false; setFolderBusy(false); }
   };
-  const clearDrag = useCallback(() => { dragRef.current = null; setDraggingId(null); setDropTarget(null); }, []);
+  const clearDrag = useCallback(() => {
+    dragRef.current = null; fileDragRef.current = false;
+    setDraggingId(null); setDropTarget(null); setDraggingFiles(false); setLibraryDropTarget(false);
+  }, []);
   useEffect(() => {
-    if (!workspaceActive) clearDrag();
+    if (!workspaceActive) { navigationRevision.current++; clearDrag(); }
     window.addEventListener('blur', clearDrag);
     window.addEventListener('dragend', clearDrag);
     window.addEventListener('drop', clearDrag);
@@ -358,7 +381,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     };
   }, [workspaceActive, clearDrag]);
   const beginDrag = (event: DragEvent<HTMLElement>, id: string) => {
-    if (movingRef.current || folderBusyRef.current || !workspaceActive || (event.target as Element).closest('.card-actions, .document-tags')) { event.preventDefault(); return; }
+    if (movingRef.current || folderBusyRef.current || importingRef.current || !workspaceActive || (event.target as Element).closest('.card-actions, .document-tags')) { event.preventDefault(); return; }
     const token = crypto.randomUUID();
     dragRef.current = { id, token }; suppressOpen.current = id;
     event.dataTransfer.effectAllowed = 'move';
@@ -366,9 +389,11 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     setDraggingId(id);
   };
   const internalDrag = (event: DragEvent) => !!dragRef.current && event.dataTransfer.types.includes(documentDragType) && !event.dataTransfer.types.includes('Files');
+  const externalDrag = (event: DragEvent) => event.dataTransfer.types.includes('Files') && !event.dataTransfer.types.includes(documentDragType);
+  const rememberFileDrag = () => { fileDragRef.current = true; setDraggingFiles(true); };
   const moveDocument = async (id: string, folderId: string | null) => {
     const document = documents.find(item => item.id === id);
-    if (!document || (document.folderId ?? null) === folderId || movingRef.current || folderBusyRef.current) return;
+    if (!document || (document.folderId ?? null) === folderId || movingRef.current || folderBusyRef.current || importingRef.current || !workspaceActive) return;
     const destination = folderId ? folders.find(folder => folder.id === folderId) : null;
     if (folderId && !destination) return;
     movingRef.current = true; setMovingId(id);
@@ -380,18 +405,26 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
   };
   const folderDropProps = (folderId: string | null) => ({
     onDragOver: (event: DragEvent<HTMLButtonElement>) => {
-      if (!internalDrag(event) || movingRef.current || folderBusyRef.current) return;
-      event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDropTarget(folderId ?? '');
+      const fileDrop = externalDrag(event) && canImportFiles();
+      if (!fileDrop && (!internalDrag(event) || movingRef.current || folderBusyRef.current || importingRef.current || !workspaceActive || document.querySelector('dialog[open]'))) return;
+      event.preventDefault(); event.stopPropagation();
+      event.dataTransfer.dropEffect = fileDrop ? 'copy' : 'move';
+      if (fileDrop) rememberFileDrag();
+      setLibraryDropTarget(false); setDropTarget(folderId ?? '');
     },
     onDragLeave: (event: DragEvent<HTMLButtonElement>) => {
-      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(current => current === (folderId ?? '') ? null : current);
+      if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(current => current === (folderId ?? '') ? null : current);
     },
     onDrop: (event: DragEvent<HTMLButtonElement>) => {
       event.preventDefault(); event.stopPropagation();
+      // Read File objects while the drop data store is accessible; the preload
+      // resolves their native paths before starting the asynchronous import.
+      const files = externalDrag(event) && canImportFiles() ? Array.from(event.dataTransfer.files) : null;
       const drag = dragRef.current;
-      const accepted = internalDrag(event) && drag && event.dataTransfer.getData(documentDragType) === drag.token;
+      const accepted = internalDrag(event) && drag && event.dataTransfer.getData(documentDragType) === drag.token && !document.querySelector('dialog[open]');
       clearDrag();
-      if (accepted) void moveDocument(drag.id, folderId);
+      if (files) void importFiles(files, folderId);
+      else if (accepted) void moveDocument(drag.id, folderId);
     },
   });
   const folderItem = (folder: PDFFolder | null) => {
@@ -401,7 +434,7 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
       <button {...folderDropProps(folder?.id ?? null)} className={`nav-item pdf-folder-target ${filter === value && !active ? 'selected' : ''} ${dropTarget === id ? 'pdf-drop-target' : ''}`} onClick={() => selectFilter(value)} aria-current={filter === value && !active ? 'page' : undefined} aria-label={folder ? `Folder ${folder.name}` : 'Unfiled'} title={folder?.name ?? 'Unfiled'}>
         <Folder size={18} /><span className="truncate">{folder?.name ?? 'Unfiled'}</span><span className="nav-count">{folderCounts.get(id) ?? 0}</span>
       </button>
-      {folder && <button className="pdf-folder-manage" aria-label={`Manage folder ${folder.name}`} title={`Manage folder ${folder.name}`} disabled={folderBusy || !!movingId || loading} onClick={() => openFolderDialog(folder)}><MoreHorizontal size={17} /></button>}
+      {folder && <button className="pdf-folder-manage" aria-label={`Manage folder ${folder.name}`} title={`Manage folder ${folder.name}`} disabled={folderBusy || !!movingId || loading || importing} onClick={() => openFolderDialog(folder)}><MoreHorizontal size={17} /></button>}
     </div>;
   };
   const navItem = (value: Filter, label: string, icon: ReactNode, count: number) => <button className={`nav-item ${filter === value && !active ? 'selected' : ''}`} onClick={() => selectFilter(value)} aria-current={filter === value && !active ? 'page' : undefined} aria-label={label}>
@@ -409,9 +442,17 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
   </button>;
 
   return <div ref={workspaceRef} className={`pdf-workspace ${integrated ? 'pdf-integrated' : 'pdf-standalone app-shell'}`} data-compact={compact} data-transparent={integrated ? undefined : appearance.transparent} style={integrated ? undefined : { '--surface-alpha': appearance.transparent ? appearance.opacity / 100 : 1 } as CSSProperties}
-    onDragOver={event => { if (!internalDrag(event)) { event.preventDefault(); event.dataTransfer.dropEffect = 'none'; } }}
+    onDragEnter={event => { if (externalDrag(event) && canImportFiles()) rememberFileDrag(); }}
+    onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'none'; setDropTarget(null); setLibraryDropTarget(false); }}
+    onDragLeave={event => {
+      if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
+        // Preserve the internal drag token until drop/end, so leaving and
+        // re-entering the window can still complete an existing library move.
+        fileDragRef.current = false; setDraggingFiles(false); setLibraryDropTarget(false); setDropTarget(null);
+      }
+    }}
     onDrop={event => { event.preventDefault(); clearDrag(); }}
-    onKeyDownCapture={event => { if (compact && navigationOpen && event.key === 'Escape' && !document.querySelector('dialog[open]')) { event.preventDefault(); event.stopPropagation(); closeNavigation(true); } }}>
+    onKeyDownCapture={event => { if (compact && navigationOpen && event.key === 'Escape' && !document.querySelector('dialog[open]')) { event.preventDefault(); event.stopPropagation(); clearDrag(); closeNavigation(true); } }}>
     {compact && navigationOpen && <button className="pdf-navigation-dismiss" aria-label="Dismiss library navigation" tabIndex={-1} onClick={() => closeNavigation(true)} />}
     <aside id="pdf-library-navigation" ref={navigationRef} className="sidebar" hidden={compact && !navigationOpen} inert={compact && !navigationOpen}>
       {compact && <button className="pdf-navigation-close" aria-label="Close library navigation" onClick={() => closeNavigation(true)}><X size={17} />Close</button>}
@@ -423,8 +464,8 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
         {navItem('recent', 'Recently opened', <Clock3 size={18} />, recentCount)}
         {navItem('favorites', 'Favorites', <Star size={18} />, favorites)}
         <div className="pdf-folders-heading"><p className="section-label">FOLDERS</p><button aria-label="New folder" title="New folder" disabled={folderBusy || !!movingId || loading || !!loadError || importing} onClick={() => openFolderDialog()}><Plus size={17} /></button></div>
-        <p className="pdf-folder-hint" id="pdf-folder-help">Drag PDFs into folders, or use Folder in document details.</p>
-        <div className={`pdf-folders ${draggingId ? 'pdf-folders-dragging' : ''}`} aria-label="PDF folders">{folderItem(null)}{orderedFolders.map(folderItem)}</div>
+        <p className="pdf-folder-hint" id="pdf-folder-help">Drop PDF files here to import copies. Drag library PDFs to move them, or use Folder in document details.</p>
+        <div className={`pdf-folders ${draggingId || draggingFiles ? 'pdf-folders-dragging' : ''}`} aria-label="PDF folders">{folderItem(null)}{orderedFolders.map(folderItem)}</div>
         <div className="tags-heading"><p className="section-label">YOUR TAGS</p><Tag size={13} /></div>
         {tagCounts.length ? tagCounts.map(([tag, count], index) => <button key={tag} className={`nav-item tag-item ${filter === `tag:${tag}` && !active ? 'selected' : ''}`} onClick={() => selectFilter(`tag:${tag}`)} aria-label={`Tag ${tag}`}><span className={`tag-dot tone-${index % 4}`} /><span className="truncate">{tag}</span><span className="nav-count">{count}</span></button>) : <p className="tag-hint">Add tags in document details<br />to keep things organized.</p>}
       </nav>
@@ -435,7 +476,10 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
     </aside>
     <div className="workspace">
       <header className={integrated ? "pdf-library-heading" : "titlebar"}>
-        {compact && <button ref={navigationToggle} className="pdf-library-toggle" aria-label="Library navigation" aria-controls="pdf-library-navigation" aria-expanded={navigationOpen} onDragEnter={event => { if (internalDrag(event)) setNavigationOpen(true); }} onClick={() => setNavigationOpen(value => !value)}><PanelLeft size={17} /><span>Library</span></button>}
+        {compact && <button ref={navigationToggle} className="pdf-library-toggle" aria-label="Library navigation" aria-controls="pdf-library-navigation" aria-expanded={navigationOpen} onDragEnter={event => {
+          if (externalDrag(event) && canImportFiles()) { rememberFileDrag(); setNavigationOpen(true); }
+          else if (internalDrag(event)) setNavigationOpen(true);
+        }} onClick={() => setNavigationOpen(value => !value)}><PanelLeft size={17} /><span>Library</span></button>}
         <div className="breadcrumb"><span>Workspace</span><ChevronRight size={13} /><strong>{active ? active.title : 'My library'}</strong></div>
         <label className="search-box"><Search size={16} /><input ref={searchRef} aria-label="Search library" placeholder="Search your library…" value={query} onChange={event => { setQuery(event.target.value); openDocument(null); }} /><kbd>{window.prismPdf.platform === 'darwin' ? '⌘' : 'Ctrl'} K</kbd></label>
         {!integrated && <div className="window-controls"><button aria-label="Minimize window" onClick={() => window.prismPdf.windowControl('minimize')}><Minus size={14} /></button><button aria-label="Maximize or restore window" onClick={() => window.prismPdf.windowControl('maximize')}><Maximize2 size={13} /></button><button aria-label="Close window" onClick={() => window.prismPdf.windowControl('close')}><X size={16} /></button></div>}
@@ -446,11 +490,24 @@ export function LibraryWorkspace({ workspaceActive = true, onAppearance, pageLin
         <div className="pdf-link-actions"><button onClick={() => selectFilter('all')}>Browse library</button><button aria-label="Dismiss PDF link error" onClick={cancelPageLink}><X size={16} /></button></div>
       </div>}
       {warnings.length > 0 && <details className="warnings"><summary>{warnings.length} library warning{warnings.length === 1 ? '' : 's'}</summary>{warnings.map((warning, index) => <p key={index}>{warning}</p>)}</details>}
-      {active ? <PdfReader key={active.id} workspaceActive={workspaceActive} document={active} onUpdate={readingUpdate} onClose={() => openDocument(null)} pageLinkRequest={readerLinkRequest?.documentId === active.id ? readerLinkRequest : null} onInsertPageLink={onInsertPageLink} canInsertPageLink={canInsertPageLink} backlinks={backlinks?.get(active.id)} onOpenNote={onOpenNote} /> : <main className="library-content">
+      {active ? <PdfReader key={active.id} workspaceActive={workspaceActive} document={active} onUpdate={readingUpdate} onClose={() => openDocument(null)} pageLinkRequest={readerLinkRequest?.documentId === active.id ? readerLinkRequest : null} onInsertPageLink={onInsertPageLink} canInsertPageLink={canInsertPageLink} backlinks={backlinks?.get(active.id)} onOpenNote={onOpenNote} /> : <main className={`library-content ${libraryDropTarget ? 'pdf-file-drop-target' : ''}`} aria-describedby="pdf-file-drop-help"
+        onDragOver={event => {
+          if (!externalDrag(event) || !canImportFiles()) return;
+          event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy';
+          rememberFileDrag(); setDropTarget(null); setLibraryDropTarget(true);
+        }}
+        onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setLibraryDropTarget(false); }}
+        onDrop={event => {
+          event.preventDefault(); event.stopPropagation();
+          const files = externalDrag(event) && canImportFiles() ? Array.from(event.dataTransfer.files) : null;
+          clearDrag();
+          if (files) void importFiles(files);
+        }}>
         <div className="page-heading"><div><div className="eyebrow">A LITTLE ORDER. A LOT OF CLARITY.</div><h1>{heading}</h1><p>{filter === 'all' ? 'Everything you need, all in one place.' : filter === 'favorites' ? 'The documents you come back to.' : filter === 'recent' ? 'Pick up right where you left off.' : 'A collection of things that belong together.'}</p></div><div className="library-heading-actions">{onArxiv && <button className="secondary-button" onClick={onArxiv} disabled={importing || loading}><Search size={17} />Search arXiv</button>}{onResearch && <button className="secondary-button" onClick={onResearch} disabled={importing || loading}><BookOpen size={17} />Rates &amp; Execution</button>}<button className="secondary-button" onClick={() => { closeNavigation(); setURLImportOpen(true); }} disabled={importing || loading || !!loadError}><Link2 size={17} />Import from URL</button><button className="primary-button" onClick={() => void importFiles()} disabled={importing || loading || !!loadError}>{importing ? <LoaderCircle className="spin" size={17} /> : <Plus size={19} />}{importing ? 'Importing…' : 'Import PDFs'}</button></div></div>
+        <div className={`pdf-file-drop-hint ${libraryDropTarget ? 'active' : ''}`} id="pdf-file-drop-help"><FolderOpen size={20} /><div><strong>Drop PDFs into {selectedFolder?.name ?? 'Unfiled'}</strong><span>Copies are added to your library. Originals stay where they are.</span></div></div>
         <div className="library-toolbar"><div className="result-label"><FileText size={16} /><strong>{query ? 'Search results' : 'PDF documents'}</strong><span className="count-badge">{filtered.length}</span></div><div className="view-options"><ArrowDownUp size={14} /><select aria-label="Sort documents" value={sort} onChange={event => setSort(event.target.value)}><option value="newest">{filter === 'recent' ? 'Last opened' : 'Date added'}</option><option value="name">Name</option><option value="size">File size</option></select><span className="toolbar-divider" /><div className="layout-buttons"><button className={layout === 'grid' ? 'active' : ''} aria-label="Grid view" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><Grid2X2 size={16} /></button><button className={layout === 'list' ? 'active' : ''} aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={18} /></button></div></div></div>
         {loading ? <div className="empty-state" role="status"><LoaderCircle className="spin" size={30} /><h2>Opening your library…</h2></div> : loadError ? <div className="empty-state" role="alert"><FolderOpen size={36} /><h2>Your library couldn’t be opened</h2><p>{loadError}</p><button className="secondary-button" onClick={() => void load()}>Try again</button></div> : !documents.length ? <div className="empty-state welcome-state"><div className="paper-stack" aria-hidden="true"><div className="paper-back" /><div className="paper-front"><span className="pdf-badge">PDF</span><FileText size={45} strokeWidth={1} /><div className="paper-lines" /></div><span className="paper-spark"><Sparkles size={22} /></span></div><h2>A home for your PDFs.</h2><p>Bring your research, reading, and everyday documents<br />together in a space that stays yours.</p><button className="primary-button" onClick={() => void importFiles()} disabled={importing}><Plus size={18} />Import your first PDF</button><span className="privacy-note"><ShieldCheck size={14} />Stored on this device. No account needed.</span></div> : !filtered.length ? <div className="empty-state"><Search size={34} /><h2>{query ? 'No matching documents' : 'Nothing here just yet'}</h2><p>{query ? 'Try another title, filename, or tag.' : filter === 'favorites' ? 'Star a document to keep it close at hand.' : filter === 'recent' ? 'Open a PDF and find it here next time.' : filter === 'unfiled' || filter.startsWith('folder:') ? 'Move a PDF here from All documents by dragging it onto this folder, or use Folder in document details.' : 'Add this tag to a document to see it here.'}</p>{query && <button className="secondary-button" onClick={() => setQuery('')}>Clear search</button>}</div> : <div className={`documents documents-${layout}`} aria-label="Documents">
-          {filtered.map((document, index) => <article key={document.id} data-document-id={document.id} className={`document-card ${draggingId === document.id ? 'pdf-document-dragging' : ''}`} draggable={!movingId && !folderBusy} aria-busy={movingId === document.id} onDragStart={event => beginDrag(event, document.id)} onDragEnd={clearDrag} onPointerDownCapture={() => { suppressOpen.current = null; }} onClickCapture={event => { if (event.detail > 0 && suppressOpen.current === document.id) { event.preventDefault(); event.stopPropagation(); suppressOpen.current = null; } }}>
+          {filtered.map((document, index) => <article key={document.id} data-document-id={document.id} className={`document-card ${draggingId === document.id ? 'pdf-document-dragging' : ''}`} draggable={!movingId && !folderBusy && !importing} aria-busy={movingId === document.id} onDragStart={event => beginDrag(event, document.id)} onDragEnd={clearDrag} onPointerDownCapture={() => { suppressOpen.current = null; }} onClickCapture={event => { if (event.detail > 0 && suppressOpen.current === document.id) { event.preventDefault(); event.stopPropagation(); suppressOpen.current = null; } }}>
             <span className="pdf-drag-handle" title="Drag to a folder. You can also use Folder in document details." aria-hidden="true"><GripVertical size={15} /></span>
             {layout === 'grid' ? <button className={`document-preview preview-tone-${index % 4}`} aria-label={`Open ${document.title}`} onClick={() => openDocument(document.id)}><PdfThumbnail document={document} /><span className="preview-open"><BookOpen size={16} />Read document</span></button> : <button className="list-file-icon" aria-label={`Open ${document.title}`} onClick={() => openDocument(document.id)}><FileText size={24} /></button>}
             <div className="document-info"><button className="document-title" onClick={() => openDocument(document.id)} title={document.title}>{document.title}</button><div className="document-meta"><span>{formatSize(document.size)}</span><span>·</span><span>{document.pageCount ? `${document.pageCount} page${document.pageCount === 1 ? '' : 's'}` : 'PDF document'}</span></div>{document.tags.length > 0 && <div className="document-tags">{document.tags.slice(0, 2).map(tag => <button key={tag} onClick={() => selectFilter(`tag:${tag}`)}>{tag}</button>)}{document.tags.length > 2 && <span>+{document.tags.length - 2}</span>}</div>}</div>

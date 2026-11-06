@@ -1,4 +1,4 @@
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,7 +10,9 @@ test('standalone folders preserve documents, metadata and reading positions thro
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'prism-pdf-folders-'));
   const profile = path.join(temporary, 'profile');
   const source = path.join(temporary, 'Execution notes.pdf');
+  const secondSource = path.join(temporary, '追加資料.pdf');
   const bytes = fixturePdf();
+  const secondBytes = Buffer.concat([bytes, Buffer.from('\n% Additional standalone PDF\n')]);
   const errors: string[] = [];
   let desktop: ElectronApplication | undefined;
   let page!: Page;
@@ -19,8 +21,10 @@ test('standalone folders preserve documents, metadata and reading positions thro
   const folder = () => page.getByRole('button', { name: 'Folder 参考資料', exact: true });
 
   async function launch() {
+    const applicationRoot = path.resolve(process.env.PRISM_TEST_PDF_APP_ROOT || path.join(process.cwd(), 'pdf-manager'));
     desktop = await electron.launch({
-      args: electronLaunchArguments(['--no-sandbox', 'pdf-manager']), cwd: process.cwd(),
+      executablePath: process.env.PRISM_TEST_ELECTRON,
+      args: electronLaunchArguments(['--no-sandbox', applicationRoot]), cwd: applicationRoot,
       env: { ...process.env, PRISM_PDF_USER_DATA: profile },
     });
     page = await desktop.firstWindow();
@@ -35,13 +39,23 @@ test('standalone folders preserve documents, metadata and reading positions thro
     await closed;
     desktop = undefined;
   }
+  async function dropFile(target: Locator, filename: string) {
+    // Exercise disk-backed File -> preload webUtils -> IPC in the standalone host.
+    const session = await page.context().newCDPSession(page);
+    const box = await target.boundingBox();
+    expect(box).not.toBeNull();
+    const event = { x: box!.x + box!.width / 2, y: box!.y + Math.min(box!.height / 2, 160),
+      data: { items: [], files: [filename], dragOperationsMask: 1 } };
+    try {
+      for (const type of ['dragEnter', 'dragOver', 'drop'] as const) await session.send('Input.dispatchDragEvent', { type, ...event });
+    } finally { await session.detach(); }
+  }
   try {
     await writeFile(source, bytes);
+    await writeFile(secondSource, secondBytes);
     await launch();
-    await desktop!.evaluate(({ dialog }, filename) => {
-      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filename] });
-    }, source);
-    await page.getByRole('button', { name: 'Import PDFs', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Import PDFs', exact: true })).toBeEnabled();
+    await dropFile(page.locator('.library-content'), source);
     await page.getByRole('button', { name: 'Open Execution notes', exact: true }).click();
     await expect(page.locator('.pdf-paper canvas[data-page-number="1"]')).toBeVisible();
     await page.getByRole('button', { name: 'Next page', exact: true }).click();
@@ -76,6 +90,11 @@ test('standalone folders preserve documents, metadata and reading positions thro
     const moved = (await catalog()).documents[0];
     expect(moved).toMatchObject({ ...document, folderId, updatedAt: moved.updatedAt });
     expect(await readFile(path.join(profile, 'library/documents', `${document.id}.pdf`))).toEqual(bytes);
+    await dropFile(folder(), secondSource);
+    await expect(page.getByRole('button', { name: 'Open 追加資料', exact: true })).toBeVisible();
+    const additional = (await catalog()).documents.find(item => item.filename === '追加資料.pdf')!;
+    expect(additional.folderId).toBe(folderId);
+    expect(await readFile(path.join(profile, 'library/documents', `${additional.id}.pdf`))).toEqual(secondBytes);
     await close();
 
     await launch();
@@ -91,12 +110,14 @@ test('standalone folders preserve documents, metadata and reading positions thro
     await expect(page.getByRole('button', { name: 'Open Execution notes', exact: true })).toBeVisible();
     const unfiled = await catalog();
     expect(unfiled.version).toBe(2);
-    expect(unfiled.documents).toHaveLength(1);
-    expect(unfiled.documents[0].id).toBe(document.id);
-    expect(unfiled.documents[0].folderId).toBeUndefined();
-    expect(unfiled.documents[0].tags).toEqual(['Research', '約定']);
+    expect(unfiled.documents).toHaveLength(2);
+    const retained = unfiled.documents.find(item => item.id === document.id)!;
+    expect(retained.folderId).toBeUndefined();
+    expect(retained.tags).toEqual(['Research', '約定']);
+    expect(unfiled.documents.find(item => item.id === additional.id)).toEqual(additional);
     expect(unfiled.folders).toEqual(created.folders);
     expect(await readFile(source)).toEqual(bytes);
+    expect(await readFile(secondSource)).toEqual(secondBytes);
     expect(errors).toEqual([]);
     await close();
   } finally {

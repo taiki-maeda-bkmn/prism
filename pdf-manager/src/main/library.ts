@@ -5,12 +5,12 @@ import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import type { DocumentPatch, ImportResult, LibrarySnapshot, PDFDocument, PDFFolder } from '../shared/types';
 import { baseArxivId, normalizeArxivId } from '../../../src/shared/arxiv';
+import { validateImportPaths } from './file-imports';
 
 export const MAX_PDF_BYTES = 100 * 1024 * 1024;
 export const MAX_DOCUMENTS = 2_000;
 export const MAX_FOLDERS = 200;
 const MAX_CATALOG_BYTES = 8 * 1024 * 1024;
-const MAX_IMPORT_BATCH = 100;
 const idPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const hashPattern = /^[a-f0-9]{64}$/;
 const controls = /[\u0000-\u001f\u007f-\u009f]/;
@@ -362,10 +362,13 @@ export class LibraryStore {
     });
   }
 
-  import(paths: readonly string[]): Promise<ImportResult> {
+  import(paths: readonly string[], folderId?: unknown): Promise<ImportResult> {
     return this.serialize(async () => {
-      if (!Array.isArray(paths) || paths.length > MAX_IMPORT_BATCH || paths.some(filename => typeof filename !== 'string')) throw new Error('Import up to 100 PDF files at a time.');
+      validateImportPaths(paths);
       await this.checkCatalog();
+      // Resolve the destination inside the same serialized operation that
+      // publishes the new documents. Existing copies keep their membership.
+      const destinationFolder = !paths.length || folderId === undefined || folderId === null ? undefined : this.lookupFolder(folderId).id;
       const importedIds: string[] = [];
       const errors: string[] = [];
       let duplicateCount = 0;
@@ -396,6 +399,7 @@ export class LibraryStore {
               id, title: filename.replace(/\.pdf$/i, '').slice(0, 200).trim() || 'Untitled PDF', filename,
               size: bytes.length, sha256, importedAt: now, updatedAt: now, tags: [], favorite: false,
               lastOpenedAt: null, lastPage: 1, pageCount: null,
+              ...(destinationFolder ? { folderId: destinationFolder } : {}),
             };
             await this.commit([...this.documents, document]);
             importedIds.push(id);

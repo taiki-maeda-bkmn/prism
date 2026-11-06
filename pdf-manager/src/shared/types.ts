@@ -48,7 +48,8 @@ export type DocumentPatch = Partial<Pick<PDFDocument, 'title' | 'tags' | 'favori
 
 export interface PrismPdfAPI {
   loadLibrary(): Promise<LibrarySnapshot>;
-  importDocuments(): Promise<ImportResult>;
+  importDocuments(folderId?: string | null): Promise<ImportResult>;
+  importDroppedDocuments(files: File[], folderId?: string | null): Promise<ImportResult>;
   createFolder(name: string): Promise<LibrarySnapshot>;
   renameFolder(id: string, name: string): Promise<LibrarySnapshot>;
   removeFolder(id: string): Promise<LibrarySnapshot>;

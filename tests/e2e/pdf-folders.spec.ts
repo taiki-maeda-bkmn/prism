@@ -22,7 +22,9 @@ const findDocument = async (id: string) => (await catalog()).documents.find(docu
 const noteFile = () => path.join(notebook, 'Working note.md');
 
 async function launch() {
-  desktop = await electron.launch({ args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(),
+  const applicationRoot = path.resolve(process.env.PRISM_TEST_APP_ROOT || process.cwd());
+  desktop = await electron.launch({ executablePath: process.env.PRISM_TEST_ELECTRON,
+    args: electronLaunchArguments(['--no-sandbox', applicationRoot]), cwd: applicationRoot,
     env: { ...process.env, PRISM_USER_DATA: path.join(temporary, 'notes-profile'), PRISM_WORKSPACE: notebook, PRISM_PDF_USER_DATA: profile } });
   page = await desktop.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
@@ -183,6 +185,8 @@ test('failed and unrelated drops keep organization intact, then allow a move to 
     spoofed.setData('application/x-prism-pdf-document', 'external-token');
     element.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: spoofed }));
   });
+  await expect(pdf().getByRole('alert')).toContainText('file manager');
+  await expect(pdf().getByRole('button', { name: 'Import PDFs', exact: true })).toBeEnabled();
   expect(await readFile(catalogPath(), 'utf8')).toBe(before);
   await writeFile(catalogPath(), before + '\n');
   await card(first.id).dragTo(folder(target.name));

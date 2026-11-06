@@ -32,11 +32,21 @@ Folders use one level and each PDF belongs to one folder. **All documents**,
 Favorites, Recently opened, and tags continue to work across folders. Moving a
 PDF preserves its tags, favorite, reading position, and existing note links.
 The stored PDF file keeps its managed path. Both updated launchers share the
-same organization. Newly imported PDFs start in Unfiled, and duplicate imports
-keep the saved copy's folder.
+same organization. Duplicate imports keep the saved copy's folder and metadata.
 
-This increment moves PDFs already in Prism. Use **Import PDFs** for files from
-your computer; importing by dropping files from another app is planned next.
+To add files from your computer, drag PDFs from Windows Explorer or your file
+manager onto a sidebar folder or **Unfiled**. Dropping onto the library area
+uses the currently selected folder; in All documents, tag, Favorites, and Recent
+views it uses Unfiled. In a narrow window, hover over **Library** while dragging
+to expose the folder destinations. **Import PDFs** and Ctrl/⌘+O use the selected
+folder as a keyboard alternative.
+
+Prism copies files and keeps the originals. You can import up to 100 files at
+once, each up to 100 MiB. The result reports added PDFs, existing copies, and
+individual errors. A duplicate dropped into another folder keeps its existing
+assignment; drag its library card to move it. Drop files onto the library or a
+folder, rather than the PDF reading area. For website links, use **Import from
+URL** below.
 See [folder scope and catalogue compatibility](pdf-folders.md).
 
 ## Import a PDF from a website
