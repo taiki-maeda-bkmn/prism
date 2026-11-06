@@ -62,6 +62,7 @@ export interface PrismPdfAPI {
   revealDocument(id: string): Promise<void>;
   removeDocument(id: string): Promise<LibrarySnapshot>;
   windowControl(action: 'minimize' | 'maximize' | 'close'): void;
+  setWindowTranslucency(translucent: boolean): void;
   platform: string;
 }
 

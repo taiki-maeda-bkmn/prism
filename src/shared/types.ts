@@ -24,6 +24,7 @@ export interface PrismAPI {
   setDirty(dirty: boolean): void;
   openExternal(url: string): Promise<void>;
   windowControl(action: 'minimize' | 'maximize' | 'close'): void;
+  setWindowTranslucency(translucent: boolean): void;
   getWindowState(): Promise<WindowState>;
   onWindowStateChanged(callback: (state: WindowState) => void): () => void;
   onCloseRequested(callback: () => void): () => void;

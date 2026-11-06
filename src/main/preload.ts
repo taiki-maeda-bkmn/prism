@@ -13,6 +13,7 @@ const api: PrismAPI = {
   setDirty: (dirty) => ipcRenderer.send('prism:dirty', dirty),
   openExternal: (url) => ipcRenderer.invoke('prism:external', url),
   windowControl: (action) => ipcRenderer.send('prism:window', action),
+  setWindowTranslucency: (translucent) => ipcRenderer.send('prism:window-translucency', translucent),
   getWindowState: () => ipcRenderer.invoke('prism:window-state'),
   onWindowStateChanged: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, state: WindowState) => callback(state);

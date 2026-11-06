@@ -12,6 +12,7 @@ Build the brief in `AGENTS.md` as a local desktop application. Notes remain ordi
 - [x] Markdown: source, split preview, and reading modes; syntax highlighting; safe rendering; wiki links and Markdown file links.
 - [x] Connected notes: clickable graph, backlinks, and navigation between notes.
 - [x] Appearance: true background transparency with adjustable opacity, legible text, and persistent preferences.
+- [x] [Keep background video playing](docs/background-video.md) behind native Windows transparency: advertise native translucency before showing a window and notify Windows when appearance changes, so browsers do not incorrectly classify visible video as covered. Opaque mode and 100% background opacity retain normal occlusion behavior.
 - [x] Delivery: filesystem/link tests, desktop interaction checks, documentation, CI, and a pull request with Copilot review requested.
 
 ## Scope and follow-up
@@ -67,6 +68,8 @@ Implementation branch: `feat/prism-desktop`. Commit and push changes automatical
 Run appropriate local build, type, unit, and desktop checks. Per the user's instruction, do not check or wait for GitHub CI. Before reporting the work complete, check the Codex review against the current PR commit. Wait for the review summary to show that commit as completed, address any new findings, and check for unresolved threads. A new push requires checking the new commit's review again; resolved comments on an earlier commit do not complete this check.
 
 ## Verification
+
+- Background video: both builds/typechecks and the full main/PDF unit suites pass; eight focused native-translucency cases cover strict input, platform gating, startup, native alpha, notification coalescing, helper errors, and cancellation. All 18 native Edge playback phases pass with raw CDP, real window order/coverage, opaque positive controls, live transparency/100% transitions, Japanese BOM/CRLF editing and explicit save, maximize/restore/minimize, normal close, and saved-transparency restart without a hidden-video event. The native launcher regression also passes in transparent mode with actual Windows pointer delivery, dirty-close cancellation, repeated launch, Japanese saves, and complete process cleanup. Standalone PDF appearance transitions and immediate shutdown pass. These checks use disposable profiles and generated media, not the user's streaming account. GitHub CI was not checked.
 
 - PDF file drops: both builds/typechecks pass, with 369 main unit passes (five platform skips) and 116 PDF unit passes. Nine new storage/bridge cases cover atomic folder assignment, duplicate and source preservation, mixed batches, destination removal/order, publication retry, invalid/sparse path batches, native-file resolution, and orderly shutdown. All 13 targeted integrated Windows journeys and the standalone folder journey pass, including real disk-backed drag events through preload/IPC, Japanese filenames, current-folder picker imports, draft/undo and reader retention, restart, compact 150% layouts, cancellation, busy-import navigation, and file drops beside a focused note without taking its selection or save shortcuts. The native launcher harness also passes; the tested release was activated and opened successfully. Tests use disposable Windows data. GitHub CI was not checked.
 

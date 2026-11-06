@@ -8,6 +8,7 @@ import { ensureStarterNotebook, WorkspaceStore } from './workspace';
 import { isRendererResource, validateExternalURL } from './security';
 import { installWslgWindowRecovery } from './window-recovery';
 import { loadWindowPlacement, trackWindowPlacement } from './window-placement';
+import { installWindowTranslucency, translucentOpacity } from './window-translucency';
 import { PDFLibraryService } from '../../pdf-manager/src/main/library-service';
 import { resolvePDFProfileDirectory } from '../../pdf-manager/src/main/library-location';
 import { registerPDFLibraryIPC } from '../../pdf-manager/src/main/library-ipc';
@@ -23,6 +24,7 @@ if (!app.isPackaged && process.env.PRISM_USER_DATA) app.setPath('userData', path
 const rendererPath = path.join(__dirname, 'renderer', 'index.html');
 const rendererURL = pathToFileURL(rendererPath).href;
 let window: BrowserWindow | null = null;
+let windowTranslucency: ReturnType<typeof installWindowTranslucency> | undefined;
 let dirty = false;
 let allowClose = false;
 let pendingClose = false;
@@ -204,6 +206,10 @@ function registerIPC(): void {
   ipcMain.on('prism:dirty', (event, value: unknown) => {
     try { validateSender(event); if (typeof value === 'boolean') dirty = value; } catch { /* Ignore untrusted fire-and-forget messages. */ }
   });
+  ipcMain.on('prism:window-translucency', (event, value: unknown) => {
+    try { validateSender(event); windowTranslucency?.setTranslucent(value); }
+    catch { /* Ignore invalid appearance messages. */ }
+  });
   ipcMain.handle('prism:window-state', (event) => {
     validateSender(event);
     return windowState();
@@ -253,6 +259,9 @@ async function createWindow(): Promise<void> {
     title: 'Prism', ...placement.bounds,
     icon: path.join(__dirname, 'icon.png'),
     frame: false, transparent: true, backgroundColor: '#00000000',
+    // Do not briefly hide background video before saved appearance arrives.
+    // The renderer restores native opacity 1 when its background is opaque.
+    ...(process.platform === 'win32' ? { opacity: translucentOpacity } : {}),
     // Linux window managers and macOS need resizable windows for native zoom.
     // Windows supports transparent maximize through Electron's API while
     // keeping resize handles disabled to protect its transparent surface.
@@ -264,6 +273,7 @@ async function createWindow(): Promise<void> {
     },
   });
   const nativeWindow = window;
+  windowTranslucency = installWindowTranslucency(nativeWindow);
   // Initial mapping must not replace a saved maximized state. Track after the
   // initial show/restore, respecting window controls used during startup.
   let placementTracker: ReturnType<typeof trackWindowPlacement> | undefined;
@@ -308,7 +318,7 @@ async function createWindow(): Promise<void> {
     // stop downloads, while an already-started atomic save is allowed to finish.
     void pdfURLImports.cancelActive();
     placementTracker?.dispose();
-    if (window === nativeWindow) window = null;
+    if (window === nativeWindow) { window = null; windowTranslucency = undefined; }
   });
   try { await nativeWindow.loadFile(rendererPath); }
   catch (error) { if (quitting || nativeWindow.isDestroyed()) return; throw error; }
