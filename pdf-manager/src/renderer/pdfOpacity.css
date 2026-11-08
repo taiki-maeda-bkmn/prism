@@ -1,0 +1,85 @@
+/* A translucent page needs a clear path through its ancestors to the desktop.
+   Keep the reading area in one opacity group, independent of the app surface
+   alpha, and paint the surrounding rows separately so their text stays solid.
+   These overrides are inactive for opaque pages and opaque window mode. */
+.pdf-workspace .pdf-workspace-notices {
+  display: flow-root;
+  flex: none;
+  min-width: 0;
+}
+.pdf-workspace[data-pdf-page-translucent="true"] {
+  --pdf-opacity-chrome: rgba(248, 249, 246, var(--surface-alpha, 1));
+  --pdf-opacity-reading-background: #e9e8e2;
+}
+.pdf-workspace.pdf-integrated[data-pdf-page-translucent="true"] {
+  --pdf-opacity-chrome: rgba(var(--background-rgb), var(--surface-alpha));
+  --pdf-opacity-reading-background: color-mix(in srgb, var(--accent) 7%, var(--background));
+}
+.pdf-workspace[data-pdf-page-translucent="true"] > .workspace,
+.pdf-workspace[data-pdf-page-translucent="true"] .pdf-reader {
+  background: transparent;
+}
+.pdf-workspace[data-pdf-page-translucent="true"] .pdf-library-heading,
+.pdf-workspace[data-pdf-page-translucent="true"] .pdf-workspace-notices,
+.pdf-workspace[data-pdf-page-translucent="true"] .pdf-reader > :is(.pdf-reader-heading, .pdf-reader-toolbar, .pdf-reader-backlinks, .pdf-reader-footer) {
+  background: var(--pdf-opacity-chrome);
+}
+.pdf-workspace.pdf-standalone[data-pdf-page-translucent="true"] .titlebar {
+  background: linear-gradient(rgba(255, 255, 255, var(--surface-alpha, 1)), rgba(255, 255, 255, var(--surface-alpha, 1))), var(--pdf-opacity-chrome);
+}
+.pdf-workspace[data-pdf-page-translucent="true"] .pdf-reader-viewport {
+  background: var(--pdf-opacity-reading-background);
+  opacity: var(--pdf-page-opacity);
+}
+
+.pdf-workspace .pdf-layout-modal .pdf-page-opacity-setting {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.pdf-workspace .pdf-page-opacity-setting > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.pdf-workspace .pdf-page-opacity-setting label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pdf-workspace .pdf-page-opacity-setting output {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.pdf-workspace .pdf-page-opacity-setting input[type="range"] {
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.pdf-workspace .pdf-page-opacity-setting input:disabled {
+  opacity: .5;
+  cursor: default;
+}
+.pdf-workspace .pdf-page-opacity-setting p {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: calc(11px * var(--pdf-text-scale, 1));
+  line-height: 1.6;
+}
+.pdf-workspace .pdf-page-opacity-setting button {
+  min-height: 36px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-align: left;
+  white-space: normal;
+  line-height: 1.5;
+}
+.pdf-workspace .pdf-page-opacity-setting button:hover {
+  background: var(--hover, #f1f3ee);
+}

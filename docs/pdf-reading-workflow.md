@@ -35,6 +35,20 @@ existing overlay instead; returning to a wide pane restores your saved layout.
 The sidebar can temporarily shrink to keep room for the document without
 replacing your saved width.
 
+### Adjust PDF transparency
+
+Enable **Transparent window** in **Appearance**, then open **PDFs → Layout**
+and adjust **PDF page opacity** from 25% to 100%. This fades the PDF reading
+area, including page contents, independently of Prism's **Background opacity**.
+For example, leave the app background at 100% and set the PDF to 50% to see
+another window through the document while keeping the surrounding controls
+solid. The PDF's background is translucent; the PDF file itself is unchanged.
+
+The PDF setting is remembered after restart. Turning off **Transparent window**
+temporarily makes the page opaque without forgetting your rate. **Reset layout**
+restores PDF opacity to 100%; **More reading space** keeps the selected rate.
+Moving the slider retains the loaded page, zoom, scroll, and note draft.
+
 ## Reuse PDF tags
 
 To reuse a tag, open a PDF's **Details** and focus **Tags**. Suggestions come from the whole library, including documents outside the current filter. Type part of a tag, then click a suggestion or use Up/Down and Enter. Completion replaces the tag at your cursor and preserves surrounding tags. Existing selections are excluded regardless of case. You can also type new tags separated by commas; tags are stored only when you choose **Save changes**. Escape dismisses the suggestions first, and Tab moves to the next field.

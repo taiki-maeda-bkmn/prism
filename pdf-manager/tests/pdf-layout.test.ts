@@ -34,11 +34,25 @@ test('more reading space preserves preferred width and always retains page contr
   const result = moreReadingSpace(before);
   assert.deepEqual(result, {
     sidebar: false, sidebarWidth: 333, search: false, heading: false,
-    toolbar: true, backlinks: false, footer: false, compact: true,
+    toolbar: true, backlinks: false, footer: false, compact: true, pageOpacity: 100,
   });
   assert.deepEqual(before, snapshot);
   assert.deepEqual(parsePDFLayout(serializePDFLayout(result)), result);
   const fresh = parsePDFLayout(null);
   fresh.sidebar = false;
   assert.equal(defaultPDFLayout.sidebar, true);
+});
+
+test('page opacity migrates old layouts safely and rejects malformed saved values', () => {
+  assert.equal(parsePDFLayout('{"version":1,"heading":false}').pageOpacity, 100);
+  for (const pageOpacity of ['50', null, true, {}, []]) {
+    assert.equal(parsePDFLayout(JSON.stringify({ version: 1, pageOpacity })).pageOpacity, 100);
+  }
+  assert.equal(parsePDFLayout('{"version":1,"pageOpacity":1e999}').pageOpacity, 100);
+  for (const [pageOpacity, expected] of [[0, 25], [101, 100], [57.8, 58]]) {
+    assert.equal(parsePDFLayout(JSON.stringify({ version: 1, pageOpacity })).pageOpacity, expected);
+  }
+  const layout = { ...defaultPDFLayout, pageOpacity: 43 };
+  assert.deepEqual(parsePDFLayout(serializePDFLayout(layout)), layout);
+  assert.equal(moreReadingSpace(layout).pageOpacity, 43);
 });

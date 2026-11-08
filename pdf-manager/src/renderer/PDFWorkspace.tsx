@@ -6,6 +6,8 @@ interface PDFWorkspaceProps {
   active: boolean;
   visible: boolean;
   onAppearance: () => void;
+  transparentWindow?: boolean;
+  onPageTranslucencyChange?: (translucent: boolean) => void;
   pageLinkRequest?: PDFPageLinkRequest | null;
   onInsertPageLink?: (reference: PDFPageReference) => void;
   canInsertPageLink?: boolean;

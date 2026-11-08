@@ -7,6 +7,7 @@ export interface PDFLayout {
   backlinks: boolean;
   footer: boolean;
   compact: boolean;
+  pageOpacity: number;
 }
 
 export const librarySidebarSize = Object.freeze({ min: 180, default: 228, max: 420 });
@@ -20,6 +21,7 @@ export const defaultPDFLayout: Readonly<PDFLayout> = Object.freeze({
   backlinks: true,
   footer: true,
   compact: false,
+  pageOpacity: 100,
 });
 
 const booleanSettings = ['sidebar', 'search', 'heading', 'toolbar', 'backlinks', 'footer', 'compact'] as const;
@@ -31,6 +33,9 @@ function normalizePDFLayout(value: Record<string, unknown>): PDFLayout {
   }
   if (typeof value.sidebarWidth === 'number' && Number.isFinite(value.sidebarWidth)) {
     layout.sidebarWidth = Math.max(librarySidebarSize.min, Math.min(librarySidebarSize.max, Math.round(value.sidebarWidth)));
+  }
+  if (typeof value.pageOpacity === 'number' && Number.isFinite(value.pageOpacity)) {
+    layout.pageOpacity = Math.max(25, Math.min(100, Math.round(value.pageOpacity)));
   }
   return layout;
 }
