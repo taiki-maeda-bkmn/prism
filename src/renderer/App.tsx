@@ -71,6 +71,7 @@ export function App() {
   const activeWorkspaceRef = useRef(activeWorkspace);
   activeWorkspaceRef.current = activeWorkspace;
   const [pdfVisited, setPdfVisited] = useState(false);
+  const [pdfPageTranslucent, setPDFPageTranslucent] = useState(false);
   const [pageLinkRequest, setPageLinkRequest] = useState<PDFPageLinkRequest | null>(null);
   const nextPageLinkRequest = useRef(0);
   const editor = useRef<EditorHandle>(null);
@@ -235,8 +236,10 @@ export function App() {
     try { localStorage.setItem('prism.preferences', JSON.stringify(preferences)); } catch { /* Preferences are optional; notes are stored on disk. */ }
   }, [preferences]);
   useEffect(() => {
-    window.prism?.setWindowTranslucency(preferences.transparent && preferences.opacity < 100);
-  }, [preferences.transparent, preferences.opacity]);
+    // A visible PDF may be translucent even with fully solid app backgrounds.
+    // Busy panes are still drawn, so use actual layout visibility here.
+    window.prism?.setWindowTranslucency(preferences.transparent && (preferences.opacity < 100 || (pdfPageTranslucent && (split.visible || activeWorkspace === 'pdfs'))));
+  }, [preferences.transparent, preferences.opacity, pdfPageTranslucent, split.visible, activeWorkspace]);
   useEffect(() => { window.prism?.setDirty(Object.keys(drafts).length > 0); }, [drafts]);
   useEffect(() => window.prism?.onCloseRequested(() => setPending('close')), []);
   useEffect(() => {
@@ -639,7 +642,7 @@ export function App() {
     pdfVisited && <div key="pdfs" className="pdf-panel" id="pdfs-workspace" ref={pdfPanel} tabIndex={-1} aria-label="PDFs workspace" hidden={!split.visible && activeWorkspace !== 'pdfs'} inert={busy || (!split.visible && activeWorkspace !== 'pdfs')} aria-busy={busy} data-active={activeWorkspace === 'pdfs'}
       onPointerDownCapture={() => setActiveWorkspace('pdfs')}
       onFocusCapture={event => { workspaceFocus.current.pdfs = event.target as HTMLElement; setActiveWorkspace('pdfs'); }}>
-      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} visible={(split.visible || activeWorkspace === 'pdfs') && !busy} onAppearance={() => setSettings(true)} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} onDocumentsChange={pdfGraph.updateDocuments}
+      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} visible={(split.visible || activeWorkspace === 'pdfs') && !busy} onAppearance={() => setSettings(true)} transparentWindow={preferences.transparent} onPageTranslucencyChange={setPDFPageTranslucent} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} onDocumentsChange={pdfGraph.updateDocuments}
         onResearch={workspace ? () => setResearchOpen(true) : undefined} onArxiv={() => setArxivOpen(true)} libraryRevision={libraryRevision} />
     </div>,
     ])}

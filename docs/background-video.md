@@ -13,12 +13,15 @@ therefore counted Prism as an opaque covering window. A raw-CDP test with native
 Edge reproduced a transition to `document.visibilityState === 'hidden'`, paused
 playback, and stopped video frames when transparent Prism covered the browser.
 
-When **Transparent window** is enabled and **Background opacity** is below 100%,
+When **Transparent window** is enabled and either **Background opacity** is below
+100% or a visible PDF reading area has **PDF page opacity** below 100%,
 Prism now uses Electron's native window opacity of `254 / 255` on Windows. This
 sets the layered-window transparency indicator that the browser understands.
 CSS still controls the chosen background opacity; the native adjustment changes
-the whole surface by only one alpha level (about 0.4%). At 100%, or with
-transparency off, native opacity returns to `1`.
+the whole surface by only one alpha level (about 0.4%). When both visible surfaces
+are opaque, or with transparency off, native opacity returns to `1`. Hiding the
+PDF pane or returning to its library removes the PDF's contribution; focusing
+Notes beside a visible PDF does not.
 New windows start with that native translucency indicator before they are shown,
 so reopening with saved transparency does not briefly hide the background video
 while the renderer loads its appearance settings.

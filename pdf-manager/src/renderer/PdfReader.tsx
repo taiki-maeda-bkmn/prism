@@ -334,7 +334,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         viewportRef.current?.scrollTo({ top: 0, left: 0 });
         viewportRef.current?.focus({ preventScroll: true });
       }} /></div>}
-    {pageLinkError && <div className="notice notice-error pdf-page-link-error" role="alert" aria-label="PDF page link error"><span>{pageLinkError}</span><button aria-label="Dismiss page link error" onClick={() => setPageLinkError('')}><X size={16} /></button></div>}
+    {pageLinkError && <div className="pdf-workspace-notices"><div className="notice notice-error pdf-page-link-error" role="alert" aria-label="PDF page link error"><span>{pageLinkError}</span><button aria-label="Dismiss page link error" onClick={() => setPageLinkError('')}><X size={16} /></button></div></div>}
     <div className="pdf-reader-viewport" ref={viewportRef} tabIndex={0} aria-label="PDF page viewport"
       onPointerDown={event => {
         if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey

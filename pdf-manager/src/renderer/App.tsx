@@ -11,6 +11,7 @@ import { useLibrarySidebarResize } from './LibrarySidebarResize';
 import { defaultPDFLayout, moreReadingSpace, parsePDFLayout, pdfLayoutStorageKey, serializePDFLayout, type PDFLayout } from './pdfLayout';
 import './styles.css';
 import './pdfLayout.css';
+import './pdfOpacity.css';
 
 type Filter = 'all' | 'recent' | 'favorites' | 'unfiled' | `folder:${string}` | `tag:${string}`;
 type FolderDialog = { kind: 'create' } | { kind: 'edit' | 'remove'; id: string };
@@ -47,6 +48,8 @@ export interface LibraryWorkspaceProps {
   /** Whether the pane is shown and interactive, including beside focused notes. */
   workspaceVisible?: boolean;
   onAppearance?: () => void;
+  transparentWindow?: boolean;
+  onPageTranslucencyChange?: (translucent: boolean) => void;
   pageLinkRequest?: PDFPageLinkRequest | null;
   onInsertPageLink?: (reference: PDFPageReference) => void;
   canInsertPageLink?: boolean;
@@ -59,7 +62,7 @@ export interface LibraryWorkspaceProps {
 }
 
 /** Mounted once per workspace visit session so filters and password sessions survive hiding. */
-export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = workspaceActive, onAppearance, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks, onOpenNote, onDocumentsChange, onResearch, onArxiv, libraryRevision = 0 }: LibraryWorkspaceProps) {
+export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = workspaceActive, onAppearance, transparentWindow = false, onPageTranslucencyChange, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks, onOpenNote, onDocumentsChange, onResearch, onArxiv, libraryRevision = 0 }: LibraryWorkspaceProps) {
   const integrated = !!onAppearance;
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [folders, setFolders] = useState<PDFFolder[]>([]);
@@ -218,9 +221,6 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
     if (!loading && !loadError) onDocumentsChange?.(documents);
   }, [documents, loading, loadError, onDocumentsChange]);
   useEffect(() => { if (integrated) return; try { localStorage.setItem('prism-pdf-appearance', JSON.stringify(appearance)); } catch { /* Appearance can still be used for this session. */ } }, [appearance, integrated]);
-  useEffect(() => {
-    if (!integrated) window.prismPdf?.setWindowTranslucency(appearance.transparent && appearance.opacity < 100);
-  }, [appearance.transparent, appearance.opacity, integrated]);
 
   useEffect(() => {
     if (!pageLinkRequest || pageLinkRequest.request === handledLink.current || loading || loadError) return;
@@ -291,6 +291,15 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
     return updated;
   }, [recordDocumentChange]);
   const active = documents.find(document => document.id === activeId);
+  const transparencyEnabled = integrated ? transparentWindow : appearance.transparent;
+  const pageTranslucent = !!active && transparencyEnabled && pdfLayout.pageOpacity < 100;
+  useEffect(() => {
+    onPageTranslucencyChange?.(pageTranslucent);
+    return () => onPageTranslucencyChange?.(false);
+  }, [onPageTranslucencyChange, pageTranslucent]);
+  useEffect(() => {
+    if (!integrated) window.prismPdf?.setWindowTranslucency(appearance.transparent && (appearance.opacity < 100 || pageTranslucent));
+  }, [appearance.transparent, appearance.opacity, integrated, pageTranslucent]);
   const editing = documents.find(document => document.id === editingId);
   const readingUpdate = useCallback((patch: { lastPage?: number; pageCount?: number }) => {
     if (activeId) void update(activeId, patch).catch(error => setNotice({ text: message(error), error: true }));
@@ -483,7 +492,7 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
     {icon}<span>{label}</span><span className="nav-count">{count}</span>
   </button>;
 
-  return <div ref={workspaceRef} className={`pdf-workspace ${integrated ? 'pdf-integrated' : 'pdf-standalone app-shell'}`} data-compact={compact} data-reader={!!active} data-pdf-search={pdfLayout.search} data-pdf-spacing={pdfLayout.compact ? 'compact' : 'comfortable'} data-sidebar-visible={sidebarVisible} data-transparent={integrated ? undefined : appearance.transparent} style={integrated ? undefined : { '--surface-alpha': appearance.transparent ? appearance.opacity / 100 : 1 } as CSSProperties}
+  return <div ref={workspaceRef} className={`pdf-workspace ${integrated ? 'pdf-integrated' : 'pdf-standalone app-shell'}`} data-compact={compact} data-reader={!!active} data-pdf-search={pdfLayout.search} data-pdf-spacing={pdfLayout.compact ? 'compact' : 'comfortable'} data-sidebar-visible={sidebarVisible} data-transparent={integrated ? undefined : appearance.transparent} data-pdf-page-translucent={pageTranslucent} style={{ '--pdf-page-opacity': pdfLayout.pageOpacity / 100, ...(!integrated ? { '--surface-alpha': appearance.transparent ? appearance.opacity / 100 : 1 } : {}) } as CSSProperties}
     onDragEnter={event => { if (externalDrag(event) && canImportFiles(true)) rememberFileDrag(); }}
     onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'none'; setDropTarget(null); setLibraryDropTarget(false); }}
     onDragLeave={event => {
@@ -529,12 +538,14 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
         <button className="pdf-layout-button" aria-label="PDF layout" aria-haspopup="dialog" aria-expanded={layoutOpen} onClick={() => { closeNavigation(); setLayoutOpen(true); }}><SlidersHorizontal size={17} /><span>Layout</span></button>
         {!integrated && <div className="window-controls"><button aria-label="Minimize window" onClick={() => window.prismPdf.windowControl('minimize')}><Minus size={14} /></button><button aria-label="Maximize or restore window" onClick={() => window.prismPdf.windowControl('maximize')}><Maximize2 size={13} /></button><button aria-label="Close window" onClick={() => window.prismPdf.windowControl('close')}><X size={16} /></button></div>}
       </header>
+      <div className="pdf-workspace-notices">
       {notice && <div className={`notice ${notice.error ? 'notice-error' : ''}`} role={notice.error ? 'alert' : 'status'}><span>{notice.text}</span><button aria-label="Dismiss notification" onClick={() => setNotice(null)}><X size={16} /></button></div>}
       {missingLink && <div className="notice notice-error pdf-link-notice" role="alert" aria-label="PDF link unavailable">
         <span>This linked PDF is not in this library. It may have been removed or belong to another profile. Close Prism before restoring its library backup, or open a PDF and insert a replacement link.</span>
         <div className="pdf-link-actions"><button onClick={() => selectFilter('all')}>Browse library</button><button aria-label="Dismiss PDF link error" onClick={cancelPageLink}><X size={16} /></button></div>
       </div>}
       {warnings.length > 0 && <details className="warnings"><summary>{warnings.length} library warning{warnings.length === 1 ? '' : 's'}</summary>{warnings.map((warning, index) => <p key={index}>{warning}</p>)}</details>}
+      </div>
       {active ? <PdfReader key={active.id} layout={pdfLayout} workspaceActive={workspaceActive} document={active} onUpdate={readingUpdate} onClose={() => openDocument(null)} pageLinkRequest={readerLinkRequest?.documentId === active.id ? readerLinkRequest : null} onInsertPageLink={onInsertPageLink} canInsertPageLink={canInsertPageLink} backlinks={backlinks?.get(active.id)} onOpenNote={onOpenNote} /> : <main className={`library-content ${libraryDropTarget ? 'pdf-file-drop-target' : ''}`} aria-describedby="pdf-file-drop-help"
         onDragOver={event => {
           if (!externalDrag(event) || !canImportFiles(true)) return;
@@ -571,7 +582,17 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
         ['search', 'Library search'], ['heading', 'Document heading'], ['toolbar', 'Page toolbar'],
         ...(onOpenNote ? [['backlinks', 'Linked notes']] : []),
         ['footer', 'Bottom page navigation'], ['compact', 'Compact spacing'],
-      ] as [Exclude<keyof PDFLayout, 'sidebarWidth'>, string][]).map(([key, label]) => <label key={key}><input type="checkbox" checked={pdfLayout[key]} onChange={event => setPDFLayout(current => ({ ...current, [key]: event.target.checked }))} /><span>{label}</span></label>)}</div>
+      ] as [Exclude<keyof PDFLayout, 'sidebarWidth' | 'pageOpacity'>, string][]).map(([key, label]) => <label key={key}><input type="checkbox" checked={pdfLayout[key]} onChange={event => setPDFLayout(current => ({ ...current, [key]: event.target.checked }))} /><span>{label}</span></label>)}</div>
+      <div className="pdf-page-opacity-setting">
+        <div><label htmlFor="pdf-page-opacity">PDF page opacity</label><output htmlFor="pdf-page-opacity">{pdfLayout.pageOpacity}%</output></div>
+        <input id="pdf-page-opacity" type="range" min="25" max="100" step="1" value={pdfLayout.pageOpacity} disabled={!transparencyEnabled} aria-describedby="pdf-page-opacity-help" onChange={event => setPDFLayout(current => ({ ...current, pageOpacity: Number(event.target.value) }))} />
+        <p id="pdf-page-opacity-help">{transparencyEnabled ? 'Fade the PDF reading area independently. Toolbars keep their usual appearance.' : 'Enable Transparent window in Appearance to see other windows through your PDF.'}</p>
+        {!transparencyEnabled && <button className="secondary-button" onClick={() => {
+          setLayoutOpen(false);
+          if (onAppearance) onAppearance();
+          else { showNavigation(); setAppearanceOpen(true); }
+        }}>Open Appearance</button>}
+      </div>
       <div className="modal-actions"><button className="primary-button" onClick={() => setLayoutOpen(false)}>Done</button></div>
     </Modal>}
     {urlImportOpen && <URLImportDialog active={workspaceActive} onClose={() => setURLImportOpen(false)} onComplete={completeURLImport} onRefresh={() => void load(true)} onOpenPDF={id => { setURLImportOpen(false); openDocument(id); }} />}
