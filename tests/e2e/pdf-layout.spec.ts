@@ -100,7 +100,7 @@ async function doneLayout() {
   await expect(layoutDialog()).toBeHidden();
 }
 
-async function width() { return (await sidebar().boundingBox())!.width; }
+async function width() { return (await sidebar().boundingBox())?.width ?? 0; }
 async function height() { return (await viewport().boundingBox())!.height; }
 
 async function dragSidebar(delta: number, release = true) {
