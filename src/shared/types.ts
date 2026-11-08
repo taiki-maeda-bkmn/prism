@@ -8,6 +8,7 @@ export interface Workspace {
   name: string;
   path: string;
   notes: Note[];
+  folders: string[];
   warnings: string[];
 }
 
@@ -21,6 +22,7 @@ export interface PrismAPI {
   refreshWorkspace(): Promise<Workspace>;
   saveNote(path: string, content: string, expectedModified: number): Promise<Note>;
   createNote(path: string): Promise<Note>;
+  createFolder(path: string): Promise<string>;
   setDirty(dirty: boolean): void;
   openExternal(url: string): Promise<void>;
   windowControl(action: 'minimize' | 'maximize' | 'close'): void;

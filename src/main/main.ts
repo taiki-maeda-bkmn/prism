@@ -199,6 +199,10 @@ function registerIPC(): void {
     validateSender(event);
     return serialize(async () => (await getWorkspace()).create(notePath));
   });
+  ipcMain.handle('prism:create-folder', (event, folderPath: unknown) => {
+    validateSender(event);
+    return serialize(async () => (await getWorkspace()).createFolder(folderPath));
+  });
   ipcMain.handle('prism:external', async (event, value: unknown) => {
     validateSender(event);
     await shell.openExternal(validateExternalURL(value));

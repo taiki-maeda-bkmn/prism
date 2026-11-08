@@ -10,6 +10,7 @@ const api: PrismAPI = {
   refreshWorkspace: () => ipcRenderer.invoke('prism:refresh'),
   saveNote: (path, content, expectedModified) => ipcRenderer.invoke('prism:save', path, content, expectedModified),
   createNote: (path) => ipcRenderer.invoke('prism:create', path),
+  createFolder: (path) => ipcRenderer.invoke('prism:create-folder', path),
   setDirty: (dirty) => ipcRenderer.send('prism:dirty', dirty),
   openExternal: (url) => ipcRenderer.invoke('prism:external', url),
   windowControl: (action) => ipcRenderer.send('prism:window', action),

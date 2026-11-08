@@ -15,6 +15,9 @@ const MAX_DEPTH = 32;
 const unsupportedHardLink = new Set(['ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EPERM']);
 const markdownExtension = /\.(?:md|markdown)$/i;
 const ignoredDirectory = (name: string) => name.startsWith('.') || name.toLowerCase() === 'node_modules';
+const unsupportedPathSegment = (segment: string) => !segment || segment.length > 255 || ignoredDirectory(segment)
+  || /[<>:"|?*\u0000-\u001f]/.test(segment) || /[. ]$/.test(segment)
+  || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(segment);
 const codeOf = (error: unknown) => (error as NodeJS.ErrnoException)?.code;
 
 type Snapshot = {
@@ -37,14 +40,22 @@ export function validateNotePath(value: unknown, create = false): string {
     throw new Error('Use a relative Markdown path, such as Ideas/My note.md.');
   }
   const segments = value.split('/');
-  if (segments.some((segment) => !segment || segment.length > 255 || ignoredDirectory(segment)
-    || /[<>:"|?*\u0000-\u001f]/.test(segment) || /[. ]$/.test(segment)
-    || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(segment))) {
+  if (segments.some(unsupportedPathSegment)) {
     throw new Error('That note path contains an unsupported name or leaves the notebook.');
   }
   if (!(create ? /\.md$/i : markdownExtension).test(value)) {
     throw new Error('Notes must use a .md extension.');
   }
+  return segments.join('/');
+}
+
+export function validateFolderPath(value: unknown): string {
+  if (typeof value !== 'string' || !value || value.length > 1024 || value.includes('\\')) {
+    throw new Error('Use a relative folder path, such as Ideas/Research.');
+  }
+  const segments = value.split('/');
+  if (segments.some(unsupportedPathSegment)) throw new Error('That folder path contains an unsupported name or leaves the notebook.');
+  if (segments.length > MAX_DEPTH) throw new Error(`Folders can be nested up to ${MAX_DEPTH} levels deep.`);
   return segments.join('/');
 }
 
@@ -144,6 +155,7 @@ export class WorkspaceStore {
     return this.serialize(async () => {
       await this.assertRoot();
       const notes: Note[] = [];
+      const folders: string[] = [];
       const warnings: string[] = [];
       const seen = new Set<string>();
       const unverifiedNotes = new Set<string>();
@@ -160,6 +172,9 @@ export class WorkspaceStore {
           warn(`${relative || 'Notebook'}: symbolic links are skipped.`); return;
         }
         let entries = (await fs.readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+        // Directory inventory includes empty folders without publishing unsafe
+        // or unreadable destinations to the renderer.
+        if (relative) folders.push(validateFolderPath(relative));
         const recovery = entries.find((entry) => entry.name === RECOVERY_DIRECTORY);
         if (recovery) {
           const recoveryRoot = path.join(directory, RECOVERY_DIRECTORY);
@@ -221,7 +236,7 @@ export class WorkspaceStore {
       await visit('', 0);
       await this.assertRoot();
       for (const key of this.snapshots.keys()) if (!seen.has(key)) this.snapshots.delete(key);
-      return { name: path.basename(this.root), path: this.root, notes, warnings };
+      return { name: path.basename(this.root), path: this.root, notes, folders, warnings };
     });
   }
 
@@ -271,6 +286,23 @@ export class WorkspaceStore {
         const reason = error instanceof Error ? error.message : 'The note could not be saved.';
         throw new Error(`${reason} Your draft is safe. Recovery copies: ${recoveryPath}.${recoveryWarning}`, { cause: error });
       }
+    });
+  }
+
+  createFolder(value: unknown): Promise<string> {
+    return this.serialize(async () => {
+      const folderPath = validateFolderPath(value);
+      const parent = await this.safeParent(folderPath, true);
+      try { await fs.mkdir(path.join(parent, path.basename(folderPath))); }
+      catch (error) {
+        if (codeOf(error) === 'EEXIST') throw new Error('A file or folder already exists at that path. Choose another name.');
+        throw error;
+      }
+      await this.safeParent(`${folderPath}/folder-check.md`);
+      await this.assertRoot();
+      // A folder operation must not refresh note snapshots: a retained draft
+      // still needs to conflict with external edits made since it was opened.
+      return folderPath;
     });
   }
 

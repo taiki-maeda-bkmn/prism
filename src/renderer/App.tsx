@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, ArrowLeftRight, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Code2, Columns2, Copy, FilePlus2, FileText, Folder, FolderOpen, GitFork, Layers3, Link2, LoaderCircle, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Square, X } from 'lucide-react';
-import type { Note, Workspace } from '../shared/types';
+import { ArrowLeft, ArrowLeftRight, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Code2, Columns2, Copy, FilePlus2, FileText, FolderOpen, FolderPlus, GitFork, Layers3, Link2, LoaderCircle, Minus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Save, Search, Settings2, Sparkles, Square, X } from 'lucide-react';
+import type { Workspace } from '../shared/types';
 import { Editor, type EditorHandle } from './Editor';
 import { EditorSessions } from './editorSessions';
 import { formatPDFPageLink, isPDFPageLink, parsePDFPageLink, type PDFPageLinkRequest, type PDFPageReference, type PDFPageTarget } from '../shared/pdfLinks';
@@ -21,12 +21,22 @@ import { useWorkspaceSplit } from './useWorkspaceSplit';
 import { ResearchBrowser } from './ResearchBrowser';
 import type { ResearchImportRequest } from '../shared/research';
 import { ArxivBrowser } from './ArxivBrowser';
+import { NoteTree } from './NoteTree';
+import { collectNoteFolders, folderAncestors, matchesNoteFolder, newNotePath } from './noteFolders';
+import './note-folders.css';
 
 type Intent = 'open' | 'refresh' | 'close';
 
 function readPreferences(): Preferences {
   try { return parsePreferences(localStorage.getItem('prism.preferences')); }
   catch { return parsePreferences(null); }
+}
+
+function savedNoteFolder(workspace: Workspace): string | null {
+  try {
+    const folder = localStorage.getItem(`prism.note-folder:${workspace.path}`);
+    return folder === '' || (folder !== null && collectNoteFolders(workspace.notes, workspace.folders).includes(folder)) ? folder : null;
+  } catch { return null; }
 }
 
 function Modal({ title, children, onClose, className = '' }: { title: string; children: ReactNode; onClose: () => void; className?: string }) {
@@ -42,29 +52,6 @@ function PrismMark({ small = false }: { small?: boolean }) {
   return <svg className={small ? 'prism-mark small' : 'prism-mark'} viewBox="0 0 32 36" fill="none" aria-hidden="true"><path d="M16 2 30 27 16 34 2 27Z" fill="currentColor" opacity=".12"/><path d="m16 2 14 25-14 7L2 27 16 2Z" stroke="currentColor" strokeWidth="1.4"/><path d="M16 2v32M2 27l14-7 14 7" stroke="currentColor" strokeWidth="1.4"/></svg>;
 }
 
-function NoteTree({ notes, activePath, drafts, query, onOpen }: { notes: Note[]; activePath: string; drafts: Record<string, string>; query: string; onOpen: (path: string) => void }) {
-  const [closed, setClosed] = useState<Set<string>>(new Set());
-  const render = (prefix: string, depth: number): ReactNode => {
-    const children = new Map<string, Note | null>();
-    for (const note of notes) {
-      if (!note.path.startsWith(prefix)) continue;
-      const rest = note.path.slice(prefix.length);
-      const parts = rest.split('/');
-      children.set(parts[0], parts.length > 1 ? null : note);
-    }
-    return [...children].sort(([a, av], [b, bv]) => Number(av !== null) - Number(bv !== null) || a.localeCompare(b)).map(([name, note]) => {
-      const path = prefix + name;
-      if (note) return <button key={path} className={`note-item ${activePath === path ? 'active' : ''}`} style={{ paddingLeft: 15 + depth * 14 }} onClick={() => onOpen(path)} title={path} aria-current={activePath === path ? 'page' : undefined}>
-        <FileText size={15} /><span>{name.replace(/\.md$/i, '')}</span>{Object.hasOwn(drafts, path) && <span className="dirty-dot" aria-label="Unsaved changes" />}
-      </button>;
-      const expanded = !!query || !closed.has(path);
-      return <div key={path}><button className="folder-item" style={{ paddingLeft: 13 + depth * 14 }} onClick={() => setClosed(previous => { const next = new Set(previous); next.has(path) ? next.delete(path) : next.add(path); return next; })} aria-expanded={expanded}>
-        {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}<Folder size={14} /><span>{name}</span>
-      </button>{expanded && render(path + '/', depth + 1)}</div>;
-    });
-  };
-  return <nav className="note-tree" aria-label="Notes">{render('', 0)}</nav>;
-}
 
 export function App() {
   const [activeWorkspace, setActiveWorkspace] = useState<'notes' | 'pdfs'>('notes');
@@ -105,6 +92,7 @@ export function App() {
   }, []);
   const resetGraphLayout = useCallback(() => setGraphPositions(new Map()), []);
   const [query, setQuery] = useState('');
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [focus, setFocus] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [settings, setSettings] = useState(false);
@@ -120,6 +108,10 @@ export function App() {
   }, []);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newNoteFolder, setNewNoteFolder] = useState('');
+  const [folderCreating, setFolderCreating] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderParent, setNewFolderParent] = useState('');
   const [pending, setPending] = useState<Intent | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -207,6 +199,7 @@ export function App() {
     // cleanup from returning discarded history to the new notebook session.
     editorSessions.clear();
     setWorkspace(next);
+    setSelectedFolder(savedNoteFolder(next));
     // A fresh workspace must not inherit undo history from discarded drafts or
     // a different notebook that happens to contain the same relative note path.
     setWorkspaceRevision(previous => previous + 1);
@@ -232,6 +225,14 @@ export function App() {
   }, [acceptWorkspace]);
 
   useEffect(() => { void initialize(); }, [initialize]);
+  useEffect(() => {
+    if (!workspace) return;
+    try {
+      const key = `prism.note-folder:${workspace.path}`;
+      if (selectedFolder === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, selectedFolder);
+    } catch { /* Folder navigation stays usable without preference storage. */ }
+  }, [workspace?.path, selectedFolder]);
   useEffect(() => {
     try { localStorage.setItem('prism.preferences', JSON.stringify(preferences)); } catch { /* Preferences are optional; notes are stored on disk. */ }
   }, [preferences]);
@@ -268,8 +269,10 @@ export function App() {
   }, [view]);
 
   const notes = useMemo(() => (workspace?.notes || []).map(note => Object.hasOwn(drafts, note.path) ? { ...note, content: drafts[note.path] } : note), [workspace, drafts]);
+  const noteFolders = useMemo(() => collectNoteFolders(workspace?.notes ?? [], workspace?.folders), [workspace]);
   const active = notes.find(note => note.path === activePath);
-  const filtered = useMemo(() => notes.filter(note => `${note.path}\n${note.content}`.toLowerCase().includes(query.trim().toLowerCase())), [notes, query]);
+  const filtered = useMemo(() => notes.filter(note => matchesNoteFolder(note.path, selectedFolder) && `${note.path}\n${note.content}`.toLowerCase().includes(query.trim().toLowerCase())), [notes, query, selectedFolder]);
+  const visibleFolders = noteFolders.filter(folder => selectedFolder === null || (selectedFolder !== '' && folder.startsWith(`${selectedFolder}/`)));
   const backlinks = useMemo(() => active ? getBacklinks(active.path, notes) : [], [active, notes]);
   // The inspector can show this note's citations without opening the PDF library.
   const compactPDFBacklinks = useMemo(() => getPDFBacklinks(active ? [active] : []), [active]);
@@ -292,6 +295,7 @@ export function App() {
   const dirtyCount = Object.keys(drafts).length;
 
   const openNote = useCallback((path: string, fragment?: string) => {
+    if (!matchesNoteFolder(path, selectedFolder)) setSelectedFolder(null);
     setActivePath(path);
     setView('note');
     setCursor({ line: 1, column: 1 });
@@ -302,7 +306,7 @@ export function App() {
       const editor = notesPanel.current?.querySelector<HTMLElement>('.source-pane:not([hidden]) .cm-content');
       (editor ?? notesPanel.current)?.focus({ preventScroll: true });
     });
-  }, [split.visible, notesNavigation]);
+  }, [split.visible, notesNavigation, selectedFolder]);
   const chooseMode = useCallback((mode: Mode) => {
     setHeadingTarget(undefined);
     setView('note');
@@ -412,13 +416,27 @@ export function App() {
     setPending(null);
   };
 
+  const beginCreateNote = useCallback(() => {
+    setNewName('');
+    setNewNoteFolder(selectedFolder ?? '');
+    setError('');
+    setCreating(true);
+  }, [selectedFolder]);
+
+  const beginCreateFolder = () => {
+    setNewFolderName('');
+    setNewFolderParent(selectedFolder ?? '');
+    setError('');
+    setFolderCreating(true);
+  };
+
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
       if (activeWorkspace !== 'notes') return;
       if (!(event.metaKey || event.ctrlKey) || operation.current || document.querySelector('dialog[open]')) return;
       const key = event.key.toLowerCase();
       if (key === 's') { event.preventDefault(); void save(event.shiftKey); }
-      if (key === 'n' && latest.current.workspace) { event.preventDefault(); setNewName(''); setCreating(true); }
+      if (key === 'n' && latest.current.workspace) { event.preventDefault(); beginCreateNote(); }
       if (key === 'o') { event.preventDefault(); requestIntent('open'); }
       if (key === 'p') { event.preventDefault(); if (split.visible) setNotesNavigation(true); else setFocus(false); requestAnimationFrame(() => search.current?.focus()); }
       if (key === 'g' && event.shiftKey) { event.preventDefault(); setView(previous => previous === 'note' ? 'graph' : 'note'); }
@@ -426,7 +444,7 @@ export function App() {
     };
     window.addEventListener('keydown', keyboard, true);
     return () => window.removeEventListener('keydown', keyboard, true);
-  }, [save, requestIntent, chooseMode, activeWorkspace, split.visible]);
+  }, [save, requestIntent, chooseMode, activeWorkspace, split.visible, beginCreateNote]);
 
   const create = async () => {
     if (operation.current || !newName.trim()) return;
@@ -434,13 +452,32 @@ export function App() {
     setWorking(true);
     setError('');
     try {
-      const path = /\.md$/i.test(newName.trim()) ? newName.trim() : newName.trim() + '.md';
+      const path = newNotePath(newName, newNoteFolder);
       const note = await window.prism.createNote(path);
       setWorkspace(previous => previous ? { ...previous, notes: [...previous.notes, note] } : previous);
       setCreating(false);
       openNote(note.path);
       setPreferences(previous => ({ ...previous, mode: previous.mode === 'preview' ? 'split' : previous.mode }));
       setNotice('New note created. Make it yours.');
+    } catch (cause) { setError(message(cause)); }
+    finally { operation.current = false; setWorking(false); }
+  };
+
+  const createFolder = async () => {
+    if (operation.current || !newFolderName.trim() || !latest.current.workspace) return;
+    operation.current = true;
+    setWorking(true);
+    setError('');
+    try {
+      const name = newFolderName.trim();
+      const path = await window.prism.createFolder(newFolderParent ? `${newFolderParent}/${name}` : name);
+      // Merge inventory only. Reloading would replace save-conflict baselines
+      // and discard editor histories or drafts belonging to other notes.
+      setWorkspace(previous => previous ? { ...previous, folders: collectNoteFolders(previous.notes, [...(previous.folders ?? []), ...folderAncestors(path)]) } : previous);
+      setSelectedFolder(path);
+      setQuery('');
+      setFolderCreating(false);
+      setNotice(`Folder created: ${path}`);
     } catch (cause) { setError(message(cause)); }
     finally { operation.current = false; setWorking(false); }
   };
@@ -575,9 +612,10 @@ export function App() {
         <button className="workspace-switch" onClick={() => requestIntent('open')} title="Open a notebook folder (Ctrl+O)"><span className="workspace-icon"><BookOpen size={19} /></span><span><strong>{workspace?.name || 'Your notebook'}</strong><small>LOCAL NOTEBOOK</small></span><ChevronDown size={15} /></button>
         <div className="search-field"><Search size={15} /><input ref={search} value={query} onChange={event => setQuery(event.target.value)} placeholder="Find a note…" aria-label="Search notes" /><kbd>⌘ / Ctrl P</kbd></div>
         <button className={`graph-nav ${view === 'graph' ? 'selected' : ''}`} onClick={() => { setView(previous => previous === 'graph' ? 'note' : 'graph'); if (split.visible) { setNotesNavigation(false); notesNavigationButton.current?.focus({ preventScroll: true }); } }}><GitFork size={17} /><span>Graph view</span><ArrowUpRight size={14} /></button>
-        <div className="sidebar-section-label"><span>YOUR NOTES</span><div><button className="icon-button" title="Refresh from disk" aria-label="Refresh notebook" disabled={busy || !workspace} onClick={() => requestIntent('refresh')}><RefreshCw size={14} /></button><button className="icon-button" title="New note (Ctrl+N)" aria-label="New note" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><Plus size={17} /></button></div></div>
-        <div className="note-list-scroll">{filtered.length ? <NoteTree notes={filtered} activePath={view === 'note' ? activePath : ''} drafts={drafts} query={query} onOpen={openNote} /> : <div className="no-notes">{query ? 'No notes match your search.' : workspace ? 'A blank page is a good beginning.' : 'Opening your notebook…'}</div>}</div>
-        <button className="new-note-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><Plus size={16} />New note<span>⌘ / Ctrl N</span></button>
+        <div className="sidebar-section-label"><span>YOUR NOTES</span><div><button className="icon-button" title="Refresh from disk" aria-label="Refresh notebook" disabled={busy || !workspace} onClick={() => requestIntent('refresh')}><RefreshCw size={14} /></button><button className="icon-button" title="New folder" aria-label="New folder" disabled={busy || !workspace} onClick={beginCreateFolder}><FolderPlus size={16} /></button><button className="icon-button" title="New note (Ctrl+N)" aria-label="New note" disabled={busy || !workspace} onClick={beginCreateNote}><Plus size={17} /></button></div></div>
+        <label className="note-folder-filter"><span>Folder</span><select aria-label="Filter notes by folder" value={selectedFolder ?? '*'} disabled={!workspace || busy} onChange={event => setSelectedFolder(event.target.value === '*' ? null : event.target.value)}><option value="*">All notes</option><option value="">Notebook root</option>{noteFolders.map(folder => <option key={folder} value={folder}>{folder}</option>)}</select></label>
+        <div className="note-list-scroll">{filtered.length || (!query.trim() && visibleFolders.length) ? <NoteTree key={workspace?.path} notes={filtered} folders={noteFolders} selectedFolder={selectedFolder} activePath={view === 'note' ? activePath : ''} drafts={drafts} query={query} onOpen={openNote} /> : <div className="no-notes">{query.trim() ? 'No notes match your search in this folder.' : workspace ? selectedFolder !== null ? 'This folder is empty. Create a note here.' : 'A blank page is a good beginning.' : 'Opening your notebook…'}</div>}</div>
+        <button className="new-note-button" disabled={!workspace} onClick={beginCreateNote}><Plus size={16} />New note<span>⌘ / Ctrl N</span></button>
         <div className="sidebar-bottom"><button onClick={() => requestIntent('open')} title={workspace?.path}><FolderOpen size={17} /><span>Open notebook</span></button><button onClick={() => setSettings(true)} aria-label="Appearance settings" title="Appearance"><Settings2 size={18} /></button></div>
         <div className="local-label"><span />Saved on your device</div>
       </aside>}
@@ -610,7 +648,7 @@ export function App() {
             <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit. Ctrl+click links to open.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor ref={editor} key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} sessions={editorSessions} sessionGeneration={editorSessions.generation} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} customSnippets={customSnippets} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onOpenLink={href => openHref(href, active.path)} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
             {(preferences.mode === 'split' || preferences.mode === 'preview') && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
           </div>
-        </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={() => { setNewName(''); setCreating(true); }}><FilePlus2 size={17} />Create your first note</button></div>}
+        </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={beginCreateNote}><FilePlus2 size={17} />Create your first note</button></div>}
       </main>
 
       {!split.visible && !focus && view === 'note' && active && <ResizableInspector width={preferences.inspectorWidth} onWidthChange={inspectorWidth => setPreferences(previous => ({ ...previous, inspectorWidth }))}>
@@ -650,7 +688,14 @@ export function App() {
 
     <footer className="statusbar"><div><span className={`status-dot ${dirtyCount ? 'unsaved' : ''}`} /><span>{busy ? 'Working…' : dirtyCount ? `${dirtyCount} unsaved ${dirtyCount === 1 ? 'note' : 'notes'}` : 'All changes saved'}</span><span className="status-divider" /><span>{notes.length} notes</span></div><div>{activeWorkspace === 'notes' && active && view === 'note' && <><span>Ln {cursor.line}, Col {cursor.column}</span><span className="status-divider" /><span>UTF-8</span><span>Markdown</span></>}<button onClick={() => setSettings(true)}><Layers3 size={12} />{preferences.transparent ? 'Transparent' : 'Opaque'}</button></div></footer>
 
-    {creating && <Modal title="A new place for an idea" onClose={() => !busy && setCreating(false)}><form onSubmit={event => { event.preventDefault(); void create(); }}><label className="field-label" htmlFor="new-note-name">Note name</label><input id="new-note-name" className="text-input" autoFocus value={newName} onChange={event => setNewName(event.target.value)} placeholder="An idea worth keeping" disabled={busy} maxLength={220} /><p className="field-help">Use a path like <code>Ideas/My note</code> to organize it in a folder. The .md extension is added for you.</p>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="subtle-button" disabled={busy} onClick={() => setCreating(false)}>Cancel</button><button className="primary-button" type="submit" disabled={busy || !newName.trim()}><Plus size={16} />{busy ? 'Creating…' : 'Create note'}</button></div></form></Modal>}
+    {creating && <Modal title="A new place for an idea" onClose={() => !busy && setCreating(false)}><form onSubmit={event => { event.preventDefault(); void create(); }}>
+      <label className="field-label" htmlFor="new-note-name">Note name</label><input id="new-note-name" className="text-input" autoFocus value={newName} onChange={event => setNewName(event.target.value)} placeholder="An idea worth keeping" disabled={busy} maxLength={220} />
+      <label className="field-label" htmlFor="new-note-folder">Note folder</label><select id="new-note-folder" className="note-folder-select" value={newNoteFolder} disabled={busy} onChange={event => setNewNoteFolder(event.target.value)}><option value="">Notebook root</option>{noteFolders.map(folder => <option key={folder} value={folder}>{folder}</option>)}</select>
+      <p className="field-help">Use a path like <code>Ideas/My note</code> for subfolders within the selected folder. The .md extension is added for you.</p>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="subtle-button" disabled={busy} onClick={() => setCreating(false)}>Cancel</button><button className="primary-button" type="submit" disabled={busy || !newName.trim()}><Plus size={16} />{busy ? 'Creating…' : 'Create note'}</button></div></form></Modal>}
+    {folderCreating && <Modal title="New folder" onClose={() => !busy && setFolderCreating(false)}><form onSubmit={event => { event.preventDefault(); void createFolder(); }}>
+      <label className="field-label" htmlFor="new-folder-name">Folder name</label><input id="new-folder-name" className="text-input" autoFocus value={newFolderName} onChange={event => setNewFolderName(event.target.value)} placeholder="Research" disabled={busy} maxLength={220} />
+      <label className="field-label" htmlFor="new-folder-parent">Parent folder</label><select id="new-folder-parent" className="note-folder-select" value={newFolderParent} disabled={busy} onChange={event => setNewFolderParent(event.target.value)}><option value="">Notebook root</option>{noteFolders.map(folder => <option key={folder} value={folder}>{folder}</option>)}</select>
+      <p className="field-help">Create a folder in this notebook. Use <code>/</code> to add nested folders.</p>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="subtle-button" disabled={busy} onClick={() => setFolderCreating(false)}>Cancel</button><button className="primary-button" type="submit" disabled={busy || !newFolderName.trim()}><FolderPlus size={16} />{busy ? 'Creating…' : 'Create folder'}</button></div></form></Modal>}
 
     {researchOpen && workspace && (!pending || busy || pending === 'close') && <ResearchBrowser notebookName={workspace.name} notebookPath={workspace.path}
       onClose={() => { if (!operation.current) setResearchOpen(false); }} onImport={importResearch}
