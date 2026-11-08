@@ -1,0 +1,191 @@
+/* Reader controls stay reachable when individual sections are hidden. */
+.pdf-workspace :is(.pdf-reader-heading, .pdf-reader-toolbar, .pdf-reader-footer, .pdf-reader-backlinks, .search-box)[hidden] {
+  display: none;
+}
+.pdf-workspace > .sidebar[hidden] {
+  display: none;
+}
+
+.pdf-workspace :is(.pdf-library-heading, .titlebar) {
+  gap: 12px;
+}
+.pdf-workspace .pdf-library-heading {
+  flex-wrap: wrap;
+}
+.pdf-workspace :is(.pdf-library-heading, .titlebar) .search-box {
+  min-width: 0;
+  flex: 0 1 247px;
+}
+.pdf-workspace :is(.pdf-library-heading, .titlebar) .breadcrumb {
+  min-width: 0;
+}
+.pdf-workspace .breadcrumb > :is(span, svg) {
+  flex: none;
+}
+.pdf-workspace .breadcrumb strong {
+  min-width: 0;
+}
+.pdf-workspace .window-controls {
+  flex: none;
+}
+.pdf-workspace :is(.pdf-layout-button, .pdf-library-toggle, .pdf-header-back),
+.pdf-workspace.pdf-integrated :is(.pdf-layout-button, .pdf-library-toggle, .pdf-header-back) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex: none;
+  min-height: 36px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  line-height: 1.4;
+  -webkit-app-region: no-drag;
+}
+.pdf-workspace :is(.pdf-layout-button, .pdf-library-toggle, .pdf-header-back) > svg {
+  flex: none;
+}
+.pdf-workspace :is(.pdf-layout-button, .pdf-library-toggle, .pdf-header-back):hover {
+  background: var(--hover, #f1f3ee);
+}
+.pdf-workspace .pdf-layout-button[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: var(--tint, #f1f3ee);
+}
+.pdf-workspace .pdf-header-back {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+/* Keep a small, permanent bar for Library, Layout, and native window controls. */
+.pdf-workspace[data-reader="true"][data-pdf-search="false"] :is(.pdf-library-heading, .titlebar) {
+  min-height: 44px;
+  height: auto;
+  gap: 8px;
+  padding-block: 4px;
+}
+.pdf-workspace[data-reader="true"][data-pdf-search="false"] .pdf-library-heading {
+  padding-inline: 14px;
+}
+.pdf-workspace[data-reader="true"][data-pdf-search="false"] .titlebar {
+  padding-left: 14px;
+}
+.pdf-workspace.pdf-integrated[data-compact="true"][data-reader="true"][data-pdf-search="false"] .breadcrumb {
+  display: flex;
+  flex: 1 1 80px;
+}
+.pdf-workspace.pdf-integrated[data-compact="true"] .breadcrumb > :is(span, svg) {
+  display: none;
+}
+.pdf-workspace.pdf-integrated[data-compact="true"] .pdf-library-heading .search-box {
+  flex: 1 1 170px;
+}
+
+/* Density changes spacing only, retaining text size and horizontal fit width. */
+.pdf-workspace[data-pdf-spacing="compact"] .pdf-reader-heading,
+.pdf-workspace.pdf-integrated[data-compact="true"][data-pdf-spacing="compact"] .pdf-reader-heading {
+  padding-block: 10px;
+  gap: 8px;
+}
+.pdf-workspace[data-pdf-spacing="compact"] .pdf-reader-toolbar,
+.pdf-workspace.pdf-integrated[data-compact="true"][data-pdf-spacing="compact"] .pdf-reader-toolbar {
+  padding-block: 4px;
+  row-gap: 6px;
+}
+.pdf-workspace[data-pdf-spacing="compact"] .pdf-reader-footer,
+.pdf-workspace.pdf-integrated[data-compact="true"][data-pdf-spacing="compact"] .pdf-reader-footer {
+  padding-block: 5px;
+}
+.pdf-workspace[data-pdf-spacing="compact"] .pdf-page-navigation {
+  row-gap: 2px;
+}
+.pdf-workspace[data-pdf-spacing="compact"] .pdf-reader-viewport,
+.pdf-workspace.pdf-integrated[data-compact="true"][data-pdf-spacing="compact"] .pdf-reader-viewport {
+  padding-block: 10px;
+}
+.pdf-workspace .pdf-reader-backlinks {
+  flex: none;
+  min-width: 0;
+}
+
+.pdf-workspace .modal.pdf-layout-modal {
+  width: 440px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  padding: 22px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.pdf-workspace .pdf-layout-modal header {
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.pdf-workspace .pdf-layout-modal h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pdf-workspace .pdf-layout-modal header .icon-button {
+  flex: none;
+  min-width: 36px;
+  min-height: 36px;
+}
+.pdf-workspace .pdf-layout-modal .modal-description {
+  line-height: 1.6;
+}
+.pdf-workspace .pdf-layout-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block: 18px;
+}
+.pdf-workspace .pdf-layout-presets button {
+  flex: 1 1 150px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.pdf-workspace .pdf-layout-options {
+  display: grid;
+  gap: 2px;
+}
+.pdf-workspace .pdf-layout-options label {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 42px;
+  padding: 10px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 1.5;
+}
+.pdf-workspace .pdf-layout-options label:hover {
+  background: var(--hover, #f1f3ee);
+}
+.pdf-workspace .pdf-layout-options input[type="checkbox"] {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0.15em 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.pdf-workspace .pdf-layout-options label > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pdf-workspace .pdf-layout-modal .modal-actions {
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+@media (max-width: 520px) {
+  .pdf-workspace .modal.pdf-layout-modal {
+    padding: 18px;
+  }
+}
