@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type FormEvent, type ReactNode } from 'react';
-import { ArrowDownUp, ArrowUpRight, BookOpen, Check, ChevronRight, Clock3, FileText, Folder, FolderOpen, GripVertical, Grid2X2, HardDrive, Library, Link2, List, LoaderCircle, Maximize2, Minus, MoreHorizontal, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tag, Trash2, X } from 'lucide-react';
+import { ArrowDownUp, ArrowLeft, ArrowUpRight, BookOpen, Check, ChevronRight, Clock3, FileText, Folder, FolderOpen, GripVertical, Grid2X2, HardDrive, Library, Link2, List, LoaderCircle, Maximize2, Minus, MoreHorizontal, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tag, Trash2, X } from 'lucide-react';
 import type { DocumentPatch, LibrarySnapshot, PDFDocument, PDFFolder } from '../shared/types';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
 import type { PDFGraphDocument } from '../../../src/shared/pdfGraph';
@@ -7,7 +7,10 @@ import { PdfReader, PdfThumbnail } from './PdfReader';
 import { URLImportDialog } from './URLImportDialog';
 import { TagInput } from './TagInput';
 import { mergeFolderSnapshotDocuments } from './folderSnapshots';
+import { useLibrarySidebarResize } from './LibrarySidebarResize';
+import { defaultPDFLayout, moreReadingSpace, parsePDFLayout, pdfLayoutStorageKey, serializePDFLayout, type PDFLayout } from './pdfLayout';
 import './styles.css';
+import './pdfLayout.css';
 
 type Filter = 'all' | 'recent' | 'favorites' | 'unfiled' | `folder:${string}` | `tag:${string}`;
 type FolderDialog = { kind: 'create' } | { kind: 'edit' | 'remove'; id: string };
@@ -22,7 +25,7 @@ function savedAppearance() {
   } catch { return { transparent: false, opacity: 85 }; }
 }
 
-function Modal({ title, onClose, children, active }: { title: string; onClose: () => void; children: ReactNode; active: boolean }) {
+function Modal({ title, onClose, children, active, className = '' }: { title: string; onClose: () => void; children: ReactNode; active: boolean; className?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
     const dialog = ref.current;
@@ -30,7 +33,7 @@ function Modal({ title, onClose, children, active }: { title: string; onClose: (
     // Close before unmounting so the browser restores the invoking control.
     return () => dialog?.close();
   }, [active]);
-  return <dialog ref={ref} className="modal" aria-labelledby="modal-title" onCancel={event => { event.preventDefault(); onClose(); }}>
+  return <dialog ref={ref} className={`modal ${className}`} aria-labelledby="modal-title" onCancel={event => { event.preventDefault(); onClose(); }}>
     <header><h2 id="modal-title">{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={18} /></button></header>
     {children}
   </dialog>;
@@ -113,6 +116,25 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
   const navigationToggle = useRef<HTMLButtonElement>(null);
   const [compact, setCompact] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [pdfLayout, setPDFLayout] = useState(() => {
+    try { return parsePDFLayout(localStorage.getItem(pdfLayoutStorageKey)); }
+    catch { return { ...defaultPDFLayout }; }
+  });
+  const [layoutOpen, setLayoutOpen] = useState(false);
+  const pendingSearchFocus = useRef(false);
+  const sidebarVisible = compact ? navigationOpen : pdfLayout.sidebar;
+  const saveSidebarWidth = useCallback((sidebarWidth: number) => setPDFLayout(current => ({ ...current, sidebarWidth })), []);
+  const sidebarResize = useLibrarySidebarResize({ width: pdfLayout.sidebarWidth, onWidthChange: saveSidebarWidth, enabled: workspaceVisible && !compact && sidebarVisible, workspaceRef });
+
+  useEffect(() => {
+    try { localStorage.setItem(pdfLayoutStorageKey, serializePDFLayout(pdfLayout)); } catch { /* The layout remains usable when storage is unavailable. */ }
+  }, [pdfLayout]);
+
+  useLayoutEffect(() => {
+    if (!pendingSearchFocus.current) return;
+    pendingSearchFocus.current = false;
+    if (workspaceActive && !document.querySelector('dialog[open]')) searchRef.current?.focus();
+  }, [pdfLayout.search, workspaceActive]);
 
   useLayoutEffect(() => {
     const element = workspaceRef.current;
@@ -137,6 +159,11 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
     setNavigationOpen(false);
     if (restoreFocus) navigationToggle.current?.focus({ preventScroll: true });
   }, []);
+
+  const showNavigation = () => {
+    if (compact) setNavigationOpen(true);
+    else setPDFLayout(current => ({ ...current, sidebar: true }));
+  };
 
   const cancelPageLink = useCallback(() => {
     // User navigation takes precedence even while the library is still opening.
@@ -273,11 +300,17 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
     const onKey = (event: KeyboardEvent) => {
       if (!workspaceActive || editingId || document.querySelector('dialog[open]') || event.defaultPrevented) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') { event.preventDefault(); void importFiles(); }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); closeNavigation(); searchRef.current?.focus(); }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault(); closeNavigation();
+        if (active && !pdfLayout.search) {
+          pendingSearchFocus.current = true;
+          setPDFLayout(current => ({ ...current, search: true }));
+        } else searchRef.current?.focus();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [importFiles, editingId, workspaceActive, closeNavigation]);
+  }, [importFiles, editingId, workspaceActive, closeNavigation, active, pdfLayout.search]);
 
   const tagCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -450,7 +483,7 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
     {icon}<span>{label}</span><span className="nav-count">{count}</span>
   </button>;
 
-  return <div ref={workspaceRef} className={`pdf-workspace ${integrated ? 'pdf-integrated' : 'pdf-standalone app-shell'}`} data-compact={compact} data-transparent={integrated ? undefined : appearance.transparent} style={integrated ? undefined : { '--surface-alpha': appearance.transparent ? appearance.opacity / 100 : 1 } as CSSProperties}
+  return <div ref={workspaceRef} className={`pdf-workspace ${integrated ? 'pdf-integrated' : 'pdf-standalone app-shell'}`} data-compact={compact} data-reader={!!active} data-pdf-search={pdfLayout.search} data-pdf-spacing={pdfLayout.compact ? 'compact' : 'comfortable'} data-sidebar-visible={sidebarVisible} data-transparent={integrated ? undefined : appearance.transparent} style={integrated ? undefined : { '--surface-alpha': appearance.transparent ? appearance.opacity / 100 : 1 } as CSSProperties}
     onDragEnter={event => { if (externalDrag(event) && canImportFiles(true)) rememberFileDrag(); }}
     onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'none'; setDropTarget(null); setLibraryDropTarget(false); }}
     onDragLeave={event => {
@@ -463,7 +496,7 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
     onDrop={event => { event.preventDefault(); clearDrag(); }}
     onKeyDownCapture={event => { if (compact && navigationOpen && event.key === 'Escape' && !document.querySelector('dialog[open]')) { event.preventDefault(); event.stopPropagation(); clearDrag(); closeNavigation(true); } }}>
     {compact && navigationOpen && <button className="pdf-navigation-dismiss" aria-label="Dismiss library navigation" tabIndex={-1} onClick={() => closeNavigation(true)} />}
-    <aside id="pdf-library-navigation" ref={navigationRef} className="sidebar" hidden={compact && !navigationOpen} inert={compact && !navigationOpen}>
+    <aside id="pdf-library-navigation" ref={navigationRef} className="sidebar" hidden={!sidebarVisible} inert={!sidebarVisible} style={compact ? undefined : { width: sidebarResize.width, flexBasis: sidebarResize.width, minWidth: sidebarResize.width }}>
       {compact && <button className="pdf-navigation-close" aria-label="Close library navigation" onClick={() => closeNavigation(true)}><X size={17} />Close</button>}
       {!integrated && <div className="brand"><span className="brand-mark"><Library size={23} strokeWidth={1.7} /></span><span>prism<span className="brand-pdf">PDF</span></span></div>}
       <div className="workspace-label"><span className="workspace-avatar">P</span><div>Personal library<small>Your space for documents</small></div></div>
@@ -483,14 +516,17 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
       <div className="local-card"><HardDrive size={18} /><div>Made for your desktop<small>Private. Local. All yours.</small></div><span className="online-dot" /></div>
       <div className="sidebar-footer"><span>{documents.length} documents</span><span>{documents.length ? formatSize(documents.reduce((sum, document) => sum + document.size, 0)) : '0 KB'}</span></div>
     </aside>
+    {sidebarResize.separator}
     <div className="workspace">
       <header className={integrated ? "pdf-library-heading" : "titlebar"}>
-        {compact && <button ref={navigationToggle} className="pdf-library-toggle" aria-label="Library navigation" aria-controls="pdf-library-navigation" aria-expanded={navigationOpen} onDragEnter={event => {
-          if (externalDrag(event) && canImportFiles(true)) { rememberFileDrag(); setNavigationOpen(true); }
-          else if (internalDrag(event)) setNavigationOpen(true);
-        }} onClick={() => setNavigationOpen(value => !value)}><PanelLeft size={17} /><span>Library</span></button>}
+        <button ref={navigationToggle} className="pdf-library-toggle" aria-label="Library navigation" aria-controls="pdf-library-navigation" aria-expanded={sidebarVisible} onDragEnter={event => {
+          if (externalDrag(event) && canImportFiles(true)) { rememberFileDrag(); showNavigation(); }
+          else if (internalDrag(event)) showNavigation();
+        }} onClick={() => compact ? setNavigationOpen(value => !value) : setPDFLayout(current => ({ ...current, sidebar: !current.sidebar }))}><PanelLeft size={17} /><span>Library</span></button>
+        {active && !pdfLayout.heading && <button className="pdf-header-back" aria-label="Back to library" title="Back to library" onClick={() => openDocument(null)}><ArrowLeft size={17} /></button>}
         <div className="breadcrumb"><span>Workspace</span><ChevronRight size={13} /><strong>{active ? active.title : 'My library'}</strong></div>
-        <label className="search-box"><Search size={16} /><input ref={searchRef} aria-label="Search library" placeholder="Search your library…" value={query} onChange={event => { setQuery(event.target.value); openDocument(null); }} /><kbd>{window.prismPdf.platform === 'darwin' ? '⌘' : 'Ctrl'} K</kbd></label>
+        <label className="search-box" hidden={!!active && !pdfLayout.search}><Search size={16} /><input ref={searchRef} aria-label="Search library" placeholder="Search your library…" value={query} onChange={event => { setQuery(event.target.value); openDocument(null); }} /><kbd>{window.prismPdf.platform === 'darwin' ? '⌘' : 'Ctrl'} K</kbd></label>
+        <button className="pdf-layout-button" aria-label="PDF layout" aria-haspopup="dialog" aria-expanded={layoutOpen} onClick={() => { closeNavigation(); setLayoutOpen(true); }}><SlidersHorizontal size={17} /><span>Layout</span></button>
         {!integrated && <div className="window-controls"><button aria-label="Minimize window" onClick={() => window.prismPdf.windowControl('minimize')}><Minus size={14} /></button><button aria-label="Maximize or restore window" onClick={() => window.prismPdf.windowControl('maximize')}><Maximize2 size={13} /></button><button aria-label="Close window" onClick={() => window.prismPdf.windowControl('close')}><X size={16} /></button></div>}
       </header>
       {notice && <div className={`notice ${notice.error ? 'notice-error' : ''}`} role={notice.error ? 'alert' : 'status'}><span>{notice.text}</span><button aria-label="Dismiss notification" onClick={() => setNotice(null)}><X size={16} /></button></div>}
@@ -499,7 +535,7 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
         <div className="pdf-link-actions"><button onClick={() => selectFilter('all')}>Browse library</button><button aria-label="Dismiss PDF link error" onClick={cancelPageLink}><X size={16} /></button></div>
       </div>}
       {warnings.length > 0 && <details className="warnings"><summary>{warnings.length} library warning{warnings.length === 1 ? '' : 's'}</summary>{warnings.map((warning, index) => <p key={index}>{warning}</p>)}</details>}
-      {active ? <PdfReader key={active.id} workspaceActive={workspaceActive} document={active} onUpdate={readingUpdate} onClose={() => openDocument(null)} pageLinkRequest={readerLinkRequest?.documentId === active.id ? readerLinkRequest : null} onInsertPageLink={onInsertPageLink} canInsertPageLink={canInsertPageLink} backlinks={backlinks?.get(active.id)} onOpenNote={onOpenNote} /> : <main className={`library-content ${libraryDropTarget ? 'pdf-file-drop-target' : ''}`} aria-describedby="pdf-file-drop-help"
+      {active ? <PdfReader key={active.id} layout={pdfLayout} workspaceActive={workspaceActive} document={active} onUpdate={readingUpdate} onClose={() => openDocument(null)} pageLinkRequest={readerLinkRequest?.documentId === active.id ? readerLinkRequest : null} onInsertPageLink={onInsertPageLink} canInsertPageLink={canInsertPageLink} backlinks={backlinks?.get(active.id)} onOpenNote={onOpenNote} /> : <main className={`library-content ${libraryDropTarget ? 'pdf-file-drop-target' : ''}`} aria-describedby="pdf-file-drop-help"
         onDragOver={event => {
           if (!externalDrag(event) || !canImportFiles(true)) return;
           event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy';
@@ -527,6 +563,17 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
         {!loading && !loadError && documents.length > 0 && <footer className="library-footer"><span>Showing {filtered.length} of {documents.length} documents</span><span><ShieldCheck size={13} />Your library stays on this device</span></footer>}
       </main>}
     </div>
+    {layoutOpen && <Modal title="Reading layout" className="pdf-layout-modal" onClose={() => setLayoutOpen(false)} active={workspaceActive}>
+      <p className="modal-description">Choose what stays visible around your PDF. Your layout is remembered.</p>
+      <div className="pdf-layout-presets"><button className="secondary-button" onClick={() => setPDFLayout(moreReadingSpace)}>More reading space</button><button className="secondary-button" onClick={() => setPDFLayout({ ...defaultPDFLayout })}>Reset layout</button></div>
+      <div className="pdf-layout-options">{([
+        ...(!compact ? [['sidebar', 'Library sidebar']] : []),
+        ['search', 'Library search'], ['heading', 'Document heading'], ['toolbar', 'Page toolbar'],
+        ...(onOpenNote ? [['backlinks', 'Linked notes']] : []),
+        ['footer', 'Bottom page navigation'], ['compact', 'Compact spacing'],
+      ] as [Exclude<keyof PDFLayout, 'sidebarWidth'>, string][]).map(([key, label]) => <label key={key}><input type="checkbox" checked={pdfLayout[key]} onChange={event => setPDFLayout(current => ({ ...current, [key]: event.target.checked }))} /><span>{label}</span></label>)}</div>
+      <div className="modal-actions"><button className="primary-button" onClick={() => setLayoutOpen(false)}>Done</button></div>
+    </Modal>}
     {urlImportOpen && <URLImportDialog active={workspaceActive} onClose={() => setURLImportOpen(false)} onComplete={completeURLImport} onRefresh={() => void load(true)} onOpenPDF={id => { setURLImportOpen(false); openDocument(id); }} />}
     {folderDialog && <Modal title={folderDialog.kind === 'create' ? 'New folder' : folderDialog.kind === 'remove' ? 'Remove folder?' : 'Edit folder'} onClose={closeFolderDialog} active={workspaceActive}>
       {folderDialog.kind === 'remove' ? <>

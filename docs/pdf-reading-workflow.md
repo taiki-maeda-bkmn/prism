@@ -13,6 +13,28 @@ Open **Prism** from its desktop shortcut. This workflow uses the main app's **No
 
 Click a reference in Read or Split preview to open its page. In Live, use **Ctrl+click** or **⌘+click**; an ordinary click edits its Markdown. In Source, switch to Split, Live, or Read to follow the link. A linked PDF opens beside the note if **Read & write** is active; otherwise Prism switches to PDFs. Returning to Notes retains the draft and selection.
 
+## Adjust the PDF reading layout
+
+Choose **Layout** in the PDF header to show or hide the document heading, page
+toolbar, Linked notes, library search, and bottom page navigation independently.
+**Compact spacing** reduces padding without shrinking text. **More reading
+space** hides the surrounding sections and sidebar while keeping the page
+toolbar. **Reset layout** restores all sections and the default sidebar width.
+Changes apply immediately and are remembered after restarting each launcher.
+
+The small header keeps **Layout**, **Library**, and a back arrow available even
+when every optional section is hidden. **Ctrl+K** reveals and focuses library
+search. Click the PDF page to use its usual keyboard navigation when the page
+buttons are hidden. Layout changes retain the current PDF session and note draft.
+
+In a wide PDF pane, drag the sidebar's right divider to change its width. Focus
+the divider and use Left/Right arrows for 10-pixel steps, or Shift for 40-pixel
+steps. Home or double-click resets the width; Escape cancels an unfinished drag.
+**Library** hides or restores the sidebar. Narrow integrated panes use the
+existing overlay instead; returning to a wide pane restores your saved layout.
+The sidebar can temporarily shrink to keep room for the document without
+replacing your saved width.
+
 ## Reuse PDF tags
 
 To reuse a tag, open a PDF's **Details** and focus **Tags**. Suggestions come from the whole library, including documents outside the current filter. Type part of a tag, then click a suggestion or use Up/Down and Enter. Completion replaces the tag at your cursor and preserves surrounding tags. Existing selections are excluded regardless of case. You can also type new tags separated by commas; tags are stored only when you choose **Save changes**. Escape dismisses the suggestions first, and Tab moves to the next field.

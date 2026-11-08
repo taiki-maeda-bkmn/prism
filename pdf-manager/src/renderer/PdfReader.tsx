@@ -4,6 +4,7 @@ import { getDocument, GlobalWorkerOptions, PasswordResponses, type PDFDocumentLo
 import type { PDFDocument } from '../shared/types';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
 import { PdfBacklinks } from './PdfBacklinks';
+import { defaultPDFLayout, type PDFLayout } from './pdfLayout';
 import './reader.css';
 
 GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.mjs', import.meta.url).href;
@@ -45,6 +46,7 @@ function replacePageCanvas(paper: HTMLElement | null, canvas?: HTMLCanvasElement
 }
 
 interface PdfReaderProps {
+  layout?: PDFLayout;
   workspaceActive?: boolean;
   document: PDFDocument;
   onUpdate: (patch: { lastPage?: number; pageCount?: number }) => void;
@@ -57,7 +59,7 @@ interface PdfReaderProps {
 }
 
 /** PDF files never become executable documents: only PDF.js canvas output is mounted. */
-export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive = true, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks = [], onOpenNote }: PdfReaderProps) {
+export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive = true, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks = [], onOpenNote, layout = defaultPDFLayout }: PdfReaderProps) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [pageNumber, setPageNumber] = useState(Math.max(1, entry.lastPage || 1));
   const [pageInput, setPageInput] = useState(String(Math.max(1, entry.lastPage || 1)));
@@ -295,11 +297,11 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   }
 
   return <section className="pdf-reader" aria-label={`Reading ${entry.title}`}>
-    <div className="pdf-reader-heading">
+    <div className="pdf-reader-heading" hidden={!layout.heading}>
       <button className="pdf-back-button" onClick={onClose}><ArrowLeft size={17} /> Back to library</button>
       <div className="pdf-reader-document"><FileText size={18} /><h1 title={entry.title}>{entry.title}</h1><span>PDF</span></div>
     </div>
-    <div className="pdf-reader-toolbar" aria-label="PDF reader controls">
+    <div className="pdf-reader-toolbar" aria-label="PDF reader controls" hidden={!layout.toolbar}>
       <div className="pdf-toolbar-group">
         <button aria-label="Previous page" title="Previous page" disabled={!pdf || pageNumber <= 1} onClick={() => goToPage(pageNumber - 1)}><ChevronLeft size={18} /></button>
         <form className="pdf-page-form" onSubmit={event => { event.preventDefault(); goToPage(Number(pageInput)); }}>
@@ -325,13 +327,13 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         title={!canInsertPageLink ? 'Open a note to insert this page link.' : 'Insert this PDF page at the note’s cursor.'}
         onClick={() => { if (canLinkCurrentPage) onInsertPageLink({ documentId: entry.id, page: pageNumber, title: entry.title }); }}><Link2 size={16} />Insert page link</button>}
     </div>
-    {onOpenNote && <PdfBacklinks backlinks={backlinks} pageCount={pdf?.numPages ?? null} currentPage={pageNumber} onOpenNote={onOpenNote}
+    {onOpenNote && <div className="pdf-reader-backlinks" hidden={!layout.backlinks}><PdfBacklinks backlinks={backlinks} pageCount={pdf?.numPages ?? null} currentPage={pageNumber} onOpenNote={onOpenNote}
       onOpenPage={page => {
         if (!pdf || page < 1 || page > pdf.numPages) return;
         goToPage(page);
         viewportRef.current?.scrollTo({ top: 0, left: 0 });
         viewportRef.current?.focus({ preventScroll: true });
-      }} />}
+      }} /></div>}
     {pageLinkError && <div className="notice notice-error pdf-page-link-error" role="alert" aria-label="PDF page link error"><span>{pageLinkError}</span><button aria-label="Dismiss page link error" onClick={() => setPageLinkError('')}><X size={16} /></button></div>}
     <div className="pdf-reader-viewport" ref={viewportRef} tabIndex={0} aria-label="PDF page viewport"
       onPointerDown={event => {
@@ -371,7 +373,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
       </div>}
       {!passwordPrompt && !error && (loading || rendering) && <div className="pdf-reader-loading" role="status"><LoaderCircle className="pdf-spinner" size={23} /><span>{loading ? 'Opening your PDF…' : `Rendering page ${pageNumber}…`}</span></div>}
     </div>
-    <footer className="pdf-reader-footer">
+    <footer className="pdf-reader-footer" hidden={!layout.footer}>
       <nav className="pdf-page-navigation" aria-label="Page navigation">
         <button aria-label="Previous PDF page" title="Previous page (← or Page Up)" disabled={!pdf || loading || pageNumber <= 1}
           onClick={() => { goToPage(currentPage.current - 1); viewportRef.current?.focus({ preventScroll: true }); }}><ChevronLeft size={20} /><span>Previous</span></button>
