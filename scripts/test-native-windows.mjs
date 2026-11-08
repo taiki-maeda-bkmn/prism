@@ -192,6 +192,14 @@ async function launch() {
   const page = session.page;
   await expect(page.locator('.note-heading h1')).toHaveText('Native session');
   assert.equal(await page.evaluate(() => window.prism.platform), 'win32');
+  if (process.env.PRISM_TEST_TRANSPARENT === '1') {
+    await page.getByRole('button', { name: 'Window appearance', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Make a little space', exact: true });
+    const toggle = dialog.getByRole('switch', { name: 'Transparent window', exact: true });
+    if (await toggle.getAttribute('aria-checked') !== 'true') await toggle.click();
+    await dialog.locator('#opacity').fill('35');
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  }
   await expect.poll(() => session.stdout).toMatch(/(?:^|\n)PRISM_READY:[a-f0-9]{48}\r?\n/);
   session.owned = await processTree(session.child.pid);
   const mains = session.owned.filter(item => item.parent === session.child.pid && item.executable?.toLowerCase() === executable.toLowerCase());
@@ -209,6 +217,10 @@ async function launch() {
 
 async function nativePointer(session) {
   await session.page.evaluate(() => {
+    window.nativePointerEvents = [];
+    window.addEventListener('pointerdown', event => window.nativePointerEvents.push({
+      x: event.clientX, y: event.clientY, target: event.target?.id,
+    }), { capture: true, once: true });
     const button = document.createElement('button');
     button.id = 'native-host-pointer'; button.textContent = 'Native input check'; button.dataset.clicked = 'no';
     button.style.cssText = 'position:fixed;left:calc(50% - 140px);top:calc(50% - 50px);width:280px;height:100px;z-index:2147483647;background:white;color:black;-webkit-app-region:no-drag';
@@ -220,7 +232,13 @@ async function nativePointer(session) {
     assert.equal(host.clicked, true, 'A guarded native Windows pointer click must reach the owned HWND.');
     await expect(session.page.locator('#native-host-pointer')).toHaveAttribute('data-clicked', 'yes');
     evidence.phases.push({ phase: 'native pointer', host });
-  } finally { await session.page.evaluate(() => document.getElementById('native-host-pointer')?.remove()); }
+  } finally {
+    evidence.phases.push({ phase: 'native pointer geometry', observation: await session.page.evaluate(() => ({
+      width: innerWidth, height: innerHeight, scale: devicePixelRatio,
+      target: document.getElementById('native-host-pointer')?.getBoundingClientRect().toJSON(), events: window.nativePointerEvents,
+    })) });
+    await session.page.evaluate(() => document.getElementById('native-host-pointer')?.remove());
+  }
 }
 
 function libraryAvailable() {

@@ -24,6 +24,7 @@ export function createPDFAPI(windowChannel: 'prism:window' | 'prism-pdf:window')
     revealDocument: id => ipcRenderer.invoke('prism-pdf:reveal', id),
     removeDocument: id => ipcRenderer.invoke('prism-pdf:remove', id),
     windowControl: action => ipcRenderer.send(windowChannel, action),
+    setWindowTranslucency: translucent => ipcRenderer.send(`${windowChannel}-translucency`, translucent),
     platform: process.platform,
   };
 }

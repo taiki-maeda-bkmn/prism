@@ -7,6 +7,7 @@ import { PDFLibraryService } from './library-service';
 import { registerPDFLibraryIPC } from './library-ipc';
 import { PDFURLImportManager } from './pdf-url-import';
 import { resolvePDFProfileDirectory } from './library-location';
+import { installWindowTranslucency, translucentOpacity } from '../../../src/main/window-translucency';
 
 app.setName('Prism PDF');
 app.setPath('userData', resolvePDFProfileDirectory({
@@ -16,6 +17,7 @@ app.setPath('userData', resolvePDFProfileDirectory({
 const rendererPath = path.join(__dirname, 'renderer', 'index.html');
 const rendererURL = pathToFileURL(rendererPath).href;
 let window: BrowserWindow | null = null;
+let windowTranslucency: ReturnType<typeof installWindowTranslucency> | undefined;
 let restoreBounds: Rectangle | null = null;
 const library = new PDFLibraryService(path.join(app.getPath('userData'), 'library'));
 const pdfURLImports = new PDFURLImportManager(library);
@@ -48,6 +50,10 @@ async function allowedResource(value: string, root: string, resourceType: string
 
 function registerIPC(): void {
   registerPDFLibraryIPC({ service: library, urlImports: pdfURLImports, validateSender, getWindow: () => window });
+  ipcMain.on('prism-pdf:window-translucency', (event, value: unknown) => {
+    try { validateSender(event); windowTranslucency?.setTranslucent(value); }
+    catch { /* Ignore invalid appearance messages. */ }
+  });
   ipcMain.on('prism-pdf:window', (event, action: unknown) => {
     try {
       validateSender(event);
@@ -69,6 +75,8 @@ async function createWindow(): Promise<void> {
     title: 'Prism PDF', width: Math.min(1380, workArea.width), height: Math.min(900, workArea.height),
     icon: path.join(__dirname, 'icon.png'),
     transparent: true, backgroundColor: '#00000000', frame: false, show: false,
+    // Preserve background playback until the renderer supplies its appearance.
+    ...(process.platform === 'win32' ? { opacity: translucentOpacity } : {}),
     // Native resizing/maximizing is unreliable for Electron's transparent windows.
     resizable: false, maximizable: false, fullscreenable: false,
     webPreferences: {
@@ -78,12 +86,16 @@ async function createWindow(): Promise<void> {
     },
   });
   const nativeWindow = window;
+  windowTranslucency = installWindowTranslucency(nativeWindow);
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.on('will-frame-navigate', event => event.preventDefault());
   window.webContents.on('will-attach-webview', event => event.preventDefault());
   window.webContents.on('render-process-gone', () => { void pdfURLImports.cancelActive(); });
-  window.on('closed', () => { void pdfURLImports.cancelActive(); if (window === nativeWindow) window = null; });
+  window.on('closed', () => {
+    void pdfURLImports.cancelActive();
+    if (window === nativeWindow) { window = null; windowTranslucency = undefined; }
+  });
   try { await nativeWindow.loadFile(rendererPath); }
   catch (error) { if (quitting || nativeWindow.isDestroyed()) return; throw error; }
   // Unmapped transparent Wayland windows may never emit ready-to-show.

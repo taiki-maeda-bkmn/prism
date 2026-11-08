@@ -234,6 +234,9 @@ export function App() {
   useEffect(() => {
     try { localStorage.setItem('prism.preferences', JSON.stringify(preferences)); } catch { /* Preferences are optional; notes are stored on disk. */ }
   }, [preferences]);
+  useEffect(() => {
+    window.prism?.setWindowTranslucency(preferences.transparent && preferences.opacity < 100);
+  }, [preferences.transparent, preferences.opacity]);
   useEffect(() => { window.prism?.setDirty(Object.keys(drafts).length > 0); }, [drafts]);
   useEffect(() => window.prism?.onCloseRequested(() => setPending('close')), []);
   useEffect(() => {

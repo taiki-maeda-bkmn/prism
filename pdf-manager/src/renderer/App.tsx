@@ -191,6 +191,9 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
     if (!loading && !loadError) onDocumentsChange?.(documents);
   }, [documents, loading, loadError, onDocumentsChange]);
   useEffect(() => { if (integrated) return; try { localStorage.setItem('prism-pdf-appearance', JSON.stringify(appearance)); } catch { /* Appearance can still be used for this session. */ } }, [appearance, integrated]);
+  useEffect(() => {
+    if (!integrated) window.prismPdf?.setWindowTranslucency(appearance.transparent && appearance.opacity < 100);
+  }, [appearance.transparent, appearance.opacity, integrated]);
 
   useEffect(() => {
     if (!pageLinkRequest || pageLinkRequest.request === handledLink.current || loading || loadError) return;
