@@ -1,5 +1,7 @@
 # Prism PDF
 
+Supported platforms are **Windows and Linux**. macOS is no longer supported or included in GitHub Actions checks.
+
 Use **Prism → PDFs** for the local PDF library and reader alongside your Markdown notes. Install the main **Prism** desktop shortcut with `npm run install:desktop`, or run `npm start`. Your existing Prism PDF library opens directly without re-importing or moving it.
 
 In the combined app, choose **Read & write** to keep a note beside the library or reader. Resize the divider and scroll each pane independently. In a narrow PDF pane, **Library** opens tags and filters. Clicking a pane directs keyboard shortcuts to it, and switching layouts retains the current page, zoom, and password session.
@@ -49,7 +51,7 @@ Use **New folder** in the library sidebar to organize existing PDFs. Drag a docu
 
 Drag PDF files from Windows Explorer or your file manager onto the library or a sidebar folder to import copies. The library area and **Import PDFs** use the selected folder, otherwise Unfiled. Originals stay untouched. Duplicate files keep their existing library folder and metadata; the result reports imported files, duplicates, and errors separately. Use **Import from URL** for website links.
 
-Use **Ctrl+O / ⌘O** to import and **Ctrl+K / ⌘K** to search. **Previous / Next** buttons stay below the page while you scroll. Mouse-wheel and trackpad scrolling stay within the current page, including at its top and bottom, and never turn pages.
+Use **Ctrl+O** to import and **Ctrl+K** to search. **Previous / Next** buttons stay below the page while you scroll. Mouse-wheel and trackpad scrolling stay within the current page, including at its top and bottom, and never turn pages.
 
 Click the PDF page to use **Left / Right**, **Page Up / Page Down**, or **Home / End** for the first/last page. **Space** scrolls down a screen and turns at the bottom; **Shift+Space** scrolls up and turns at the top. These shortcuts stay inside the page viewport so typing in notes, search, page-number, and password fields is unaffected.
 
@@ -57,7 +59,7 @@ Click the PDF page to use **Left / Right**, **Page Up / Page Down**, or **Home /
 
 Imported PDFs are copied into Prism PDF's application-data directory, separate from Prism's Markdown notes. Each import is limited to 100 MiB, with up to 100 files per import and 2,000 documents in the library. Identical files are detected by content and imported once. The original selected file is not edited or deleted. The library keeps its own metadata and copies so it remains available when the source file moves. Back up the app's entire `library` directory to retain your documents and organization.
 
-The default library locations are `%APPDATA%/prism-pdf/library` on Windows, `~/Library/Application Support/prism-pdf/library` on macOS, and `$XDG_CONFIG_HOME/prism-pdf/library` (normally `~/.config/prism-pdf/library`) on Linux. **Show library copy** opens its location in the system file manager.
+The default library locations are `%APPDATA%/prism-pdf/library` on Windows and `$XDG_CONFIG_HOME/prism-pdf/library` (normally `~/.config/prism-pdf/library`) on Linux. **Show library copy** opens its location in the system file manager.
 
 Only one updated Prism app can own a library at a time. If another app has it open, close that app and choose **Try again**. Ownership is released automatically after a crash; keep the hidden `.prism-library-lock.sqlite` file in place. Close older app builds before sharing their library with an updated build.
 

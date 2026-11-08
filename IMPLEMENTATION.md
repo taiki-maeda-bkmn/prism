@@ -64,7 +64,7 @@ WSLg startup position is now left to the compositor. The removed Windows helper 
 
 Implementation branch: `feat/prism-desktop`. Commit and push changes automatically, request Copilot review, address actionable review feedback, and leave the pull request open. Do not merge automatically.
 
-Run appropriate local build, type, unit, and desktop checks. Per the user's instruction, do not check or wait for GitHub CI. Before reporting the work complete, check the Codex review against the current PR commit. Wait for the review summary to show that commit as completed, address any new findings, and check for unresolved threads. A new push requires checking the new commit's review again; resolved comments on an earlier commit do not complete this check.
+Run appropriate local build, type, unit, and desktop checks. Per the user's instruction, do not check or wait for GitHub CI unless explicitly requested for the current task. Before reporting the work complete, check the Codex review against the current PR commit. Wait for the review summary to show that commit as completed, address any new findings, and check for unresolved threads. A new push requires checking the new commit's review again; resolved comments on an earlier commit do not complete this check.
 
 ## Verification
 
@@ -127,6 +127,6 @@ Run appropriate local build, type, unit, and desktop checks. Per the user's inst
 - Japanese text uses bundled, Unicode-ranged Noto Sans JP variable fonts in every theme and editor mode, with local font files and license included in the build. The native regression checks actual rendered glyph fonts (including less common kanji), offline loading, titles/code/graph/math text, caret placement, undo, and exact UTF-8 saves; text-content assertions alone cannot detect missing-glyph boxes.
 - Native window capture confirms alpha 255 when opaque and approximately 89 at 35% background opacity.
 - A normal launch with the sandbox enabled succeeds in the local Linux/WSLg environment. Windows/macOS compositor behavior still needs physical desktop testing.
-- Linux, Windows, and macOS build/unit checks and a Linux desktop journey run in GitHub Actions. Current results and review activity are on [PR #2](https://github.com/beautysamurai/prism/pull/2).
+- GitHub Actions runs Windows and Linux build/unit checks for both launchers, plus their Linux desktop journeys. macOS is no longer supported or scheduled. See the [CI audit and remaining failures](docs/ci-status.md).
 
 The save-publication change and its recovery guarantees are broken down in [save recovery](docs/save-recovery.md). Retained recovery copies are not automatically pruned.
