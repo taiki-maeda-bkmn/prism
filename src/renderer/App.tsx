@@ -25,6 +25,9 @@ import { NoteTree } from './NoteTree';
 import { collectNoteFolders, folderAncestors, matchesNoteFolder, newNotePath } from './noteFolders';
 import './note-folders.css';
 import { VSCodeAppearanceSettings } from './VSCodeAppearanceSettings';
+import { DocumentTabs } from './DocumentTabs';
+import { emptyTabs, parseTabs, tabKey, openTab, selectTab, closeTab, pruneTabs, carryPDFTabs, type TabSession } from './documentTabState';
+import type { PDFGraphDocument } from '../shared/pdfGraph';
 
 type Intent = 'open' | 'refresh' | 'close';
 
@@ -81,6 +84,13 @@ export function App() {
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [editorSessions] = useState(() => new EditorSessions());
   const [activePath, setActivePath] = useState('');
+  const [tabs, setTabs] = useState(emptyTabs);
+  const tabsRef = useRef(tabs);
+  const [pdfActiveId, setPDFActiveId] = useState<string | null>(null);
+  const [pdfSelectionRevision, setPDFSelectionRevision] = useState(0);
+  const [pdfDocuments, setPDFDocuments] = useState<readonly PDFGraphDocument[]>([]);
+  const knownPDFIds = useRef<ReadonlySet<string> | null>(null);
+  const [closingTab, setClosingTab] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [preferences, setPreferences] = useState(readPreferences);
   const [view, setView] = useState<'note' | 'graph'>('note');
@@ -123,10 +133,19 @@ export function App() {
   const [headingTarget, setHeadingTarget] = useState<{ path: string; index: number; request: number; allLevels?: boolean; top?: boolean }>();
   const headingRequest = useRef(0);
   const preview = useRef<HTMLDivElement>(null);
+  const previewPositions = useRef(new Map<string, { top: number; left: number }>());
   const search = useRef<HTMLInputElement>(null);
   const latest = useRef({ workspace, drafts, activePath, busy });
   latest.current = { workspace, drafts, activePath, busy };
   const operation = useRef(false);
+  const changeTabs = useCallback((update: (state: TabSession) => TabSession): boolean => {
+    try {
+      const next = update(tabsRef.current);
+      tabsRef.current = next;
+      setTabs(next);
+      return true;
+    } catch (cause) { setError(message(cause)); return false; }
+  }, []);
   const focusBeforeIO = useRef<HTMLElement | null>(null);
   const setWorking = useCallback((value: boolean) => {
     if (value) focusBeforeIO.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -200,6 +219,7 @@ export function App() {
     // Retired editors may unmount after this reset. Their generation prevents
     // cleanup from returning discarded history to the new notebook session.
     editorSessions.clear();
+    previewPositions.current.clear();
     setWorkspace(next);
     setSelectedFolder(savedNoteFolder(next));
     // A fresh workspace must not inherit undo history from discarded drafts or
@@ -207,14 +227,44 @@ export function App() {
     setWorkspaceRevision(previous => previous + 1);
     setCursor({ line: 1, column: 1 });
     const welcome = next.notes.find(note => /(^|\/)Welcome to Prism\.md$/i.test(note.path));
-    setActivePath(next.notes.some(note => note.path === latest.current.activePath) ? latest.current.activePath : (welcome || next.notes[0])?.path || '');
+    let restored: TabSession | null = sameNotebook ? tabsRef.current : null;
+    if (!restored) {
+      try {
+        const saved = localStorage.getItem(`prism.document-tabs:${next.path}`);
+        if (saved !== null) restored = parseTabs(saved);
+      } catch { /* Tabs still work when preference storage is unavailable. */ }
+    }
+    if (!restored) {
+      restored = emptyTabs();
+      const first = next.notes.find(note => note.path === latest.current.activePath) ?? welcome ?? next.notes[0];
+      if (first) restored = openTab(restored, { kind: 'note', id: first.path });
+    }
+    const previousPDFs = tabsRef.current.tabs.filter(tab => tab.kind === 'pdf');
+    if (!sameNotebook) restored = carryPDFTabs(restored, tabsRef.current);
+    const uncarriedPDFs = previousPDFs.some(previous => !restored!.tabs.some(tab => tab.key === previous.key));
+    const paths = new Set(next.notes.map(note => note.path));
+    restored = pruneTabs(restored, tab => tab.kind === 'note' ? paths.has(tab.id) : !knownPDFIds.current || knownPDFIds.current.has(tab.id));
+    tabsRef.current = restored;
+    setTabs(restored);
+    const selected = restored.tabs.find(tab => tab.key === restored.activeKey);
+    const selectedNote = selected?.kind === 'note' ? selected : [...restored.tabs].reverse().find(tab => tab.kind === 'note');
+    const selectedPDF = selected?.kind === 'pdf' ? selected : [...restored.tabs].reverse().find(tab => tab.kind === 'pdf');
+    setActivePath(sameNotebook && restored.tabs.some(tab => tab.kind === 'note' && tab.id === latest.current.activePath)
+      ? latest.current.activePath : selectedNote?.id ?? '');
+    setPDFActiveId(current => current && restored!.tabs.some(tab => tab.kind === 'pdf' && tab.id === current) ? current : selectedPDF?.id ?? null);
+    setPDFSelectionRevision(previous => previous + 1);
+    if (selectedPDF) setPdfVisited(true);
+    if (!sameNotebook) setActiveWorkspace(selected?.kind === 'pdf' ? 'pdfs' : 'notes');
+    setClosingTab(null);
+    setPageLinkRequest(null);
     setDrafts({});
     setQuery('');
     setNotesNavigation(false);
     setView('note');
     setPreviewNavigation(null);
     setHeadingTarget(undefined);
-    setNotice(next.warnings.join(' '));
+    setNotice([...next.warnings, ...(!sameNotebook && uncarriedPDFs
+      ? ['Some PDF tabs could not be carried into this notebook. Close unused tabs to make room; PDFs remain in your library.'] : [])].join(' '));
     window.prism.setDirty(false);
   }, [editorSessions]);
 
@@ -227,6 +277,11 @@ export function App() {
   }, [acceptWorkspace]);
 
   useEffect(() => { void initialize(); }, [initialize]);
+  useEffect(() => {
+    if (!workspace) return;
+    try { localStorage.setItem(`prism.document-tabs:${workspace.path}`, JSON.stringify(tabs)); }
+    catch { /* Metadata is optional; drafts and files are never stored here. */ }
+  }, [workspace?.path, tabs]);
   useEffect(() => {
     if (!workspace) return;
     try {
@@ -244,7 +299,7 @@ export function App() {
     window.prism?.setWindowTranslucency(preferences.transparent && (preferences.opacity < 100 || (pdfPageTranslucent && (split.visible || activeWorkspace === 'pdfs'))));
   }, [preferences.transparent, preferences.opacity, pdfPageTranslucent, split.visible, activeWorkspace]);
   useEffect(() => { window.prism?.setDirty(Object.keys(drafts).length > 0); }, [drafts]);
-  useEffect(() => window.prism?.onCloseRequested(() => setPending('close')), []);
+  useEffect(() => window.prism?.onCloseRequested(() => { setClosingTab(null); setPending('close'); }), []);
   useEffect(() => {
     if (!window.prism) return;
     let current = true;
@@ -280,6 +335,20 @@ export function App() {
   const compactPDFBacklinks = useMemo(() => getPDFBacklinks(active ? [active] : []), [active]);
   const pdfBacklinks = useMemo(() => pdfVisited || (view === 'graph' && showGraphPDFs) ? getPDFBacklinks(notes) : undefined, [notes, pdfVisited, view, showGraphPDFs]);
   const pdfGraph = usePDFGraphCatalog(view === 'graph' && showGraphPDFs && !!pdfBacklinks?.size);
+  const onPDFDocumentsChange = useCallback((documents: readonly PDFGraphDocument[]) => {
+    pdfGraph.updateDocuments(documents);
+    setPDFDocuments(documents);
+    const ids = new Set(documents.map(document => document.id));
+    knownPDFIds.current = ids;
+    changeTabs(previous => pruneTabs(previous, tab => tab.kind !== 'pdf' || ids.has(tab.id)));
+    setPDFActiveId(current => current && ids.has(current) ? current : null);
+  }, [pdfGraph.updateDocuments, changeTabs]);
+  const onPDFSelect = useCallback((id: string | null) => {
+    if (id && !changeTabs(previous => openTab(previous, { kind: 'pdf', id }))) return;
+    setPDFActiveId(id);
+    setPDFSelectionRevision(previous => previous + 1);
+  }, [changeTabs]);
+  const openPDFIds = useMemo(() => tabs.tabs.filter(tab => tab.kind === 'pdf').map(tab => tab.id), [tabs.tabs]);
   const previewNote = useDeferredValue(active);
   const rendered = useMemo(() => {
     const content = previewNote?.content || '';
@@ -297,6 +366,9 @@ export function App() {
   const dirtyCount = Object.keys(drafts).length;
 
   const openNote = useCallback((path: string, fragment?: string) => {
+    if (!changeTabs(previous => openTab(previous, { kind: 'note', id: path }))) return;
+    const container = preview.current;
+    if (container?.clientHeight && latest.current.activePath) previewPositions.current.set(latest.current.activePath, { top: container.scrollTop, left: container.scrollLeft });
     if (!matchesNoteFolder(path, selectedFolder)) setSelectedFolder(null);
     setActivePath(path);
     setView('note');
@@ -308,7 +380,7 @@ export function App() {
       const editor = notesPanel.current?.querySelector<HTMLElement>('.source-pane:not([hidden]) .cm-content');
       (editor ?? notesPanel.current)?.focus({ preventScroll: true });
     });
-  }, [split.visible, notesNavigation, selectedFolder]);
+  }, [split.visible, notesNavigation, selectedFolder, changeTabs]);
   const chooseMode = useCallback((mode: Mode) => {
     setHeadingTarget(undefined);
     setView('note');
@@ -350,7 +422,10 @@ export function App() {
         top: container.scrollTop + target.getBoundingClientRect().top - container.getBoundingClientRect().top - 24,
         behavior: 'smooth',
       });
-    } else container.scrollTop = 0;
+    } else {
+      const position = fragment === '' ? undefined : previewPositions.current.get(active.path);
+      container.scrollTo({ top: position?.top ?? 0, left: position?.left ?? 0 });
+    }
     setPreviewNavigation(null);
   }, [previewNavigation, view, preferences.mode, active, previewNote, html, rendered.allHeadings]);
   const changeContent = (content: string) => {
@@ -365,13 +440,13 @@ export function App() {
     });
   };
 
-  const save = useCallback(async (all = false): Promise<boolean> => {
+  const save = useCallback(async (all = false, onlyPath?: string): Promise<boolean> => {
     if (operation.current) return false;
     operation.current = true;
     setWorking(true);
     setError('');
     const snapshot = latest.current;
-    const paths = Object.keys(snapshot.drafts).filter(path => all || path === snapshot.activePath);
+    const paths = Object.keys(snapshot.drafts).filter(path => all || path === (onlyPath ?? snapshot.activePath));
     try {
       for (const path of paths) {
         const original = snapshot.workspace?.notes.find(note => note.path === path);
@@ -583,6 +658,105 @@ export function App() {
     });
   };
 
+  const focusedTabKey = activeWorkspace === 'notes'
+    ? view === 'note' && activePath ? tabKey('note', activePath) : null
+    : pdfActiveId ? tabKey('pdf', pdfActiveId) : null;
+  useEffect(() => {
+    if (focusedTabKey && tabsRef.current.tabs.some(tab => tab.key === focusedTabKey)
+      && tabsRef.current.activeKey !== focusedTabKey) changeTabs(previous => selectTab(previous, focusedTabKey));
+  }, [focusedTabKey, changeTabs]);
+  const tabLabels = useMemo(() => {
+    const labels = new Map<string, { title: string; detail: string; dirty?: boolean }>();
+    for (const tab of tabs.tabs) {
+      if (tab.kind === 'note') {
+        const note = notes.find(note => note.path === tab.id);
+        labels.set(tab.key, { title: note ? getTitle(note) : tab.id, detail: tab.id, dirty: Object.hasOwn(drafts, tab.id) });
+      } else {
+        const document = pdfDocuments.find(document => document.id === tab.id);
+        labels.set(tab.key, { title: document?.title ?? 'PDF', detail: document?.title ?? tab.id });
+      }
+    }
+    return labels;
+  }, [tabs.tabs, notes, drafts, pdfDocuments]);
+  const activateTab = (key: string) => {
+    if (operation.current || busy || document.querySelector('dialog[open]')) return;
+    const tab = tabsRef.current.tabs.find(tab => tab.key === key);
+    if (!tab) return;
+    if (tab.kind === 'note') { openNote(tab.id); switchWorkspace('notes', true); }
+    else {
+      changeTabs(previous => selectTab(previous, key));
+      setPageLinkRequest(null);
+      setPDFActiveId(tab.id);
+      setPDFSelectionRevision(previous => previous + 1);
+      switchWorkspace('pdfs');
+    }
+  };
+  const finishTabClose = (key: string, discard = false) => {
+    const tab = tabsRef.current.tabs.find(tab => tab.key === key);
+    if (!tab) { setClosingTab(null); return; }
+    if (discard && tab.kind === 'note') {
+      const next = { ...latest.current.drafts };
+      delete next[tab.id];
+      latest.current.drafts = next;
+      setDrafts(next);
+      window.prism.setDirty(Object.keys(next).length > 0);
+      previewPositions.current.delete(tab.id);
+    }
+    const wasFocused = focusedTabKey === key;
+    changeTabs(previous => closeTab(wasFocused ? selectTab(previous, key) : previous, key));
+    const remaining = tabsRef.current;
+    if (tab.kind === 'note' && latest.current.activePath === tab.id) {
+      const nextNote = remaining.tabs.find(item => item.key === remaining.activeKey && item.kind === 'note')
+        ?? [...remaining.tabs].reverse().find(item => item.kind === 'note');
+      setActivePath(nextNote?.id ?? '');
+      setPreviewNavigation(nextNote ? { path: nextNote.id } : null);
+      setHeadingTarget(undefined);
+    }
+    if (tab.kind === 'pdf' && pdfActiveId === tab.id) {
+      const nextPDF = remaining.tabs.find(item => item.key === remaining.activeKey && item.kind === 'pdf')
+        ?? [...remaining.tabs].reverse().find(item => item.kind === 'pdf');
+      setPageLinkRequest(null);
+      setPDFActiveId(nextPDF?.id ?? null);
+    }
+    setClosingTab(null);
+    if (wasFocused) {
+      const next = remaining.tabs.find(item => item.key === remaining.activeKey);
+      if (next?.kind === 'note') {
+        setActivePath(next.id); setView('note'); setPreviewNavigation({ path: next.id });
+        switchWorkspace('notes', true);
+      } else if (next?.kind === 'pdf') {
+        setPageLinkRequest(null); setPDFActiveId(next.id); switchWorkspace('pdfs');
+      }
+    }
+  };
+  const requestTabClose = (key: string) => {
+    if (operation.current || busy || document.querySelector('dialog[open]')) return;
+    const tab = tabsRef.current.tabs.find(tab => tab.key === key);
+    if (!tab) return;
+    if (tab.kind === 'note' && Object.hasOwn(latest.current.drafts, tab.id)) {
+      setError(''); setClosingTab(key);
+    } else finishTabClose(key);
+  };
+  useEffect(() => {
+    const keyboard = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.isComposing
+        || operation.current || busy || document.querySelector('dialog[open]')) return;
+      if (event.key === 'Tab' && tabsRef.current.tabs.length) {
+        event.preventDefault();
+        const entries = tabsRef.current.tabs;
+        const current = entries.findIndex(tab => tab.key === focusedTabKey);
+        const index = current < 0 ? (event.shiftKey ? entries.length - 1 : 0)
+          : (current + (event.shiftKey ? -1 : 1) + entries.length) % entries.length;
+        activateTab(entries[index].key);
+      } else if (event.key.toLowerCase() === 'w' && !event.shiftKey) {
+        event.preventDefault();
+        if (focusedTabKey) requestTabClose(focusedTabKey);
+      }
+    };
+    window.addEventListener('keydown', keyboard, true);
+    return () => window.removeEventListener('keydown', keyboard, true);
+  });
+
   // Stable keys move the existing workspaces without replacing editor/reader state.
   // DOM order follows the visual order for keyboard and screen-reader navigation.
   const orderPanes = (panes: ReactNode[]) => split.notesSide === 'left' ? panes : panes.reverse();
@@ -602,6 +776,9 @@ export function App() {
       </nav>
       <div className="window-controls"><button aria-label="Minimize window" title="Minimize window" onClick={() => window.prism?.windowControl('minimize')}><Minus size={15} /></button><button aria-label={maximized ? 'Restore window' : 'Maximize window'} title={maximized ? 'Restore window' : 'Maximize window'} onClick={() => window.prism?.windowControl('maximize')}>{maximized ? <Copy size={13} /> : <Square size={13} />}</button><button className="close-window" aria-label="Close window" title="Close window" onClick={() => requestIntent('close')}><X size={17} /></button></div>
     </header>
+
+    <DocumentTabs session={tabs} activeKey={focusedTabKey} labels={tabLabels} disabled={busy || !workspace}
+      onSelect={activateTab} onClose={requestTabClose} onChange={changeTabs} />
 
     <div className="workspace-area" ref={split.area} style={split.style} data-layout={split.visible ? 'split' : 'single'} data-resizing={split.resizing} data-notes-side={split.notesSide}>
     {orderPanes([
@@ -648,7 +825,7 @@ export function App() {
           <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source', 1], ['split', Columns2, 'Split', 2], ['live', Sparkles, 'Live', 4], ['preview', BookOpen, 'Read', 3]] as const).map(([mode, Icon, label, shortcut]) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl/⌘+${shortcut})`} onClick={() => chooseMode(mode)}><Icon size={15} /><span>{label}</span></button>)}</div></div>
           <div className={`editor-layout mode-${preferences.mode}`}>
             <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit. Ctrl+click links to open.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor ref={editor} key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} sessions={editorSessions} sessionGeneration={editorSessions.generation} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} customSnippets={customSnippets} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onOpenLink={href => openHref(href, active.path)} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
-            {(preferences.mode === 'split' || preferences.mode === 'preview') && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
+            {(preferences.mode === 'split' || preferences.mode === 'preview') && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onScroll={event => { const element = event.currentTarget; if (element.clientHeight && previewNote?.path === active.path) previewPositions.current.set(active.path, { top: element.scrollTop, left: element.scrollLeft }); }} onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
           </div>
         </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={beginCreateNote}><FilePlus2 size={17} />Create your first note</button></div>}
       </main>
@@ -682,7 +859,8 @@ export function App() {
     pdfVisited && <div key="pdfs" className="pdf-panel" id="pdfs-workspace" ref={pdfPanel} tabIndex={-1} aria-label="PDFs workspace" hidden={!split.visible && activeWorkspace !== 'pdfs'} inert={busy || (!split.visible && activeWorkspace !== 'pdfs')} aria-busy={busy} data-active={activeWorkspace === 'pdfs'}
       onPointerDownCapture={() => setActiveWorkspace('pdfs')}
       onFocusCapture={event => { workspaceFocus.current.pdfs = event.target as HTMLElement; setActiveWorkspace('pdfs'); }}>
-      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} visible={(split.visible || activeWorkspace === 'pdfs') && !busy} onAppearance={() => setSettings(true)} transparentWindow={preferences.transparent} onPageTranslucencyChange={setPDFPageTranslucent} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} onDocumentsChange={pdfGraph.updateDocuments}
+      <PDFWorkspaceLoader active={activeWorkspace === 'pdfs' && !busy} visible={(split.visible || activeWorkspace === 'pdfs') && !busy} onAppearance={() => setSettings(true)} transparentWindow={preferences.transparent} onPageTranslucencyChange={setPDFPageTranslucent} pageLinkRequest={pageLinkRequest} onInsertPageLink={insertPageLink} canInsertPageLink={!!active && view === 'note' && !busy} backlinks={pdfBacklinks} onOpenNote={openPDFBacklink} onDocumentsChange={onPDFDocumentsChange}
+        tabs={{ openIds: openPDFIds, activeId: pdfActiveId, selectionRevision: pdfSelectionRevision, onSelect: onPDFSelect }}
         onResearch={workspace ? () => setResearchOpen(true) : undefined} onArxiv={() => setArxivOpen(true)} libraryRevision={libraryRevision} />
     </div>,
     ])}
@@ -716,6 +894,20 @@ export function App() {
       <p className="field-help"><kbd>Tab</kbd> moves to the next field; <kbd>Shift+Tab</kbd> moves back. <kbd>Esc</kbd> closes suggestions or leaves a snippet. Outside snippets, Tab moves focus as usual.</p>
       <p className="field-help">Shortcuts work after whitespace, punctuation, or Japanese text in prose. Block snippets add line breaks as needed; <code>/link</code> and <code>/wiki</code> insert at the cursor. Snippets stay inactive inside code, HTML, links, and URLs.</p>
       <div className="modal-actions"><button className="primary-button" onClick={() => setSnippetHelp(false)}><Check size={16} />Done</button></div>
+    </Modal>}
+
+    {closingTab && !pending && <Modal title="Save changes before closing this tab?" onClose={() => !busy && setClosingTab(null)}>
+      <p className="modal-description">{tabs.tabs.find(tab => tab.key === closingTab)?.id} has unsaved changes. Your other tabs stay open.</p>
+      {error && <p className="inline-error" role="alert">{error}</p>}
+      <div className="modal-actions">
+        <button className="subtle-button discard-button" disabled={busy} onClick={() => finishTabClose(closingTab, true)}>Discard &amp; close</button>
+        <button className="subtle-button" disabled={busy} onClick={() => setClosingTab(null)}>Cancel</button>
+        <button className="primary-button" disabled={busy} onClick={async () => {
+          const key = closingTab;
+          const tab = tabsRef.current.tabs.find(tab => tab.key === key);
+          if (tab?.kind === 'note' && await save(false, tab.id)) finishTabClose(key);
+        }}>{busy ? 'Working…' : 'Save & close'}</button>
+      </div>
     </Modal>}
 
     {settings && <Modal title="Make a little space" onClose={() => setSettings(false)} className="appearance-modal">

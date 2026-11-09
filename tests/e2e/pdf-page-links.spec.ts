@@ -14,6 +14,7 @@ const href = (id: string, page: number) => `prism-pdf://v1/documents/${id}?page=
 const markdownLink = (label: string, id: string, page: number) => `[${label}](${href(id, page)})`;
 const diskText = (value: string) => '\ufeff' + value.replace(/\n/g, '\r\n');
 const initial = '# 読書ノート\n\n資料を読みながら、考えをつなぐ。\n\n';
+const applicationRoot = path.resolve(process.env.PRISM_TEST_APP_ROOT || process.cwd());
 let temporary: string;
 let notebook: string;
 let userData: string;
@@ -28,10 +29,13 @@ const managedFile = (id: string) => path.join(pdfProfile, 'library', 'documents'
 const catalog = async (): Promise<{ version: number; documents: PDFDocument[] }> => JSON.parse(await readFile(catalogFile(), 'utf8'));
 const editor = () => page.locator('.app-body .cm-content');
 const pdf = () => page.locator('.pdf-workspace');
+// Inactive tab readers retain their canvases and password sessions. Assertions
+// target the selected reader; library controls remain scoped to the workspace.
+const reader = () => pdf().locator('[data-pdf-session][data-active="true"]');
 const preview = () => page.locator('.preview-pane .markdown-body');
 const workspaceButton = (name: 'Notes' | 'PDFs') => page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name, exact: true });
 const mode = (name: 'Source' | 'Split' | 'Live' | 'Read') => page.getByRole('group', { name: 'Editor mode', exact: true }).getByRole('button', { name, exact: true });
-const insertButton = () => pdf().getByRole('button', { name: 'Insert page link', exact: true });
+const insertButton = () => reader().getByRole('button', { name: 'Insert page link', exact: true });
 // Use CodeMirror's primary redo binding. A synthetic Shift+lowercase z can
 // resolve as undo; uppercase Z is needed for the macOS shifted shortcut.
 const redoKey = process.platform === 'darwin' ? 'Meta+Shift+Z' : 'Control+y';
@@ -51,9 +55,14 @@ async function seedLibrary(items: Array<{ document: PDFDocument; bytes: Buffer }
 }
 
 async function launch() {
+  const env: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    PRISM_USER_DATA: userData, PRISM_WORKSPACE: notebook, PRISM_PDF_USER_DATA: pdfProfile,
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
   desktop = await electron.launch({
-    args: electronLaunchArguments(['--no-sandbox', '.']), cwd: process.cwd(),
-    env: { ...process.env, PRISM_USER_DATA: userData, PRISM_WORKSPACE: notebook, PRISM_PDF_USER_DATA: pdfProfile },
+    executablePath: process.env.PRISM_TEST_ELECTRON,
+    args: electronLaunchArguments(['--no-sandbox', applicationRoot]), cwd: applicationRoot, env,
   });
   page = await desktop.firstWindow();
   page.on('pageerror', error => rendererErrors.push(error.message));
@@ -61,6 +70,8 @@ async function launch() {
   await expect(page.locator('.note-heading h1')).toHaveText('読書ノート');
   await expect.poll(() => desktop!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(true);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  // A saved PDF tab may own the restored single-pane workspace after restart.
+  await workspaceButton('Notes').click();
   await mode('Source').click();
 }
 
@@ -95,9 +106,9 @@ async function enterSplit() {
 }
 
 async function renderedPage(number: number) {
-  const canvas = pdf().locator(`.pdf-paper canvas[data-page-number="${number}"]`);
+  const canvas = reader().locator(`.pdf-paper canvas[data-page-number="${number}"]`);
   await expect(canvas).toBeVisible();
-  await expect(pdf().getByLabel('Page number', { exact: true })).toHaveValue(String(number));
+  await expect(reader().getByLabel('Page number', { exact: true })).toHaveValue(String(number));
   await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) => {
     if (!element.isConnected || !element.width || !element.height) return 0;
     const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data;
@@ -107,7 +118,7 @@ async function renderedPage(number: number) {
     }
     return colored;
   })).toBeGreaterThan(100);
-  await expect(pdf().locator('.pdf-paper')).toHaveAttribute('aria-busy', 'false');
+  await expect(reader().locator('.pdf-paper')).toHaveAttribute('aria-busy', 'false');
   return canvas;
 }
 
@@ -152,7 +163,7 @@ test('inserts at the retained selection with isolated undo in Source, Live and R
   await enterSplit();
   await pdf().getByRole('button', { name: 'Open 日本語の資料', exact: true }).click();
   await renderedPage(1);
-  await pdf().getByRole('button', { name: 'Next page', exact: true }).click();
+  await reader().getByRole('button', { name: 'Next page', exact: true }).click();
   await renderedPage(2);
   const reference = markdownLink('日本語の資料 — p. 2', firstId, 2);
   await insertButton().click();
@@ -238,8 +249,8 @@ test('follows Live and table references by ID after rename and with duplicate ti
   await returnToNotes('Live');
   await editor().locator('a.cm-live-link').filter({ hasText: /^旧い資料名 — p\. 2$/ }).click({ modifiers: ['Control'] });
   await renderedPage(2);
-  await expect(pdf().getByLabel('Document password', { exact: true })).toHaveCount(0);
-  await expect(pdf().locator('.pdf-reader-document h1')).toHaveText('同じ資料名');
+  await expect(reader().getByLabel('Document password', { exact: true })).toHaveCount(0);
+  await expect(reader().locator('.pdf-reader-document h1')).toHaveText('同じ資料名');
   await workspaceButton('Notes').click();
   await editor().focus();
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('選択した下書き');
@@ -249,9 +260,9 @@ test('follows Live and table references by ID after rename and with duplicate ti
   await renderedPage(1);
   await expect(page.locator('.workspace-area')).toHaveAttribute('data-layout', 'split');
   await editor().locator('a.cm-live-link').filter({ hasText: /^同名の別資料$/ }).click({ modifiers: ['Control'] });
-  await expect(pdf().getByLabel('Document password', { exact: true })).toBeVisible();
-  await pdf().getByLabel('Document password', { exact: true }).fill('different-document');
-  await pdf().getByRole('button', { name: 'Unlock PDF', exact: true }).click();
+  await expect(reader().getByLabel('Document password', { exact: true })).toBeVisible();
+  await reader().getByLabel('Document password', { exact: true }).fill('different-document');
+  await reader().getByRole('button', { name: 'Unlock PDF', exact: true }).click();
   await renderedPage(2);
   await editor().focus();
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('選択した下書き');
@@ -307,11 +318,11 @@ test('recovers library errors, malformed and missing links, invalid pages and re
   await expect(pdf().getByRole('button', { name: 'Open 復元する資料', exact: true })).toBeVisible();
   await returnToNotes('Read');
   await followPreview('存在しないページ');
-  await expect(pdf().getByRole('alert', { name: 'PDF page link error', exact: true })).toContainText('Page 99 is not available in this PDF (2 pages)');
+  await expect(reader().getByRole('alert', { name: 'PDF page link error', exact: true })).toContainText('Page 99 is not available in this PDF (2 pages)');
   await renderedPage(2);
-  await pdf().getByRole('button', { name: 'Previous page', exact: true }).click();
+  await reader().getByRole('button', { name: 'Previous page', exact: true }).click();
   await renderedPage(1);
-  await pdf().getByRole('button', { name: 'Back to library', exact: true }).click();
+  await reader().getByRole('button', { name: 'Back to library', exact: true }).click();
   await pdf().getByRole('button', { name: 'Details for 復元する資料', exact: true }).click();
   await pdf().getByRole('button', { name: 'Remove', exact: true }).click();
   await pdf().getByRole('button', { name: 'Remove document', exact: true }).click();
@@ -365,39 +376,45 @@ test('uses the newest target while password loading, retains the same reader on 
   await enterSplit();
   await mode('Read').click();
   await followPreview('保護された一ページ');
-  await expect(pdf().getByLabel('Document password', { exact: true })).toBeVisible();
+  await expect(reader().getByLabel('Document password', { exact: true })).toBeVisible();
   await expect(insertButton()).toBeDisabled();
-  const originalReader = await pdf().locator('.pdf-reader').elementHandle();
+  const originalReader = await reader().locator('.pdf-reader').elementHandle();
   await followPreview('保護された二ページ');
-  expect(await pdf().locator('.pdf-reader').evaluate((element, original) => element === original, originalReader)).toBe(true);
-  await pdf().getByLabel('Document password', { exact: true }).fill('page-secret');
-  await pdf().getByRole('button', { name: 'Unlock PDF', exact: true }).click();
+  expect(await reader().locator('.pdf-reader').evaluate((element, original) => element === original, originalReader)).toBe(true);
+  await reader().getByLabel('Document password', { exact: true }).fill('page-secret');
+  await reader().getByRole('button', { name: 'Unlock PDF', exact: true }).click();
   await renderedPage(2);
-  await pdf().getByLabel('Page zoom', { exact: true }).selectOption('1.5');
-  await pdf().getByRole('button', { name: 'Rotate page clockwise', exact: true }).click();
+  await reader().getByLabel('Page zoom', { exact: true }).selectOption('1.5');
+  await reader().getByRole('button', { name: 'Rotate page clockwise', exact: true }).click();
   const rotated = await renderedPage(2);
   expect(await rotated.evaluate((canvas: HTMLCanvasElement) => canvas.width > canvas.height)).toBe(true);
   await followPreview('保護された一ページ');
   const first = await renderedPage(1);
   expect(await first.evaluate((canvas: HTMLCanvasElement) => canvas.width > canvas.height)).toBe(true);
-  await expect(pdf().getByLabel('Page zoom', { exact: true })).toHaveValue('1.5');
-  await expect(pdf().getByLabel('Document password', { exact: true })).toHaveCount(0);
-  expect(await pdf().locator('.pdf-reader').evaluate((element, original) => element === original, originalReader)).toBe(true);
+  await expect(reader().getByLabel('Page zoom', { exact: true })).toHaveValue('1.5');
+  await expect(reader().getByLabel('Document password', { exact: true })).toHaveCount(0);
+  expect(await reader().locator('.pdf-reader').evaluate((element, original) => element === original, originalReader)).toBe(true);
 
   await followPreview('別の資料へ');
   await renderedPage(2);
+  // A tab switch deliberately retains the unlocked PDF. Close its tab to start
+  // a fresh pending-password session for the navigation-cancellation checks.
+  const protectedTab = page.locator(`.document-tabs .document-tab[data-tab-key="pdf:${firstId}"]`);
+  await protectedTab.getByRole('button', { name: 'Close tab 保護された資料', exact: true }).click();
+  await expect(protectedTab).toHaveCount(0);
   await followPreview('保護された一ページ');
-  await expect(pdf().getByLabel('Document password', { exact: true })).toBeVisible();
+  await expect(reader().getByLabel('Document password', { exact: true })).toBeVisible();
   await followPreview('別の資料へ');
   await renderedPage(2);
-  await expect(pdf().locator('.pdf-reader-document h1')).toHaveText('別の資料');
-  await expect(pdf().getByLabel('Document password', { exact: true })).toHaveCount(0);
+  await expect(reader().locator('.pdf-reader-document h1')).toHaveText('別の資料');
+  await expect(reader().getByLabel('Document password', { exact: true })).toHaveCount(0);
   await followPreview('保護された二ページ');
-  await expect(pdf().getByLabel('Document password', { exact: true })).toBeVisible();
-  await pdf().getByRole('button', { name: 'Back to library', exact: true }).click();
+  await expect(reader().getByLabel('Document password', { exact: true })).toBeVisible();
+  await reader().getByRole('button', { name: 'Back to library', exact: true }).click();
   await pdf().getByRole('button', { name: 'Favorite 別の資料', exact: true }).click();
   await expect(pdf().getByRole('button', { name: 'Unfavorite 別の資料', exact: true })).toBeVisible();
-  await expect(pdf().locator('.pdf-reader')).toHaveCount(0);
+  await expect(reader()).toHaveCount(0);
+  await expect(pdf().locator('.pdf-reader:visible')).toHaveCount(0);
   await returnToNotes('Source');
   await expect(editor()).toContainText('パスワード待ちでも、下書きは残す。');
   await editor().focus();

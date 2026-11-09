@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowLeft, ChevronLeft, ChevronRight, FileText, Link2, LoaderCircle, LockKeyhole, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { getDocument, GlobalWorkerOptions, PasswordResponses, type PDFDocumentLoadingTask, type PDFDocumentProxy, type RenderTask } from 'pdfjs-dist';
 import type { PDFDocument } from '../shared/types';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
 import { PdfBacklinks } from './PdfBacklinks';
 import { defaultPDFLayout, type PDFLayout } from './pdfLayout';
+import type { PDFReaderSession } from './readerSessions';
 import './reader.css';
 
 GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.mjs', import.meta.url).href;
@@ -48,6 +49,7 @@ function replacePageCanvas(paper: HTMLElement | null, canvas?: HTMLCanvasElement
 interface PdfReaderProps {
   layout?: PDFLayout;
   workspaceActive?: boolean;
+  visible?: boolean;
   document: PDFDocument;
   onUpdate: (patch: { lastPage?: number; pageCount?: number }) => void;
   onClose: () => void;
@@ -56,22 +58,27 @@ interface PdfReaderProps {
   canInsertPageLink?: boolean;
   backlinks?: readonly PDFNoteBacklink[];
   onOpenNote?: (path: string) => void;
+  initialSession?: PDFReaderSession;
+  onSessionChange?: (session: PDFReaderSession) => void;
 }
 
 /** PDF files never become executable documents: only PDF.js canvas output is mounted. */
-export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive = true, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks = [], onOpenNote, layout = defaultPDFLayout }: PdfReaderProps) {
+export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive = true, visible = true, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks = [], onOpenNote, layout = defaultPDFLayout, initialSession, onSessionChange }: PdfReaderProps) {
+  const controlsId = useId();
+  const restoredSession = useRef(initialSession);
+  const initialPage = Math.max(1, restoredSession.current?.page ?? entry.lastPage ?? 1);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
-  const [pageNumber, setPageNumber] = useState(Math.max(1, entry.lastPage || 1));
-  const [pageInput, setPageInput] = useState(String(Math.max(1, entry.lastPage || 1)));
+  const [pageNumber, setPageNumber] = useState(initialPage);
+  const [pageInput, setPageInput] = useState(String(initialPage));
   const [loading, setLoading] = useState(true);
   const [rendering, setRendering] = useState(false);
   const [error, setError] = useState('');
   const [pageLinkError, setPageLinkError] = useState('');
   const [renderedPage, setRenderedPage] = useState<number | null>(null);
   const [completedLink, setCompletedLink] = useState<number | null>(null);
-  const [zoom, setZoom] = useState<number | 'fit'>('fit');
+  const [zoom, setZoom] = useState<number | 'fit'>(restoredSession.current?.zoom ?? 'fit');
   const [actualZoom, setActualZoom] = useState(1);
-  const [rotation, setRotation] = useState(0);
+  const [rotation, setRotation] = useState(restoredSession.current?.rotation ?? 0);
   const [availableWidth, setAvailableWidth] = useState(800);
   const [passwordPrompt, setPasswordPrompt] = useState<'required' | 'incorrect' | null>(null);
   const [password, setPassword] = useState('');
@@ -89,10 +96,36 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   // Numeric zoom is independent of the viewport. Resizing it needs no repaint.
   const fitWidth = zoom === 'fit' ? availableWidth : null;
   const pendingPageScroll = useRef<{ page: number; edge: 'top' | 'bottom' } | null>(null);
+  const pendingSessionScroll = useRef(restoredSession.current);
+  const sessionUpdateRef = useRef(onSessionChange);
+  const session = useRef<PDFReaderSession>(restoredSession.current ?? { page: initialPage, zoom: 'fit', rotation: 0, scrollTop: 0, scrollLeft: 0 });
+  session.current = { page: pageNumber, zoom, rotation, scrollTop: session.current.page === pageNumber ? session.current.scrollTop : 0, scrollLeft: session.current.page === pageNumber ? session.current.scrollLeft : 0 };
+  sessionUpdateRef.current = onSessionChange;
   updateRef.current = onUpdate;
-  startingPageRef.current = entry.lastPage || 1;
+  startingPageRef.current = restoredSession.current?.page ?? entry.lastPage ?? 1;
   latestLink.current = pageLinkRequest;
   currentPage.current = pageNumber;
+
+  useEffect(() => { sessionUpdateRef.current?.({ ...session.current }); }, [pageNumber, zoom, rotation]);
+
+  useLayoutEffect(() => {
+    // Chromium can reset a scroll container when an ancestor becomes hidden.
+    // Keep its last visible coordinates for retained readers as well as evicted
+    // ones; scroll events from hidden geometry must not overwrite this value.
+    if (!visible) {
+      pendingSessionScroll.current ??= { ...session.current };
+      return;
+    }
+    const restored = pendingSessionScroll.current;
+    const container = viewportRef.current;
+    // A reader can finish loading after another tab was selected. Hidden
+    // geometry cannot restore scrolling; keep the snapshot until it is shown.
+    if (!container?.clientWidth || !restored || renderedPage !== restored.page) return;
+    container.scrollTo({ top: restored.scrollTop, left: restored.scrollLeft });
+    session.current = { ...session.current, scrollTop: container.scrollTop, scrollLeft: container.scrollLeft };
+    sessionUpdateRef.current?.({ ...session.current });
+    pendingSessionScroll.current = undefined;
+  }, [visible, renderedPage]);
 
   function linkedPage(loaded: PDFDocumentProxy, fallback: number): number {
     const request = latestLink.current;
@@ -104,6 +137,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
       return fallback;
     }
     setPageLinkError('');
+    pendingSessionScroll.current = undefined;
     return request.page;
   }
 
@@ -149,8 +183,8 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
     pendingPageScroll.current = null;
     setPassword('');
     setPasswordPrompt(null);
-    setRotation(0);
-    setZoom('fit');
+    setRotation(retry ? 0 : restoredSession.current?.rotation ?? 0);
+    setZoom(retry ? 'fit' : restoredSession.current?.zoom ?? 'fit');
     lastSavedPage.current = null;
     replacePageCanvas(paperRef.current);
     void (async () => {
@@ -250,7 +284,13 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
           updateRef.current({ lastPage: pageNumber });
           const container = viewportRef.current;
           const bottom = pendingPageScroll.current?.page === pageNumber && pendingPageScroll.current.edge === 'bottom';
-          container?.scrollTo({ top: bottom ? container.scrollHeight : 0, left: 0 });
+          const restored = pendingSessionScroll.current?.page === pageNumber ? pendingSessionScroll.current : undefined;
+          if (!restored || container?.clientWidth) {
+            container?.scrollTo({ top: restored?.scrollTop ?? (bottom ? container.scrollHeight : 0), left: restored?.scrollLeft ?? 0 });
+            session.current = { ...session.current, page: pageNumber, scrollTop: container?.scrollTop ?? 0, scrollLeft: container?.scrollLeft ?? 0 };
+            sessionUpdateRef.current?.({ ...session.current });
+            pendingSessionScroll.current = undefined;
+          }
           pendingPageScroll.current = null;
         }
       } catch (failure) {
@@ -305,8 +345,8 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
       <div className="pdf-toolbar-group">
         <button aria-label="Previous page" title="Previous page" disabled={!pdf || pageNumber <= 1} onClick={() => goToPage(pageNumber - 1)}><ChevronLeft size={18} /></button>
         <form className="pdf-page-form" onSubmit={event => { event.preventDefault(); goToPage(Number(pageInput)); }}>
-          <label htmlFor="pdf-page-number">Page</label>
-          <input id="pdf-page-number" aria-label="Page number" inputMode="numeric" type="number" min={1} max={pdf?.numPages || 1} value={pageInput} disabled={!pdf} onChange={event => setPageInput(event.target.value)} onBlur={() => goToPage(Number(pageInput))} />
+          <label htmlFor={`${controlsId}-page-number`}>Page</label>
+          <input id={`${controlsId}-page-number`} aria-label="Page number" inputMode="numeric" type="number" min={1} max={pdf?.numPages || 1} value={pageInput} disabled={!pdf} onChange={event => setPageInput(event.target.value)} onBlur={() => goToPage(Number(pageInput))} />
           <span className="pdf-page-total">of {pdf?.numPages ?? '—'}</span>
         </form>
         <button aria-label="Next page" title="Next page" disabled={!pdf || pageNumber >= pdf.numPages} onClick={() => goToPage(pageNumber + 1)}><ChevronRight size={18} /></button>
@@ -336,6 +376,12 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
       }} /></div>}
     {pageLinkError && <div className="pdf-workspace-notices"><div className="notice notice-error pdf-page-link-error" role="alert" aria-label="PDF page link error"><span>{pageLinkError}</span><button aria-label="Dismiss page link error" onClick={() => setPageLinkError('')}><X size={16} /></button></div></div>}
     <div className="pdf-reader-viewport" ref={viewportRef} tabIndex={0} aria-label="PDF page viewport"
+      onScroll={event => {
+        const container = event.currentTarget;
+        if (renderedPage !== pageNumber || !container.clientWidth || pendingSessionScroll.current) return;
+        session.current = { ...session.current, scrollTop: container.scrollTop, scrollLeft: container.scrollLeft };
+        sessionUpdateRef.current?.({ ...session.current });
+      }}
       onPointerDown={event => {
         if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
           && event.target instanceof Node && paperRef.current?.contains(event.target)) event.currentTarget.focus({ preventScroll: true });
@@ -363,8 +409,8 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
       {passwordPrompt && <form className="pdf-reader-state pdf-password-form" onSubmit={submitPassword}>
         <LockKeyhole size={30} /><h2>Password required</h2>
         <p>{passwordPrompt === 'incorrect' ? 'That password did not work. Please try again.' : 'Enter this PDF’s password to read it. Passwords are never saved.'}</p>
-        <label htmlFor="pdf-password">Document password</label>
-        <input ref={passwordRef} id="pdf-password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="off" />
+        <label htmlFor={`${controlsId}-password`}>Document password</label>
+        <input ref={passwordRef} id={`${controlsId}-password`} type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="off" />
         <button type="submit" disabled={!password}>Unlock PDF</button>
       </form>}
       {!passwordPrompt && error && <div className="pdf-reader-state" role="alert">
