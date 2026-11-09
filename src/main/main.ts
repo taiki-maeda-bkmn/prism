@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, screen, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, screen, session, shell } from 'electron';
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
@@ -17,6 +17,8 @@ import { ResearchClient } from './research-client';
 import { ResearchImporter } from './research-import';
 import { ArxivClient } from './arxiv-client';
 import { ArxivImporter } from './arxiv-import';
+import { discoverVSCodeAppearance } from './vscode-discovery';
+import { mapVSCodeColors, readVSCodeTheme } from './vscode-theme';
 
 app.setName('Prism');
 if (!app.isPackaged && process.env.PRISM_USER_DATA) app.setPath('userData', path.resolve(process.env.PRISM_USER_DATA));
@@ -46,6 +48,7 @@ const arxivClient = new ArxivClient();
 const arxivImporter = new ArxivImporter(arxivClient, researchClient, pdfLibrary);
 let quitting = false;
 let quitReady = false;
+let appearanceImportPending = false;
 
 function serialize<T>(operation: () => Promise<T>): Promise<T> {
   const result = operations.then(operation);
@@ -202,6 +205,29 @@ function registerIPC(): void {
   ipcMain.handle('prism:create-folder', (event, folderPath: unknown) => {
     validateSender(event);
     return serialize(async () => (await getWorkspace()).createFolder(folderPath));
+  });
+  ipcMain.handle('prism:import-vscode-appearance', async (event, source: unknown) => {
+    validateSender(event);
+    if (source !== 'installed' && source !== 'file') throw new Error('Choose VS Code or a theme file.');
+    if (appearanceImportPending) throw new Error('A theme import is already open.');
+    appearanceImportPending = true;
+    try {
+      if (source === 'installed') return await discoverVSCodeAppearance({
+        home: app.getPath('home'), appData: app.getPath('appData'), platform: process.platform, env: process.env,
+        dark: nativeTheme.shouldUseDarkColors, highContrast: nativeTheme.shouldUseHighContrastColors,
+      });
+      const picked = await dialog.showOpenDialog(window!, {
+        title: 'Import a VS Code color theme', buttonLabel: 'Preview colors',
+        properties: ['openFile'], filters: [{ name: 'VS Code color theme', extensions: ['json', 'jsonc'] }],
+      });
+      if (picked.canceled || !picked.filePaths[0]) return null;
+      validateSender(event);
+      const file = picked.filePaths[0];
+      const theme = await readVSCodeTheme(file);
+      const mapped = mapVSCodeColors(theme.colors);
+      if (!Object.keys(mapped.colors).length) throw new Error('This file has no supported page, text, or accent colors. In VS Code, run “Developer: Generate Color Theme From Current Settings”, save it as JSON, and choose that file.');
+      return { name: theme.name, source: `Theme file: ${path.basename(file)}`, ...mapped };
+    } finally { appearanceImportPending = false; }
   });
   ipcMain.handle('prism:external', async (event, value: unknown) => {
     validateSender(event);

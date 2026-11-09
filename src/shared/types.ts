@@ -1,3 +1,5 @@
+import type { VSCodeAppearanceImport } from './vscodeAppearance';
+
 export interface Note {
   path: string;
   content: string;
@@ -23,6 +25,7 @@ export interface PrismAPI {
   saveNote(path: string, content: string, expectedModified: number): Promise<Note>;
   createNote(path: string): Promise<Note>;
   createFolder(path: string): Promise<string>;
+  importVSCodeAppearance(source: 'installed' | 'file'): Promise<VSCodeAppearanceImport | null>;
   setDirty(dirty: boolean): void;
   openExternal(url: string): Promise<void>;
   windowControl(action: 'minimize' | 'maximize' | 'close'): void;
