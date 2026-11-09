@@ -3,6 +3,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Loc
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fixturePdf } from '../fixtures/pdf';
 
 const original = '\ufeff# Appearance notebook\r\n\r\n色を変えても、日本語の下書きを保持する。\r\n';
@@ -244,6 +245,112 @@ test('cancellation and invalid themes retain the palette, with reachable import 
   await appearance().getByRole('radio', { name: 'Paper theme', exact: true }).check();
   await colors(existing);
   await closeAppearance();
+  expect(await readFile(noteFile, 'utf8')).toBe(original);
+  expect(errors).toEqual([]);
+});
+
+test('loads a last-used VS Code palette when the configured theme is missing and reports cache failures without IPC details', async ({}, testInfo) => {
+  const appData = path.join(temporary, 'VS Code app data');
+  const home = path.join(temporary, 'VS Code home');
+  const installations = path.join(temporary, 'VS Code installations');
+  const codeProfile = path.join(appData, 'Code', 'User');
+  const settingsFile = path.join(codeProfile, 'settings.json');
+  const cacheFile = path.join(codeProfile, 'globalStorage', 'state.vscdb');
+  await Promise.all([
+    mkdir(path.dirname(cacheFile), { recursive: true }),
+    mkdir(home),
+    mkdir(installations),
+  ]);
+  await writeFile(settingsFile, JSON.stringify({
+    'workbench.colorTheme': 'Transparent Color Theme',
+    'window.autoDetectColorScheme': false,
+    'window.autoDetectHighContrast': false,
+    'workbench.colorCustomizations': {
+      'textLink.foreground': '#445566',
+      '[Dark 2026]': { 'textLink.foreground': '#79ccbb' },
+      '[Transparent Color Theme]': { 'textLink.foreground': '#ff0000' },
+    },
+  }));
+  const database = new DatabaseSync(cacheFile);
+  try {
+    database.exec('CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)');
+    const insert = database.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)');
+    insert.run('colorThemeData', Buffer.from(JSON.stringify({
+      id: 'vs-dark fixture.dark-2026', label: 'Dark 2026', settingsId: 'Dark 2026',
+      colorMap: {
+        'editor.background': imported.background,
+        'editor.foreground': imported.text,
+        'textLink.foreground': imported.accent,
+      },
+    })));
+    insert.run('unrelated.privateSetting', 'Private fixture value must never reach the preview.');
+  } finally { database.close(); }
+  const cacheBytes = await readFile(cacheFile);
+  const settingsBytes = await readFile(settingsFile);
+  await desktop!.evaluate(({ app }, paths) => {
+    // Redirect this disposable process after notebook startup. No user's VS Code
+    // settings, extensions, or cache are consulted by the import journey.
+    app.setPath('appData', paths.appData);
+    app.setPath('home', paths.home);
+    process.env.LOCALAPPDATA = paths.installations;
+    process.env.ProgramFiles = paths.installations;
+    process.env['ProgramFiles(x86)'] = paths.installations;
+  }, { appData, home, installations });
+
+  const originalEditor = await editor().elementHandle();
+  await openAppearance();
+  const load = importer().getByRole('button', { name: 'Load from VS Code', exact: true });
+  await load.click();
+  await expect(preview()).toContainText('Dark 2026');
+  await expect(preview()).toContainText(/last.used/i);
+  await expect(preview()).toContainText('#79ccbb');
+  await expect(preview()).not.toContainText('Private fixture value');
+  await expect(importer().getByRole('alert')).toHaveCount(0);
+  await colors({ accent: '#3e6242', background: '#faf9f5', text: '#344640' });
+  await preview().scrollIntoViewIfNeeded();
+  await testInfo.attach('Last-used theme preview replaces the missing configured-theme error', {
+    body: await page.screenshot({ path: testInfo.outputPath('vscode-last-used-preview.png') }), contentType: 'image/png',
+  });
+  await preview().getByRole('button', { name: 'Apply imported colors', exact: true }).click();
+  const expected = { ...imported, accent: '#79ccbb' };
+  await colors(expected);
+  expect(await readFile(cacheFile)).toEqual(cacheBytes);
+  expect(await readFile(settingsFile)).toEqual(settingsBytes);
+  expect(await readFile(noteFile, 'utf8')).toBe(original);
+
+  // A damaged or missing cache is recoverable: keep the applied palette and
+  // display an actionable message rather than Electron's internal IPC wrapper.
+  const corrupt = Buffer.from('This is not a SQLite database.');
+  await writeFile(cacheFile, corrupt);
+  await load.click();
+  const alert = importer().getByRole('alert');
+  await expect(alert).toBeVisible();
+  await expect(alert).not.toContainText('Error invoking remote method');
+  await expect(alert).not.toContainText('prism:import-vscode-appearance');
+  await expect(alert).toContainText(/theme.*file|export|Generate Color Theme/i);
+  await expect(preview()).toBeHidden();
+  await colors(expected);
+  expect(await readFile(cacheFile)).toEqual(corrupt);
+  await rm(cacheFile);
+  await closeAppearance();
+  await openAppearance();
+  await expect(alert).toHaveCount(0);
+  await load.click();
+  await expect(load).toBeEnabled();
+  await expect(alert).toBeVisible();
+  await expect(alert).not.toContainText('Error invoking remote method');
+  await colors(expected);
+  await closeAppearance();
+  expect(await editor().evaluate((element, original) => element === original, originalEditor)).toBe(true);
+
+  const closed = desktop!.waitForEvent('close');
+  await page.getByRole('button', { name: 'Close window', exact: true }).click();
+  await closed;
+  desktop = undefined;
+  await launch();
+  await openAppearance();
+  await colors(expected);
+  expect(await readFile(settingsFile)).toEqual(settingsBytes);
   expect(await readFile(noteFile, 'utf8')).toBe(original);
   expect(errors).toEqual([]);
 });

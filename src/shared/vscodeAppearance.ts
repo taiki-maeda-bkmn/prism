@@ -5,3 +5,7 @@ export interface VSCodeAppearanceImport {
   colors: { accent?: string; background?: string; text?: string };
   warnings: string[];
 }
+
+export type VSCodeAppearanceResponse =
+  | { ok: true; value: VSCodeAppearanceImport | null }
+  | { ok: false; error: string };

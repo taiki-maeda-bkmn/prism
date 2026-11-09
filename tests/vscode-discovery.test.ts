@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { discoverVSCodeAppearance, type VSCodeDiscoveryOptions } from '../src/main/vscode-discovery';
+import { discoverVSCodeAppearance, loadVSCodeAppearance, type VSCodeDiscoveryOptions } from '../src/main/vscode-discovery';
 
 const basic = { 'editor.background': '#123456', 'editor.foreground': '#eeeeee', 'textLink.foreground': '#abcdef' };
 async function fixture(t: TestContext, platform: 'linux' | 'win32' = 'linux') {
@@ -25,6 +25,20 @@ async function fixture(t: TestContext, platform: 'linux' | 'win32' = 'linux') {
   };
   return { root, options, settingsPath, extensions, install, settings, theme };
 }
+
+async function cache(settingsPath: string, value: unknown) {
+  const filename = path.join(path.dirname(settingsPath), 'globalStorage', 'state.vscdb');
+  await fs.mkdir(path.dirname(filename), { recursive: true });
+  const { DatabaseSync } = await import('node:sqlite');
+  const database = new DatabaseSync(filename);
+  try {
+    database.exec('CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE, value BLOB)');
+    database.prepare('INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)').run('colorThemeData', JSON.stringify(value));
+  } finally { database.close(); }
+  return filename;
+}
+
+const savedTheme = { id: 'vs-dark saved', label: 'Saved ocean', settingsId: 'Saved ocean ID', colorMap: basic };
 
 test('discovers a Windows versioned built-in theme by ID and translated label, merging scoped customizations', async t => {
   const f = await fixture(t, 'win32');
@@ -171,4 +185,77 @@ test('oversized manifest scans and non-JSON configured themes fail with actionab
   await assert.rejects(discoverVSCodeAppearance(f.options), /does not use a JSON.*Generate Color Theme/);
   await fs.writeFile(path.join(extension, 'package.json'), Buffer.alloc(16 * 1024 * 1024 + 1, 32));
   await assert.rejects(discoverVSCodeAppearance(f.options), /scan exceeds its size limit.*Generate Color Theme/);
+});
+
+test('configured-theme import wins without consulting an unusable saved theme', async t => {
+  const f = await fixture(t);
+  await f.theme(path.join(f.extensions, 'publisher.ocean-1.0.0'));
+  await f.settings({ 'workbench.colorTheme': 'Ocean' });
+  const filename = await cache(f.settingsPath, savedTheme);
+  await fs.writeFile(filename, 'not a SQLite database');
+  const imported = await loadVSCodeAppearance(f.options);
+  assert.equal(imported.name, 'Ocean');
+  assert.equal(imported.source, f.settingsPath);
+  assert.deepEqual(imported.colors, { background: '#123456', text: '#eeeeee', accent: '#abcdef' });
+  assert.deepEqual(imported.warnings, []);
+});
+
+test('missing configured themes fall back to saved colors with overrides scoped to the saved identity', async t => {
+  const f = await fixture(t);
+  await f.settings({ 'workbench.colorTheme': 'Missing old theme', 'workbench.colorCustomizations': {
+    'editor.background': '#246',
+    '[Saved ocean ID]': { 'textLink.foreground': '#ff8800' },
+    '[Missing old theme]': { 'editor.foreground': '#ff0000' },
+    '[Saved ocean]': { 'editor.background': '#000000' },
+  }, 'unrelated.privateSetting': 'Private settings stay local' });
+  const filename = await cache(f.settingsPath, { ...savedTheme, privateCacheField: 'Private cache data stays local' });
+  const beforeSettings = await fs.readFile(f.settingsPath);
+  const beforeCache = await fs.readFile(filename);
+  const imported = await loadVSCodeAppearance(f.options);
+  assert.equal(imported.name, 'Saved ocean');
+  assert.equal(imported.source, 'Last-used theme saved by VS Code (default profile)');
+  assert.deepEqual(imported.colors, { background: '#224466', text: '#eeeeee', accent: '#ff8800' });
+  assert.match(imported.warnings.join(' '), /last-used saved theme.*may differ from a currently open window/);
+  assert.equal(JSON.stringify(imported).includes('Private'), false);
+  assert.deepEqual(await fs.readFile(f.settingsPath), beforeSettings);
+  assert.deepEqual(await fs.readFile(filename), beforeCache);
+});
+
+test('saved colors can be previewed without a settings file but malformed settings cannot silently lose overrides', async t => {
+  const f = await fixture(t);
+  await cache(f.settingsPath, savedTheme);
+  assert.deepEqual((await loadVSCodeAppearance(f.options)).colors, { background: '#123456', text: '#eeeeee', accent: '#abcdef' });
+  await fs.writeFile(f.settingsPath, '{"workbench.colorCustomizations": invalid');
+  await assert.rejects(loadVSCodeAppearance(f.options), error => {
+    assert.match((error as Error).message, /configured or last-used theme.*select your theme.*Generate Color Theme/);
+    assert.doesNotMatch((error as Error).message, /valid JSON|settings\.json|SQLite|invalid/);
+    return true;
+  });
+});
+
+test('missing, corrupt and unsupported saved themes produce friendly recovery guidance', async t => {
+  const f = await fixture(t);
+  await f.settings({ 'workbench.colorTheme': 'Missing old theme' });
+  const rejectsClearly = () => assert.rejects(loadVSCodeAppearance(f.options), error => {
+    assert.match((error as Error).message, /configured or last-used theme.*Open VS Code.*Generate Color Theme/);
+    assert.doesNotMatch((error as Error).message, /SQLite|ENOENT|state\.vscdb|Error invoking remote method/);
+    return true;
+  });
+  await rejectsClearly();
+  const filename = await cache(f.settingsPath, savedTheme);
+  await fs.writeFile(filename, 'not a SQLite database');
+  await rejectsClearly();
+  await fs.unlink(filename);
+  await cache(f.settingsPath, { ...savedTheme, colorMap: { 'editor.background': 'url(https://example.invalid/private)' } });
+  await rejectsClearly();
+});
+
+test('saved-theme fallback does not guess registry defaults or enable unsupported platforms', async t => {
+  const f = await fixture(t);
+  await cache(f.settingsPath, savedTheme);
+  await f.settings({ 'workbench.colorTheme': 'Missing old theme', 'workbench.colorCustomizations': {
+    '[Saved ocean ID]': { 'editor.background': 'default' },
+  } });
+  await assert.rejects(loadVSCodeAppearance(f.options), /configured or last-used theme.*Generate Color Theme/);
+  await assert.rejects(loadVSCodeAppearance({ ...f.options, platform: 'darwin' }), /supports Windows and Linux/);
 });

@@ -3,6 +3,7 @@ import type { Dir } from 'node:fs';
 import path from 'node:path';
 import type { VSCodeAppearanceImport } from '../shared/vscodeAppearance';
 import { mapVSCodeColors, readVSCodeJSON, readVSCodeTheme } from './vscode-theme';
+import { readLastUsedVSCodeTheme } from './vscode-cache';
 
 export interface VSCodeDiscoveryOptions {
   home: string;
@@ -190,4 +191,39 @@ export async function discoverVSCodeAppearance(options: VSCodeDiscoveryOptions):
   const mapped = mapVSCodeColors(mergeCustomColors(theme.colors, settings, candidate.settingsId));
   if (!Object.keys(mapped.colors).length) throw new Error(`The configured VS Code theme has no supported Prism colors. ${guidance}`);
   return { name: candidate.name, source: settingsPath, ...mapped };
+}
+
+/** Prefer the configured theme, then offer an explicitly labeled saved-theme preview. */
+export async function loadVSCodeAppearance(options: VSCodeDiscoveryOptions): Promise<VSCodeAppearanceImport> {
+  if (options.platform !== 'win32' && options.platform !== 'linux') return discoverVSCodeAppearance(options);
+  try { return await discoverVSCodeAppearance(options); }
+  catch { /* Stale settings or unavailable extensions can still have a saved theme. */ }
+
+  try {
+    const settingsPath = options.settingsPath ?? path.join(options.appData, 'Code', 'User', 'settings.json');
+    let settings: Record<string, unknown>;
+    try { settings = await readVSCodeJSON(settingsPath); }
+    catch (error) {
+      if (!missing(error)) throw error;
+      settings = {};
+    }
+    const cached = await readLastUsedVSCodeTheme(path.join(path.dirname(settingsPath), 'globalStorage', 'state.vscdb'));
+    // VS Code stores base colors without customizations. Scope overrides to
+    // the cached theme's identity, never the stale configured theme name.
+    const mapped = mapVSCodeColors(mergeCustomColors(cached.colors, settings, cached.settingsId));
+    if (!Object.keys(mapped.colors).length) throw new Error('The saved theme has no supported colors.');
+    return {
+      name: cached.name,
+      source: 'Last-used theme saved by VS Code (default profile)',
+      colors: mapped.colors,
+      warnings: [
+        'The configured theme could not be loaded. This is VS Code’s last-used saved theme and may differ from a currently open window.',
+        ...mapped.warnings,
+      ],
+    };
+  } catch {
+    // Do not expose SQLite internals, local paths, or malformed file contents
+    // when neither source can provide a usable appearance preview.
+    throw new Error(`Prism could not load VS Code’s configured or last-used theme. Open VS Code, select your theme, and try again. ${guidance}`);
+  }
 }
