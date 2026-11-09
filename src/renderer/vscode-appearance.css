@@ -1,0 +1,29 @@
+.vscode-appearance-setting {
+  margin: 18px 0;
+  padding: 14px 0 0;
+  min-width: 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.vscode-appearance-setting legend {
+  padding: 0;
+  font-size: calc(13px * var(--text-scale));
+  font-weight: 550;
+}
+.vscode-appearance-setting > .field-help { margin: 0 0 12px; }
+.vscode-import-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.vscode-import-actions .subtle-button { border: 1px solid var(--border-strong); }
+.vscode-import-actions button { white-space: normal; }
+.vscode-import-preview {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+.vscode-import-source { margin: 6px 0 12px; }
+.vscode-import-sample { display: grid; gap: 8px; border-left: 4px solid; padding: 14px; }
+.vscode-import-preview dl { margin: 12px 0; font-size: calc(11px * var(--text-scale)); }
+.vscode-import-preview dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin: 6px 0; }
+.vscode-import-preview dd { margin: 0; font-variant-numeric: tabular-nums; }
+.vscode-import-preview ul { padding-left: 20px; }

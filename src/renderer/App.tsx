@@ -24,6 +24,7 @@ import { ArxivBrowser } from './ArxivBrowser';
 import { NoteTree } from './NoteTree';
 import { collectNoteFolders, folderAncestors, matchesNoteFolder, newNotePath } from './noteFolders';
 import './note-folders.css';
+import { VSCodeAppearanceSettings } from './VSCodeAppearanceSettings';
 
 type Intent = 'open' | 'refresh' | 'close';
 
@@ -96,6 +97,7 @@ export function App() {
   const [focus, setFocus] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [importedPaletteRevision, setImportedPaletteRevision] = useState(0);
   const [researchOpen, setResearchOpen] = useState(false);
   const [arxivOpen, setArxivOpen] = useState(false);
   const [libraryRevision, setLibraryRevision] = useState(0);
@@ -725,7 +727,11 @@ export function App() {
         <p id="text-size-help" className="field-help">Applies to notes, PDF controls, navigation, and settings.</p>
       </fieldset>
       <ThemeSettings theme={preferences.theme} palettes={{ ...preferences.themeColors, [preferences.theme]: preferences.colors }} onChange={theme => setPreferences(previous => selectTheme(previous, theme))} />
-      <ColorSettings key={preferences.theme} colors={preferences.colors} defaultColors={themes[preferences.theme].colors} onChange={colors => setPreferences(previous => ({ ...previous, colors }))} />
+      <VSCodeAppearanceSettings colors={preferences.colors} themeName={themes[preferences.theme].name} onApply={colors => {
+        setPreferences(previous => ({ ...previous, colors }));
+        setImportedPaletteRevision(previous => previous + 1);
+      }} />
+      <ColorSettings key={`${preferences.theme}:${importedPaletteRevision}`} colors={preferences.colors} defaultColors={themes[preferences.theme].colors} onChange={colors => setPreferences(previous => ({ ...previous, colors }))} />
       <div className="setting-row"><div><strong>Transparent window</strong><p>See your other windows through Prism.</p></div><button className={`toggle ${preferences.transparent ? 'on' : ''}`} role="switch" aria-checked={preferences.transparent} aria-label="Transparent window" onClick={() => setPreferences(previous => ({ ...previous, transparent: !previous.transparent }))}><span /></button></div>
       <div className={`opacity-setting ${!preferences.transparent ? 'disabled' : ''}`}><div><label htmlFor="opacity">Background opacity</label><output>{preferences.opacity}%</output></div><input id="opacity" type="range" min="25" max="100" step="1" value={preferences.opacity} disabled={!preferences.transparent} onChange={event => setPreferences(previous => ({ ...previous, opacity: Number(event.target.value) }))} /><div className="range-labels"><span>More transparent</span><span>More solid</span></div></div>
       <p className="field-help">Text stays crisp. Transparency depends on your desktop’s window compositor.</p>
