@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { WindowState, Workspace } from '../shared/types';
+import type { VSCodeAppearanceResponse } from '../shared/vscodeAppearance';
 import { ensureStarterNotebook, WorkspaceStore } from './workspace';
 import { isRendererResource, validateExternalURL } from './security';
 import { installWslgWindowRecovery } from './window-recovery';
@@ -17,7 +18,7 @@ import { ResearchClient } from './research-client';
 import { ResearchImporter } from './research-import';
 import { ArxivClient } from './arxiv-client';
 import { ArxivImporter } from './arxiv-import';
-import { discoverVSCodeAppearance } from './vscode-discovery';
+import { loadVSCodeAppearance } from './vscode-discovery';
 import { mapVSCodeColors, readVSCodeTheme } from './vscode-theme';
 
 app.setName('Prism');
@@ -206,27 +207,33 @@ function registerIPC(): void {
     validateSender(event);
     return serialize(async () => (await getWorkspace()).createFolder(folderPath));
   });
-  ipcMain.handle('prism:import-vscode-appearance', async (event, source: unknown) => {
+  ipcMain.handle('prism:import-vscode-appearance', async (event, source: unknown): Promise<VSCodeAppearanceResponse> => {
     validateSender(event);
     if (source !== 'installed' && source !== 'file') throw new Error('Choose VS Code or a theme file.');
     if (appearanceImportPending) throw new Error('A theme import is already open.');
     appearanceImportPending = true;
     try {
-      if (source === 'installed') return await discoverVSCodeAppearance({
+      // Join the shutdown drain so a normal quit also removes any private
+      // cache snapshot before the process exits.
+      if (source === 'installed') return { ok: true, value: await serialize(() => loadVSCodeAppearance({
         home: app.getPath('home'), appData: app.getPath('appData'), platform: process.platform, env: process.env,
         dark: nativeTheme.shouldUseDarkColors, highContrast: nativeTheme.shouldUseHighContrastColors,
-      });
+      })) };
       const picked = await dialog.showOpenDialog(window!, {
         title: 'Import a VS Code color theme', buttonLabel: 'Preview colors',
         properties: ['openFile'], filters: [{ name: 'VS Code color theme', extensions: ['json', 'jsonc'] }],
       });
-      if (picked.canceled || !picked.filePaths[0]) return null;
+      if (picked.canceled || !picked.filePaths[0]) return { ok: true, value: null };
       validateSender(event);
       const file = picked.filePaths[0];
       const theme = await readVSCodeTheme(file);
       const mapped = mapVSCodeColors(theme.colors);
       if (!Object.keys(mapped.colors).length) throw new Error('This file has no supported page, text, or accent colors. In VS Code, run “Developer: Generate Color Theme From Current Settings”, save it as JSON, and choose that file.');
-      return { name: theme.name, source: `Theme file: ${path.basename(file)}`, ...mapped };
+      return { ok: true, value: { name: theme.name, source: `Theme file: ${path.basename(file)}`, ...mapped } };
+    } catch (error) {
+      // Expected import failures are user-facing results. Returning their text
+      // avoids Electron adding its internal IPC/channel prefix to the dialog.
+      return { ok: false, error: error instanceof Error ? error.message : 'The VS Code theme could not be read. Try choosing a theme JSON file.' };
     } finally { appearanceImportPending = false; }
   });
   ipcMain.handle('prism:external', async (event, value: unknown) => {
