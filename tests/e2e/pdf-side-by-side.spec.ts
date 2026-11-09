@@ -49,6 +49,7 @@ async function launch() {
   await expect(page.locator('.note-heading h1')).toHaveText('読書ノート');
   await expect.poll(() => desktop!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(true);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await workspaceButton('Notes').click();
   await modeButton('Source').click();
 }
 
@@ -89,6 +90,8 @@ async function importPDF(name = '日本語の資料', password?: string) {
 }
 
 async function openPDF(name = '日本語の資料', password?: string) {
+  const back = pdf().getByRole('button', { name: 'Back to library', exact: true });
+  if (await back.isVisible()) await back.click();
   await pdf().getByRole('button', { name: `Open ${name}`, exact: true }).click();
   if (password) {
     await pdf().getByLabel('Document password', { exact: true }).fill(password);
@@ -450,7 +453,7 @@ test('keeps writing usable beside a password prompt and saves the split draft th
   await expect(pdf().getByLabel('Search library', { exact: true })).toBeFocused();
   await page.keyboard.insertText('Protected');
   await expect(pdf().getByLabel('Search library', { exact: true })).toHaveValue('Protected');
-  await expect(pdf().getByLabel('Document password', { exact: true })).toHaveCount(0);
+  await expect(pdf().getByLabel('Document password', { exact: true })).toBeHidden();
   await pdf().getByRole('button', { name: 'Open Protected', exact: true }).click();
   await expect(pdf().getByLabel('Document password', { exact: true })).toHaveValue('');
   await pdf().getByLabel('Document password', { exact: true }).fill('close-secret');
@@ -481,6 +484,7 @@ test('keeps writing usable beside a password prompt and saves the split draft th
   await editor().press('ControlOrMeta+End');
   await expect(editor()).toContainText(draft);
   await enterSplit();
+  await pdf().getByRole('button', { name: 'Back to library', exact: true }).click();
   await pdf().getByRole('button', { name: 'Open Protected', exact: true }).click();
   await expect(pdf().getByLabel('Document password', { exact: true })).toHaveValue('');
   await pdf().getByLabel('Document password', { exact: true }).fill('close-secret');

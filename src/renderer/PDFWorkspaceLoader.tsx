@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../shared/pdfLinks';
 import type { PDFGraphDocument } from '../shared/pdfGraph';
+import type { PDFTabsBridge } from '../../pdf-manager/src/renderer/App';
 
 class LoadBoundary extends Component<{ children: ReactNode; retry: () => void }, { failed: boolean }> {
   state = { failed: false };
@@ -29,6 +30,7 @@ interface PDFWorkspaceLoaderProps {
   onResearch?: () => void;
   onArxiv?: () => void;
   libraryRevision?: number;
+  tabs?: PDFTabsBridge;
 }
 
 /** Load PDF.js on the first PDF visit; the parent retains this tree afterward. */

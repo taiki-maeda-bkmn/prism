@@ -1,3 +1,10 @@
+.pdf-workspace .pdf-reader-session {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.pdf-workspace .pdf-reader-session[hidden] { display: none; }
 .pdf-workspace .pdf-reader {
   display: flex;
   flex: 1;

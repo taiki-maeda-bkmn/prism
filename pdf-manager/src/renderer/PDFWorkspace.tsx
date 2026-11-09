@@ -1,4 +1,5 @@
 import { LibraryWorkspace } from './App';
+import type { PDFTabsBridge } from './App';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
 import type { PDFGraphDocument } from '../../../src/shared/pdfGraph';
 
@@ -17,6 +18,7 @@ interface PDFWorkspaceProps {
   onResearch?: () => void;
   onArxiv?: () => void;
   libraryRevision?: number;
+  tabs?: PDFTabsBridge;
 }
 
 export default function PDFWorkspace({ active, visible, ...props }: PDFWorkspaceProps) {

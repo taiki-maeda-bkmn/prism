@@ -36,6 +36,7 @@ test('PDF opacity reveals the desktop independently while retaining the reader, 
     page.on('pageerror', error => errors.push(error.message));
     await expect(page.locator('.note-heading h1')).toHaveText('透明な読書');
     await page.setViewportSize({ width: 1440, height: 1000 });
+    await workspace('Notes').click();
     await page.getByRole('group', { name: 'Editor mode', exact: true }).getByRole('button', { name: 'Source', exact: true }).click();
   }
   async function stop() {
@@ -196,6 +197,7 @@ test('PDF opacity reveals the desktop independently while retaining the reader, 
     await stop();
     await launch();
     await workspace('PDFs').click();
+    await pdf().getByRole('button', { name: 'Back to library', exact: true }).click();
     await pdf().getByRole('button', { name: 'Open Transparent reading', exact: true }).click();
     await pdf().getByLabel('Document password', { exact: true }).fill('opacity-secret');
     await pdf().getByRole('button', { name: 'Unlock PDF', exact: true }).click();

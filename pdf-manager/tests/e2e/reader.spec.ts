@@ -89,9 +89,11 @@ let page: Page;
 let rendererErrors: string[];
 
 async function launch() {
+  const applicationRoot = path.resolve(process.env.PRISM_TEST_PDF_APP_ROOT || 'pdf-manager');
   desktop = await electron.launch({
-    args: ['--no-sandbox', path.resolve('pdf-manager')],
-    cwd: process.cwd(),
+    executablePath: process.env.PRISM_TEST_ELECTRON,
+    args: ['--no-sandbox', applicationRoot],
+    cwd: applicationRoot,
     env: { ...process.env, PRISM_PDF_USER_DATA: userData },
   });
   page = await desktop.firstWindow();

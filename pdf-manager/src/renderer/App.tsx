@@ -9,6 +9,7 @@ import { TagInput } from './TagInput';
 import { mergeFolderSnapshotDocuments } from './folderSnapshots';
 import { useLibrarySidebarResize } from './LibrarySidebarResize';
 import { defaultPDFLayout, moreReadingSpace, parsePDFLayout, pdfLayoutStorageKey, serializePDFLayout, type PDFLayout } from './pdfLayout';
+import { retainedPDFReaders, type PDFReaderSession } from './readerSessions';
 import './styles.css';
 import './pdfLayout.css';
 import './pdfOpacity.css';
@@ -42,6 +43,14 @@ function Modal({ title, onClose, children, active, className = '' }: { title: st
 
 export function App() { return <LibraryWorkspace />; }
 
+export interface PDFTabsBridge {
+  openIds: readonly string[];
+  activeId: string | null;
+  /** Explicit tab navigation can select the reader that is already active. */
+  selectionRevision?: number;
+  onSelect: (id: string | null) => void;
+}
+
 export interface LibraryWorkspaceProps {
   /** Whether PDF shortcuts currently own the keyboard focus. */
   workspaceActive?: boolean;
@@ -59,10 +68,12 @@ export interface LibraryWorkspaceProps {
   onResearch?: () => void;
   onArxiv?: () => void;
   libraryRevision?: number;
+  /** Integrated document tabs; omitted by the standalone PDF application. */
+  tabs?: PDFTabsBridge;
 }
 
 /** Mounted once per workspace visit session so filters and password sessions survive hiding. */
-export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = workspaceActive, onAppearance, transparentWindow = false, onPageTranslucencyChange, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks, onOpenNote, onDocumentsChange, onResearch, onArxiv, libraryRevision = 0 }: LibraryWorkspaceProps) {
+export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = workspaceActive, onAppearance, transparentWindow = false, onPageTranslucencyChange, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks, onOpenNote, onDocumentsChange, onResearch, onArxiv, libraryRevision = 0, tabs }: LibraryWorkspaceProps) {
   const integrated = !!onAppearance;
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [folders, setFolders] = useState<PDFFolder[]>([]);
@@ -98,7 +109,29 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('newest');
   const [layout, setLayout] = useState<'grid' | 'list'>('grid');
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [localActiveId, setLocalActiveId] = useState<string | null>(null);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const activeId = tabs ? tabs.activeId : localActiveId;
+  const previousControlledSelection = useRef({ id: tabs?.activeId, revision: tabs?.selectionRevision });
+  useLayoutEffect(() => {
+    // Global tabs select the reader without calling openDocument. Count that
+    // navigation before an older import can publish its return-to-library UI.
+    if (tabs && (tabs.activeId !== previousControlledSelection.current.id
+      || tabs.selectionRevision !== previousControlledSelection.current.revision)) navigationRevision.current++;
+    previousControlledSelection.current = { id: tabs?.activeId, revision: tabs?.selectionRevision };
+  }, [tabs?.activeId, tabs?.selectionRevision]);
+  const setActiveId = useCallback((id: string | null) => {
+    if (tabsRef.current) tabsRef.current.onSelect(id);
+    else setLocalActiveId(id);
+  }, []);
+  const [retainedReaders, setRetainedReaders] = useState<readonly string[]>([]);
+  const readerSessions = useRef(new Map<string, PDFReaderSession>());
+  useLayoutEffect(() => {
+    const open = tabs?.openIds.filter(id => documents.some(document => document.id === id)) ?? [];
+    setRetainedReaders(current => retainedPDFReaders(current, open, activeId));
+    for (const id of readerSessions.current.keys()) if (!open.includes(id)) readerSessions.current.delete(id);
+  }, [tabs?.openIds, activeId, documents]);
   const [readerLinkRequest, setReaderLinkRequest] = useState<PDFPageLinkRequest | null>(null);
   const [missingLink, setMissingLink] = useState<PDFPageLinkRequest | null>(null);
   const handledLink = useRef<number | null>(null);
@@ -223,7 +256,12 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
   useEffect(() => { if (integrated) return; try { localStorage.setItem('prism-pdf-appearance', JSON.stringify(appearance)); } catch { /* Appearance can still be used for this session. */ } }, [appearance, integrated]);
 
   useEffect(() => {
-    if (!pageLinkRequest || pageLinkRequest.request === handledLink.current || loading || loadError) return;
+    if (!pageLinkRequest) {
+      setReaderLinkRequest(null);
+      setMissingLink(null);
+      return;
+    }
+    if (pageLinkRequest.request === handledLink.current || loading || loadError) return;
     handledLink.current = pageLinkRequest.request;
     closeNavigation();
     setMissingLink(null);
@@ -236,7 +274,7 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
     if (!folderBusyRef.current) setFolderDialog(null);
     setReaderLinkRequest(pageLinkRequest);
     setActiveId(pageLinkRequest.documentId);
-  }, [pageLinkRequest, loading, loadError, documents, closeNavigation]);
+  }, [pageLinkRequest, loading, loadError, documents, closeNavigation, setActiveId]);
 
   const canImportFiles = useCallback((forDrop = false) => (forDrop ? workspaceVisible : workspaceActive) && !importingRef.current && !loading && !loadError
     && !movingRef.current && !folderBusyRef.current && !editingId && !folderDialog && !urlImportOpen
@@ -301,9 +339,10 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
     if (!integrated) window.prismPdf?.setWindowTranslucency(appearance.transparent && (appearance.opacity < 100 || pageTranslucent));
   }, [appearance.transparent, appearance.opacity, integrated, pageTranslucent]);
   const editing = documents.find(document => document.id === editingId);
-  const readingUpdate = useCallback((patch: { lastPage?: number; pageCount?: number }) => {
-    if (activeId) void update(activeId, patch).catch(error => setNotice({ text: message(error), error: true }));
-  }, [activeId, update]);
+  const readingUpdate = useCallback((id: string, patch: { lastPage?: number; pageCount?: number }) => {
+    if (tabsRef.current && !tabsRef.current.openIds.includes(id)) return;
+    void update(id, patch).catch(error => setNotice({ text: message(error), error: true }));
+  }, [update]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -377,7 +416,7 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
       const result = await window.prismPdf.removeDocument(editing.id);
       applySnapshot(result, baseline, { removedDocument: editing.id });
       recordDocumentChange(editing.id);
-      setActiveId(current => current === editing.id ? null : current);
+      if (activeId === editing.id) setActiveId(null);
       setEditingId(null); setRemoving(false);
       setNotice({ text: 'Removed from your library. Your original PDF and stored copy were kept.', error: false });
     } catch (error) { setModalError(message(error)); }
@@ -546,7 +585,21 @@ export function LibraryWorkspace({ workspaceActive = true, workspaceVisible = wo
       </div>}
       {warnings.length > 0 && <details className="warnings"><summary>{warnings.length} library warning{warnings.length === 1 ? '' : 's'}</summary>{warnings.map((warning, index) => <p key={index}>{warning}</p>)}</details>}
       </div>
-      {active ? <PdfReader key={active.id} layout={pdfLayout} workspaceActive={workspaceActive} document={active} onUpdate={readingUpdate} onClose={() => openDocument(null)} pageLinkRequest={readerLinkRequest?.documentId === active.id ? readerLinkRequest : null} onInsertPageLink={onInsertPageLink} canInsertPageLink={canInsertPageLink} backlinks={backlinks?.get(active.id)} onOpenNote={onOpenNote} /> : <main className={`library-content ${libraryDropTarget ? 'pdf-file-drop-target' : ''}`} aria-describedby="pdf-file-drop-help"
+      {/* LRU changes membership, while stable tab order keeps surviving reader DOM in place. */}
+      {(tabs ? tabs.openIds.filter(id => retainedReaders.includes(id)) : active ? [active.id] : []).map(id => {
+        const document = documents.find(item => item.id === id);
+        if (!document) return null;
+        const selected = id === activeId;
+        return <div className="pdf-reader-session" data-pdf-session={id} data-active={selected} key={id} hidden={!selected} inert={!selected}>
+          <PdfReader layout={pdfLayout} workspaceActive={workspaceActive && selected} visible={workspaceVisible && selected} document={document}
+            onUpdate={patch => readingUpdate(id, patch)} onClose={() => openDocument(null)}
+            initialSession={tabs ? readerSessions.current.get(id) : undefined}
+            onSessionChange={tabs ? session => { if (tabsRef.current?.openIds.includes(id)) readerSessions.current.set(id, session); } : undefined}
+            pageLinkRequest={selected && readerLinkRequest?.documentId === id ? readerLinkRequest : null}
+            onInsertPageLink={onInsertPageLink} canInsertPageLink={selected && canInsertPageLink} backlinks={backlinks?.get(id)} onOpenNote={onOpenNote} />
+        </div>;
+      })}
+      {!active && <main className={`library-content ${libraryDropTarget ? 'pdf-file-drop-target' : ''}`} aria-describedby="pdf-file-drop-help"
         onDragOver={event => {
           if (!externalDrag(event) || !canImportFiles(true)) return;
           event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy';
