@@ -8,6 +8,9 @@ import { Graph, type GraphPoint } from './Graph';
 import { getBacklinks, getMarkdownMetadata, getTitle, renderMarkdownDocument, resolveNoteLink } from './markdown';
 import { mathTextContent } from './math';
 import { appearanceStyle, parsePreferences, selectTheme, themes, textSize, type Mode, type Preferences } from './appearance';
+import { MarkdownLayoutSettings } from './MarkdownLayoutSettings';
+import { markdownLayoutStorageKey, parseMarkdownLayout, serializeMarkdownLayout } from './markdownLayout';
+import './markdown-layout.css';
 import { ColorSettings } from './ColorSettings';
 import { ThemeSettings } from './ThemeSettings';
 import { ResizableInspector } from './ResizableInspector';
@@ -93,6 +96,11 @@ export function App() {
   const [closingTab, setClosingTab] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [preferences, setPreferences] = useState(readPreferences);
+  const [markdownLayout, setMarkdownLayout] = useState(() => {
+    try { return parseMarkdownLayout(localStorage.getItem(markdownLayoutStorageKey)); }
+    catch { return parseMarkdownLayout(null); }
+  });
+  const [markdownLayoutOpen, setMarkdownLayoutOpen] = useState(false);
   const [view, setView] = useState<'note' | 'graph'>('note');
   const [showGraphPDFs, setShowGraphPDFs] = useState(true);
   const graphPDFToggle = useRef<HTMLInputElement>(null);
@@ -127,7 +135,9 @@ export function App() {
   const [pending, setPending] = useState<Intent | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [noticeState, setNoticeState] = useState({ text: '', routine: false });
+  const notice = noticeState.text;
+  const setNotice = useCallback((text: string) => setNoticeState({ text, routine: false }), []);
   const [cursor, setCursor] = useState({ line: 1, column: 1 });
   const [previewNavigation, setPreviewNavigation] = useState<{ path: string; fragment?: string } | null>(null);
   const [headingTarget, setHeadingTarget] = useState<{ path: string; index: number; request: number; allLevels?: boolean; top?: boolean }>();
@@ -293,6 +303,10 @@ export function App() {
   useEffect(() => {
     try { localStorage.setItem('prism.preferences', JSON.stringify(preferences)); } catch { /* Preferences are optional; notes are stored on disk. */ }
   }, [preferences]);
+  useEffect(() => {
+    try { localStorage.setItem(markdownLayoutStorageKey, serializeMarkdownLayout(markdownLayout)); }
+    catch { /* Layout preferences are optional; note saving stays independent. */ }
+  }, [markdownLayout]);
   useEffect(() => {
     // A visible PDF may be translucent even with fully solid app backgrounds.
     // Busy panes are still drawn, so use actual layout visibility here.
@@ -460,7 +474,7 @@ export function App() {
           return next;
         });
       }
-      if (paths.length) setNotice(all ? 'All changes saved to your notebook.' : 'Saved to your notebook.');
+      if (paths.length) setNoticeState({ text: all ? 'All changes saved to your notebook.' : 'Saved to your notebook.', routine: true });
       return true;
     } catch (cause) { setError(message(cause)); return false; }
     finally { operation.current = false; setWorking(false); }
@@ -777,12 +791,12 @@ export function App() {
       <div className="window-controls"><button aria-label="Minimize window" title="Minimize window" onClick={() => window.prism?.windowControl('minimize')}><Minus size={15} /></button><button aria-label={maximized ? 'Restore window' : 'Maximize window'} title={maximized ? 'Restore window' : 'Maximize window'} onClick={() => window.prism?.windowControl('maximize')}>{maximized ? <Copy size={13} /> : <Square size={13} />}</button><button className="close-window" aria-label="Close window" title="Close window" onClick={() => requestIntent('close')}><X size={17} /></button></div>
     </header>
 
-    <DocumentTabs session={tabs} activeKey={focusedTabKey} labels={tabLabels} disabled={busy || !workspace}
+    <DocumentTabs showTools={markdownLayout.topicTools || !(split.visible || activeWorkspace === 'notes')} session={tabs} activeKey={focusedTabKey} labels={tabLabels} disabled={busy || !workspace}
       onSelect={activateTab} onClose={requestTabClose} onChange={changeTabs} />
 
     <div className="workspace-area" ref={split.area} style={split.style} data-layout={split.visible ? 'split' : 'single'} data-resizing={split.resizing} data-notes-side={split.notesSide}>
     {orderPanes([
-    <div key="notes" className="app-body" id="notes-workspace" ref={notesPanel} tabIndex={-1} aria-label="Notes workspace" hidden={!split.visible && activeWorkspace !== 'notes'} inert={busy || (!split.visible && activeWorkspace !== 'notes')} aria-busy={busy} data-active={activeWorkspace === 'notes'} data-notes-open={notesNavigation}
+    <div key="notes" className="app-body" id="notes-workspace" ref={notesPanel} tabIndex={-1} aria-label="Notes workspace" hidden={!split.visible && activeWorkspace !== 'notes'} inert={busy || (!split.visible && activeWorkspace !== 'notes')} aria-busy={busy} data-active={activeWorkspace === 'notes'} data-notes-open={notesNavigation} data-markdown-spacing={markdownLayout.compact ? 'compact' : 'comfortable'}
       onPointerDownCapture={() => setActiveWorkspace('notes')}
       onFocusCapture={event => { workspaceFocus.current.notes = event.target as HTMLElement; setActiveWorkspace('notes'); }}>
       {split.visible && notesNavigation && <button className="notes-navigation-dismiss" aria-label="Dismiss notes navigation" tabIndex={-1} onClick={() => { setNotesNavigation(false); notesNavigationButton.current?.focus({ preventScroll: true }); }} />}
@@ -802,11 +816,15 @@ export function App() {
       <main className="workspace-main">
         <div className="document-toolbar">
           <div className="document-location"><button ref={notesNavigationButton} className="icon-button" onClick={toggleNotesSidebar} aria-label={split.visible ? notesNavigation ? 'Hide notes' : 'Show notes' : focus ? 'Show sidebars' : 'Focus mode'} aria-controls={split.visible ? 'notes-navigation' : undefined} aria-expanded={split.visible ? notesNavigation : undefined} title={split.visible ? notesNavigation ? 'Hide notes' : 'Show notes' : focus ? 'Show sidebars' : 'Focus mode'}>{(split.visible ? !notesNavigation : focus) ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button><span className="toolbar-separator" />{view === 'graph' ? <><GitFork size={16} /><span>Connected thoughts</span></> : <><FileText size={16} /><span title={activePath}>{activePath.replace(/\.md$/i, '') || 'Your notebook'}</span>{Object.hasOwn(drafts, activePath) && <span className="unsaved-badge">Edited</span>}</>}</div>
-          <div className="toolbar-actions"><button className={`transparency-shortcut ${preferences.transparent ? 'enabled' : ''}`} onClick={() => setSettings(true)} title="Window appearance" aria-label="Window appearance"><Layers3 size={16} /><span>{preferences.transparent ? `${preferences.opacity}%` : 'Appearance'}</span></button><button className="save-button" disabled={busy || !Object.hasOwn(drafts, activePath)} onClick={() => void save()} title="Save note (Ctrl+S)">{busy ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}<span>Save</span></button></div>
+          <div className="toolbar-actions">
+            {active && view === 'note' && !markdownLayout.heading && <select className="toolbar-mode-select" aria-label="Editor mode" value={preferences.mode} onChange={event => chooseMode(event.target.value as Mode)}><option value="source">Source</option><option value="split">Split</option><option value="live">Live</option><option value="preview">Read</option></select>}
+            {active && view === 'note' && !markdownLayout.paneLabels && <button className="markdown-snippets-shortcut" aria-label="Snippet help" title="Snippets" onClick={() => setSnippetHelp(true)}><Code2 size={16} /></button>}
+            <button className="markdown-layout-button" aria-label="Markdown layout" title="Markdown layout" onClick={() => setMarkdownLayoutOpen(true)}><Settings2 size={16} /><span>Layout</span></button>
+            <button className={`transparency-shortcut ${preferences.transparent ? 'enabled' : ''}`} onClick={() => setSettings(true)} title="Window appearance" aria-label="Window appearance"><Layers3 size={16} /><span>{preferences.transparent ? `${preferences.opacity}%` : 'Appearance'}</span></button><button className="save-button" aria-label="Save note" disabled={busy || !Object.hasOwn(drafts, activePath)} onClick={() => void save()} title="Save note (Ctrl+S)">{busy ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}<span>Save</span></button></div>
         </div>
 
         {error && <div className="message-banner error" role="alert"><span>{error}</span>{!workspace && <button onClick={() => void initialize()}>Try again</button>}<button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
-        {notice && <div className="message-banner notice" role="status"><span>{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={14} /></button></div>}
+        {notice && (!noticeState.routine || markdownLayout.saveNotifications) && <div className="message-banner notice" role="status"><span>{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={14} /></button></div>}
 
         {view === 'graph' ? <section className="graph-page">
           <div className="graph-page-heading"><div><p className="eyebrow">SEE THE CONNECTIONS</p><h1>Your ideas, together.</h1><p>Follow the connections between your notes and reading.</p></div><button className="subtle-button" onClick={() => setView('note')}><ArrowLeft size={15} />Back to note</button></div>
@@ -822,10 +840,10 @@ export function App() {
             pdfBacklinks={pdfBacklinks} pdfCatalog={pdfGraph.catalog} showPDFs={showGraphPDFs} onOpenPDF={openPDFPage} />
           <div className="graph-help"><span><i />Note</span><span><i className="active" />Current note</span>{showGraphPDFs && <><span><i className="pdf" />PDF</span><span><i className="missing-pdf" />Missing PDF</span></>}<span>Drag to arrange · Scroll to zoom · Click to open · Arrow keys move a node</span></div>
         </section> : active ? <>
-          <div className="note-heading"><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source', 1], ['split', Columns2, 'Split', 2], ['live', Sparkles, 'Live', 4], ['preview', BookOpen, 'Read', 3]] as const).map(([mode, Icon, label, shortcut]) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl/⌘+${shortcut})`} onClick={() => chooseMode(mode)}><Icon size={15} /><span>{label}</span></button>)}</div></div>
+          <div className="note-heading" hidden={!markdownLayout.heading}><div className="note-heading-text"><p className="eyebrow">A SPACE TO THINK CLEARLY</p><h1>{getTitle(active)}</h1><div className="note-meta"><span>Markdown</span><span>·</span><span>{words.toLocaleString()} words</span><span>·</span><span>{Math.max(1, Math.ceil(words / 200))} min read</span></div></div><div className="mode-switch" role="group" aria-label="Editor mode">{([['source', Code2, 'Source', 1], ['split', Columns2, 'Split', 2], ['live', Sparkles, 'Live', 4], ['preview', BookOpen, 'Read', 3]] as const).map(([mode, Icon, label, shortcut]) => <button key={mode} aria-pressed={preferences.mode === mode} className={preferences.mode === mode ? 'active' : ''} title={`${label} mode (Ctrl/⌘+${shortcut})`} onClick={() => chooseMode(mode)}><Icon size={15} /><span>{label}</span></button>)}</div></div>
           <div className={`editor-layout mode-${preferences.mode}`}>
-            <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label"><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit. Ctrl+click links to open.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor ref={editor} key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} sessions={editorSessions} sessionGeneration={editorSessions.generation} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} customSnippets={customSnippets} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onOpenLink={href => openHref(href, active.path)} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
-            {(preferences.mode === 'split' || preferences.mode === 'preview') && <section className="preview-pane" aria-label="Live preview"><div className="pane-label"><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onScroll={event => { const element = event.currentTarget; if (element.clientHeight && previewNote?.path === active.path) previewPositions.current.set(active.path, { top: element.scrollTop, left: element.scrollLeft }); }} onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
+            <section className="source-pane" hidden={preferences.mode === 'preview'} aria-label={preferences.mode === 'live' ? 'Live editor' : 'Source editor'}><div className="pane-label" hidden={!markdownLayout.paneLabels}><span><Code2 size={13} />{preferences.mode === 'live' ? 'LIVE EDITING' : 'MARKDOWN'}</span>{preferences.mode === 'live' && <span className="live-editing-hint">Markers appear on the line you edit. Ctrl+click links to open.</span>}<button className="snippet-help-button" aria-label="Snippet help" onClick={() => setSnippetHelp(true)}>Snippets <kbd>Tab</kbd></button></div><Editor ref={editor} key={`${workspaceRevision}:${active.path}`} path={active.path} content={active.content} sessions={editorSessions} sessionGeneration={editorSessions.generation} textScale={preferences.textScale} theme={preferences.theme} live={preferences.mode === 'live'} customSnippets={customSnippets} headingTarget={headingTarget?.path === active.path ? headingTarget : undefined} onOpenLink={href => openHref(href, active.path)} onChange={changeContent} onCursor={(line, column) => setCursor({ line, column })} /></section>
+            {(preferences.mode === 'split' || preferences.mode === 'preview') && <section className="preview-pane" aria-label="Live preview"><div className="pane-label" hidden={!markdownLayout.paneLabels}><span><BookOpen size={13} />{preferences.mode === 'split' ? 'LIVE PREVIEW' : 'READING VIEW'}</span><span className="live-indicator"><span />{Object.hasOwn(drafts, activePath) ? 'Draft' : 'Up to date'}</span></div><div ref={preview} className="markdown-body" onScroll={event => { const element = event.currentTarget; if (element.clientHeight && previewNote?.path === active.path) previewPositions.current.set(active.path, { top: element.scrollTop, left: element.scrollLeft }); }} onClick={clickPreview} dangerouslySetInnerHTML={{ __html: html }} /></section>}
           </div>
         </> : <div className="empty-workspace"><PrismMark /><p className="eyebrow">MAKE ROOM FOR AN IDEA</p><h1>Your next thought starts here.</h1><p>Create a note, or open a folder of Markdown files to get started.</p><button className="primary-button" disabled={!workspace} onClick={beginCreateNote}><FilePlus2 size={17} />Create your first note</button></div>}
       </main>
@@ -910,6 +928,7 @@ export function App() {
       </div>
     </Modal>}
 
+    {markdownLayoutOpen && <MarkdownLayoutSettings layout={markdownLayout} onChange={setMarkdownLayout} onClose={() => setMarkdownLayoutOpen(false)} />}
     {settings && <Modal title="Make a little space" onClose={() => setSettings(false)} className="appearance-modal">
       <p className="modal-description">Settle into a workspace that feels like yours.</p>
       <fieldset className="text-size-setting">
