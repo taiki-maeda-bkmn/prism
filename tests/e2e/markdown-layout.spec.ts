@@ -386,5 +386,18 @@ test('keeps the unlocked PDF and draft beside adjustable Notes at 420 pixels and
   await testInfo.attach('Markdown layout at 420 pixels and 150 percent text beside the PDF', {
     body: await page.screenshot({ path: testInfo.outputPath('markdown-layout-narrow.png') }), contentType: 'image/png',
   });
+  // Also exercise a whole 420px window: the sidebar leaves less room for the
+  // toolbar than a 420px split pane, so its controls must wrap and retain names.
+  await page.setViewportSize({ width: 420, height: 900 });
+  await expect(page.locator('.workspace-area')).toHaveAttribute('data-layout', 'single');
+  for (const control of [layoutButton(), modeSelect(), toolbar().getByRole('button', { name: 'Save', exact: true }), toolbar().getByRole('button', { name: 'Snippet help', exact: true })]) {
+    await expectInside(control, notes());
+  }
+  expect(await toolbar().evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await openLayout();
+  await doneLayout();
+  await testInfo.attach('Markdown layout in a narrow window', {
+    body: await page.screenshot({ path: testInfo.outputPath('markdown-layout-window.png') }), contentType: 'image/png',
+  });
   expect(errors).toEqual([]);
 });
