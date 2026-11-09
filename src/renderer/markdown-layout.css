@@ -1,0 +1,62 @@
+.app-body .note-heading[hidden],
+.app-body .pane-label[hidden],
+.document-tabs-tools[hidden] { display: none; }
+
+/* Allow the recovery controls to wrap in small panes, including at 150% text. */
+.app-body .document-toolbar {
+  height: auto;
+  min-height: 56px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.app-body .document-location { flex: 1 1 120px; }
+.app-body .toolbar-actions { flex-wrap: wrap; max-width: 100%; gap: 8px; }
+.markdown-layout-button, .markdown-snippets-shortcut {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--tint);
+  color: var(--muted);
+  padding: 7px 9px;
+  font-size: calc(11px * var(--text-scale));
+  cursor: pointer;
+}
+.markdown-layout-button:hover, .markdown-snippets-shortcut:hover { color: var(--text); background: var(--hover); }
+.toolbar-mode-select {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px;
+  color: var(--text);
+  background: rgba(var(--panel-rgb), var(--surface-alpha));
+  font-size: calc(11px * var(--text-scale));
+}
+.app-body[data-markdown-spacing="compact"] .document-toolbar { min-height: 40px; padding: 4px 12px; gap: 6px; }
+.app-shell[data-theme] .app-body[data-markdown-spacing="compact"] .note-heading { padding: 12px 20px; gap: 10px; }
+.app-body[data-markdown-spacing="compact"] .note-heading .eyebrow { margin-bottom: 6px; }
+.app-body[data-markdown-spacing="compact"] .note-heading h1 { margin-bottom: 6px; }
+.app-body[data-markdown-spacing="compact"] .pane-label { min-height: 28px; padding: 4px 16px; }
+
+.modal.markdown-layout-modal { width: min(560px, calc(100vw - 40px)); }
+.markdown-layout-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+.markdown-layout-options { display: grid; gap: 16px; margin: 20px 0; }
+.markdown-layout-option { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
+.markdown-layout-option input { flex: 0 0 auto; margin-top: 4px; accent-color: var(--accent); }
+.markdown-layout-option > span { min-width: 0; }
+.markdown-layout-option .field-help { display: block; margin-top: 4px; }
+
+@container notes-pane (max-width: 900px) {
+  .app-body .document-toolbar { min-height: 44px; padding: 6px 12px; }
+  .app-body .toolbar-actions { gap: 6px; }
+}
+@container notes-pane (max-width: 520px) {
+  .app-body .document-toolbar { gap: 6px; }
+  .app-body .markdown-layout-button span,
+  .app-body .save-button span { display: none; }
+  .app-body .document-location { flex-basis: 75px; }
+}

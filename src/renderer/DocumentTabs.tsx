@@ -9,6 +9,7 @@ interface DocumentTabsProps {
   activeKey: string | null;
   labels: ReadonlyMap<string, { title: string; detail: string; dirty?: boolean }>;
   disabled: boolean;
+  showTools?: boolean;
   onSelect: (key: string) => void;
   onClose: (key: string) => void;
   onChange: (update: (state: TabSession) => TabSession) => void;
@@ -16,7 +17,7 @@ interface DocumentTabsProps {
 
 type TopicDialog = { kind: 'create' } | { kind: 'rename' | 'remove'; id: string };
 
-export function DocumentTabs({ session, activeKey, labels, disabled, onSelect, onClose, onChange }: DocumentTabsProps) {
+export function DocumentTabs({ session, activeKey, labels, disabled, showTools = true, onSelect, onClose, onChange }: DocumentTabsProps) {
   const [dialog, setDialog] = useState<TopicDialog | null>(null);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -129,7 +130,7 @@ export function DocumentTabs({ session, activeKey, labels, disabled, onSelect, o
 
   return <>
     <div className="document-tabs" aria-label="Document tabs" aria-busy={disabled}>
-      <div className="document-tabs-tools">
+      <div className="document-tabs-tools" hidden={!showTools}>
         <button ref={addButton} type="button" className="document-topic-add" disabled={disabled || session.groups.length >= TAB_LIMITS.groups} onClick={() => beginTopic({ kind: 'create' })}><Plus size={14} />New topic</button>
         <label className="document-tab-move"><span>Move tab to</span><select aria-label="Move tab to topic" disabled={disabled || !active} value={active?.groupId ?? ''}
           onChange={event => { const groupId = event.target.value || null; if (active) onChange(state => moveTab(state, active.key, groupId)); }}>
