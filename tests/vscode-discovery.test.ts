@@ -49,12 +49,36 @@ test('discovers a Windows versioned built-in theme by ID and translated label, m
   assert.deepEqual((await discoverVSCodeAppearance(f.options)).colors, { background: '#123456', text: '#ffffff', accent: '#abcdef' });
 });
 
-test('installed extension versions select the newest directory and ignore null or non-string customizations', async t => {
+test('multiple installed extension versions require an exported theme instead of guessing the active copy', async t => {
   const f = await fixture(t);
   await f.theme(path.join(f.extensions, 'publisher.ocean-1.9.0'), 'Ocean', { ...basic, 'editor.background': '#000000' });
   await f.theme(path.join(f.extensions, 'publisher.ocean-1.10.0'));
   await f.settings({ 'workbench.colorTheme': 'Ocean' });
-  assert.equal((await discoverVSCodeAppearance(f.options)).colors.background, '#123456');
+  await assert.rejects(discoverVSCodeAppearance(f.options), /matches multiple installed theme files.*Generate Color Theme/);
+});
+
+test('multiple versioned Windows installations are ambiguous even when their theme colors match', async t => {
+  const f = await fixture(t, 'win32');
+  for (const version of ['aabbccddeeff', '112233445566']) {
+    await f.theme(path.join(f.install, version, 'resources', 'app', 'extensions', 'theme-defaults'));
+  }
+  await f.settings({ 'workbench.colorTheme': 'Ocean' });
+  await assert.rejects(discoverVSCodeAppearance(f.options), /matches multiple installed theme files.*Generate Color Theme/);
+});
+
+test('duplicate discovery roots referring to the same canonical theme remain unambiguous', async t => {
+  const f = await fixture(t);
+  await f.theme(path.join(f.extensions, 'publisher.ocean-1.0.0'));
+  await f.settings({ 'workbench.colorTheme': 'Ocean' });
+  const alias = path.join(f.root, 'Extension alias');
+  await fs.symlink(f.extensions, alias, 'junction');
+  const imported = await discoverVSCodeAppearance({ ...f.options, extensionRoots: [f.extensions, alias] });
+  assert.deepEqual(imported.colors, { background: '#123456', text: '#eeeeee', accent: '#abcdef' });
+});
+
+test('null or non-string customizations leave supported global color overrides intact', async t => {
+  const f = await fixture(t);
+  await f.theme(path.join(f.extensions, 'publisher.ocean-1.0.0'));
   await f.settings({ 'workbench.colorTheme': 'Ocean', 'workbench.colorCustomizations': {
     'editor.background': '#222222', 'editor.foreground': '#777777',
     '[Ocean]': { 'editor.background': 42, 'editor.foreground': null },

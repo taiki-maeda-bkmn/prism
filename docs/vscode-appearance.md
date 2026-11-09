@@ -42,8 +42,9 @@ non-string overrides retain inherited colors, following [VS Code's theme loader]
 
 Automatic discovery reads the standard Windows or Linux **default profile**,
 not workspace settings, named profiles, Insiders, remote hosts, or the running
-window's cached theme. If the configured theme is missing or cannot be resolved,
-Prism reports that instead of guessing. Export the active theme in VS Code and
+window's cached theme. If the configured theme is missing, matches multiple
+installed versions, or cannot be resolved, Prism reports that instead of
+guessing. Export the active theme in VS Code and
 use **Choose theme file…** for those cases, portable installations, or themes
 installed in custom locations.
 

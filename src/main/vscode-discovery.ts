@@ -129,6 +129,7 @@ export async function discoverVSCodeAppearance(options: VSCodeDiscoveryOptions):
   const selected = configuredTheme(settings, options);
   let manifestBytes = 0;
   let manifests = 0;
+  const candidates = new Map<string, { file: string; root: string; name: string; settingsId: string }>();
   const manifest = async (file: string, root: string) => {
     const canonical = await fs.realpath(file);
     if (!within(root, canonical)) throw new Error('The VS Code manifest leaves its extension folder.');
@@ -173,12 +174,20 @@ export async function discoverVSCodeAppearance(options: VSCodeDiscoveryOptions):
         if (!/\.jsonc?$/i.test(relative)) throw new Error(`The configured VS Code theme does not use a JSON color-theme file. ${guidance}`);
         const target = path.resolve(packageRoot, relative);
         if (!within(packageRoot, target)) throw new Error(`The configured VS Code theme leaves its extension folder. ${guidance}`);
-        const theme = await readVSCodeTheme(target, { root: packageRoot });
-        const mapped = mapVSCodeColors(mergeCustomColors(theme.colors, settings, settingsId));
-        if (!Object.keys(mapped.colors).length) throw new Error(`The configured VS Code theme has no supported Prism colors. ${guidance}`);
-        return { name: label ?? id ?? theme.name, source: settingsPath, ...mapped };
+        const canonical = await fs.realpath(target);
+        if (!within(packageRoot, canonical)) throw new Error('VS Code theme includes must stay inside the selected theme folder.');
+        // A directory's version or modification time does not establish which
+        // extension VS Code has active. Detect all matches before choosing,
+        // while treating aliases of the same file as a single candidate.
+        candidates.set(canonical, { file: canonical, root: packageRoot, name: label ?? settingsId, settingsId });
       }
     }
   }
-  throw new Error(`The configured VS Code theme “${selected}” was not found in the installed extensions. ${guidance}`);
+  if (!candidates.size) throw new Error(`The configured VS Code theme “${selected}” was not found in the installed extensions. ${guidance}`);
+  if (candidates.size > 1) throw new Error(`The configured VS Code theme “${selected}” matches multiple installed theme files. Prism cannot determine which copy VS Code uses. ${guidance}`);
+  const candidate = candidates.values().next().value!;
+  const theme = await readVSCodeTheme(candidate.file, { root: candidate.root });
+  const mapped = mapVSCodeColors(mergeCustomColors(theme.colors, settings, candidate.settingsId));
+  if (!Object.keys(mapped.colors).length) throw new Error(`The configured VS Code theme has no supported Prism colors. ${guidance}`);
+  return { name: candidate.name, source: settingsPath, ...mapped };
 }
