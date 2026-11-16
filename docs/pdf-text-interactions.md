@@ -1,0 +1,38 @@
+# PDF text, links, and search
+
+This increment adds three related reading features to the shared PDF reader used by Prism and Prism PDF.
+
+1. Render a selectable text layer aligned with the PDF canvas. Support ordinary selection and copy, including a visible Copy selected text button.
+2. Add safe links from PDF annotations. Web/email links open only after activation through the main-process URL validator. Internal destinations navigate within the current document. PDF scripts, forms, file launches, and unsupported actions remain inactive.
+3. Search text throughout the open PDF, with next/previous matches, page navigation, visible highlights, and Ctrl+F scoped to the focused PDF pane. Search runs progressively and can be cancelled; it does not rasterize pages or block note editing.
+
+Text comes from the PDF's embedded text. Image-only scans need OCR, which is outside this increment. A document's font mapping and text ordering determine extraction quality.
+
+## Use the reader
+
+- Drag across text, then press **Ctrl+C** or choose **Copy selected text**. With the page focused, **Ctrl+A** selects that page's text.
+- Click an embedded web/email link to open the default application, or an internal link to jump to its page. Links can also receive keyboard focus and activate with Enter.
+- Choose **Find in PDF** or press **Ctrl+F** while the PDF pane is active. Search ignores case and matches across text items and line breaks. Use **Enter / Shift+Enter**, **F3 / Shift+F3**, or the match arrows to move through results. Escape closes Find.
+- Find and Copy remain available when the page toolbar is hidden. Switching to another tab retains the query and selected result; hidden readers pause any unfinished search.
+
+Search keeps at most 1,000 matches and reads up to 20,000 pages, 32 million document characters, and one million characters per page. A notice identifies limited results or pages that could not be searched. No PDF text is sent to a server, and these interactions do not modify the PDF file.
+
+## Acceptance
+
+- Selection, copy, and links align at different zoom levels, rotations, and pane widths.
+- Search matches can span PDF text items and line breaks, and support Japanese text when the PDF supplies Unicode mappings.
+- Page changes, retries, tab switches, and newer queries cannot publish stale layers or matches.
+- Hidden reader controls do not make Find or Copy inaccessible.
+- Existing page navigation, transparency, reader sessions, and Markdown drafts/undo remain intact.
+- PDF bytes and catalogue identity are unchanged.
+- Tests use generated PDFs, disposable notebooks/profiles, and intercepted external-link calls.
+
+The previously diagnosed Windows Smart App Control block is a separate installation issue. This feature does not alter security settings or supply a trusted signature.
+
+## Verification
+
+Both application builds and typechecks pass, with 438 main unit passes (five platform skips) and 148 PDF unit passes. Twenty-four new unit cases cover search normalization/offsets/bounds/cancellation, link validation, and retained search sessions through React StrictMode.
+
+Thirteen targeted Linux/WSLg desktop journeys pass: three new integrated journeys, one new standalone journey, and nine rendering/navigation/split-pane regressions. These check actual mouse selection and clipboard results, external-link dispatch, internal page jumps, cross-page and multiline search, tab retention, Japanese draft/undo preservation, encrypted and image-only files, rotation/zoom, and controls at 420px with 150% text. The compact rotated-page screenshot was inspected. All data is disposable, external links are intercepted, and clipboard contents are restored.
+
+Windows deployment remains pending resolution of its existing application-control block. GitHub CI was not checked.

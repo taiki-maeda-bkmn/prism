@@ -51,6 +51,8 @@ Use **New folder** in the library sidebar to organize existing PDFs. Drag a docu
 
 Drag PDF files from Windows Explorer or your file manager onto the library or a sidebar folder to import copies. The library area and **Import PDFs** use the selected folder, otherwise Unfiled. Originals stay untouched. Duplicate files keep their existing library folder and metadata; the result reports imported files, duplicates, and errors separately. Use **Import from URL** for website links.
 
+Select PDF text by dragging, then press **Ctrl+C** or choose **Copy selected text**. Embedded web/email links open in your default app; internal links jump to the destination page. Use **Find in PDF** or **Ctrl+F** to search the whole open document, then **Enter / Shift+Enter** or the match arrows to navigate. Search and copy use embedded text; image-only scans require OCR first. See [PDF text, links, and search](../docs/pdf-text-interactions.md).
+
 Use **Ctrl+O** to import and **Ctrl+K** to search. **Previous / Next** buttons stay below the page while you scroll. Mouse-wheel and trackpad scrolling stay within the current page, including at its top and bottom, and never turn pages.
 
 Click the PDF page to use **Left / Right**, **Page Up / Page Down**, or **Home / End** for the first/last page. **Space** scrolls down a screen and turns at the bottom; **Shift+Space** scrolls up and turns at the top. These shortcuts stay inside the page viewport so typing in notes, search, page-number, and password fields is unaffected.

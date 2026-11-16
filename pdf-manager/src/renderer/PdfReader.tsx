@@ -1,12 +1,19 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, FileText, Link2, LoaderCircle, LockKeyhole, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react';
-import { getDocument, GlobalWorkerOptions, PasswordResponses, type PDFDocumentLoadingTask, type PDFDocumentProxy, type RenderTask } from 'pdfjs-dist';
+import { ArrowLeft, Copy, Search, ChevronLeft, ChevronRight, FileText, Link2, LoaderCircle, LockKeyhole, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { getDocument, GlobalWorkerOptions, PasswordResponses, type PDFDocumentLoadingTask, type PDFDocumentProxy, type PDFPageProxy, type RenderTask } from 'pdfjs-dist';
 import type { PDFDocument } from '../shared/types';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
 import { PdfBacklinks } from './PdfBacklinks';
 import { defaultPDFLayout, type PDFLayout } from './pdfLayout';
 import type { PDFReaderSession } from './readerSessions';
 import './reader.css';
+import { createPageLayers, resolvePDFDestinationPage, type PDFPageLayers, type PDFLinkTarget } from './pdfPageLayers';
+import { usePDFTextSearch } from './usePDFTextSearch';
+import { highlightPDFMatches } from './pdfSearchHighlights';
+import { PDF_SEARCH_LIMITS, normalizeSearchQuery } from './pdfTextSearch';
+import './pdfFind.css';
+
+type PageSurface = { page: PDFPageProxy; viewport: ReturnType<PDFPageProxy['getViewport']>; canvas: HTMLCanvasElement; number: number };
 
 GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.mjs', import.meta.url).href;
 const PAGE_SCROLL_EDGE_PX = 2;
@@ -62,12 +69,28 @@ interface PdfReaderProps {
   onSessionChange?: (session: PDFReaderSession) => void;
 }
 
-/** PDF files never become executable documents: only PDF.js canvas output is mounted. */
+/** PDF content stays passive: canvas, selectable text, and validated link targets. */
 export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive = true, visible = true, pageLinkRequest, onInsertPageLink, canInsertPageLink = false, backlinks = [], onOpenNote, layout = defaultPDFLayout, initialSession, onSessionChange }: PdfReaderProps) {
   const controlsId = useId();
   const restoredSession = useRef(initialSession);
   const initialPage = Math.max(1, restoredSession.current?.page ?? entry.lastPage ?? 1);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
+  const [surface, setSurface] = useState<PageSurface | null>(null);
+  const [layers, setLayers] = useState<PDFPageLayers | null>(null);
+  const [layerLoading, setLayerLoading] = useState(false);
+  const [layerError, setLayerError] = useState('');
+  const [selectionText, setSelectionText] = useState('');
+  const [copyStatus, setCopyStatus] = useState('');
+  const [interactionError, setInteractionError] = useState('');
+  const find = usePDFTextSearch(pdf, visible);
+  const findInput = useRef<HTMLInputElement>(null);
+  const openFindRef = useRef(() => {});
+  const interactRef = useRef<(target: PDFLinkTarget) => void>(() => {});
+  const interactionSequence = useRef(0);
+  const lastFindRequest = useRef(0);
+  const pendingFindScroll = useRef<number | null>(null);
+  const highlighted = useRef<{ layers: PDFPageLayers; signature: string; mark: HTMLElement | null } | null>(null);
+  const activeInteraction = useRef(false);
   const [pageNumber, setPageNumber] = useState(initialPage);
   const [pageInput, setPageInput] = useState(String(initialPage));
   const [loading, setLoading] = useState(true);
@@ -177,6 +200,8 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
     let active = true;
     let task: PDFDocumentLoadingTask | undefined;
     setPdf(null);
+    setSurface(null);
+    interactionSequence.current++;
     setLoading(true);
     setError('');
     setRenderedPage(null);
@@ -217,6 +242,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
     })();
     return () => {
       active = false;
+      interactionSequence.current++;
       passwordCallback.current = null;
       // destroy also stops the worker and any still-pending password request.
       void task?.destroy().catch(() => {});
@@ -225,6 +251,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
 
   useEffect(() => {
     pendingPageScroll.current = null;
+    interactionSequence.current++;
     if (!pageLinkRequest) { setPageLinkError(''); return; }
     if (!pdf || pageLinkRequest.documentId !== entry.id || handledLink.current === pageLinkRequest.request) return;
     const next = linkedPage(pdf, pageNumber);
@@ -277,6 +304,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         await renderTask.promise;
         if (!active) return;
         replacePageCanvas(paperRef.current, canvas);
+        setSurface({ page, viewport, canvas, number: pageNumber });
         setRenderedPage(pageNumber);
         setActualZoom(scale);
         if (lastSavedPage.current !== pageNumber) {
@@ -296,6 +324,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
       } catch (failure) {
         if (active && !cancelled(failure)) {
           replacePageCanvas(paperRef.current);
+          setSurface(null);
           setRenderedPage(null);
           setError(describeError(failure));
         }
@@ -314,6 +343,9 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   }, [pdf, pageNumber, zoom, rotation, fitWidth]);
 
   function goToPage(next: number, edge: 'top' | 'bottom' = 'top') {
+    interactionSequence.current++;
+    pendingFindScroll.current = null;
+    pendingSessionScroll.current = undefined;
     const valid = Math.max(1, Math.min(pdf?.numPages || 1, Math.trunc(next) || 1));
     if (valid !== currentPage.current) pendingPageScroll.current = { page: valid, edge };
     currentPage.current = valid;
@@ -325,6 +357,139 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   const pageReady = !!pdf && !loading && !rendering && !error
     && renderedPage === pageNumber && !linkPending;
   const canLinkCurrentPage = canInsertPageLink && pageReady;
+
+  activeInteraction.current = visible && pageReady;
+  openFindRef.current = () => {
+    find.setOpen(true);
+    requestAnimationFrame(() => { findInput.current?.focus(); findInput.current?.select(); });
+  };
+  interactRef.current = target => {
+    if (!pdf || !activeInteraction.current) return;
+    const request = ++interactionSequence.current;
+    setInteractionError('');
+    void (async () => {
+      try {
+        if (target.kind === 'external') {
+          await window.prismPdf.openExternal(target.url);
+          return;
+        }
+        const next = target.kind === 'destination' ? await resolvePDFDestinationPage(pdf, target.destination)
+          : ({ NextPage: currentPage.current + 1, PrevPage: currentPage.current - 1, FirstPage: 1, LastPage: pdf.numPages })[target.action];
+        if (request !== interactionSequence.current || !activeInteraction.current) return;
+        if (next === null) throw new Error('This link points to an unavailable PDF page.');
+        goToPage(next);
+        viewportRef.current?.scrollTo({ top: 0, left: 0 });
+        viewportRef.current?.focus({ preventScroll: true });
+      } catch (cause) {
+        if (request === interactionSequence.current) setInteractionError(describeError(cause));
+      }
+    })();
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let prepared: PDFPageLayers | undefined;
+    setLayers(null);
+    setLayerError('');
+    setSelectionText('');
+    setCopyStatus('');
+    setLayerLoading(!!surface);
+    if (surface) void createPageLayers(surface.page, surface.viewport, {
+      onLink: target => { if (!controller.signal.aborted) interactRef.current(target); },
+    }, controller.signal).then(next => {
+      if (controller.signal.aborted || !surface.canvas.isConnected) { next.dispose(); return; }
+      prepared = next;
+      paperRef.current?.append(next.element);
+      setLayers(next);
+    }).catch(cause => {
+      if (!controller.signal.aborted) setLayerError(describeError(cause));
+    }).finally(() => { if (!controller.signal.aborted) setLayerLoading(false); });
+    return () => { controller.abort(); prepared?.dispose(); };
+  }, [surface]);
+
+  function selectedPDFText(): string {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.anchorNode || !selection.focusNode
+      || !layers?.element.contains(selection.anchorNode) || !layers.element.contains(selection.focusNode)) return '';
+    return selection.toString();
+  }
+  async function copySelectedText() {
+    const text = selectedPDFText();
+    if (!text || !pageReady) return;
+    try { await window.prismPdf.copyText(text); setCopyStatus('Copied'); }
+    catch (cause) { setInteractionError(describeError(cause)); }
+  }
+  useEffect(() => {
+    const changed = () => { setSelectionText(selectedPDFText()); setCopyStatus(''); };
+    window.document.addEventListener('selectionchange', changed);
+    return () => window.document.removeEventListener('selectionchange', changed);
+  }, [layers]);
+
+  useEffect(() => {
+    if (!visible) interactionSequence.current++;
+  }, [visible]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!workspaceActive || !visible || !pdf || event.defaultPrevented || event.isComposing
+        || window.document.querySelector('dialog[open]')) return;
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'f') {
+        event.preventDefault(); openFindRef.current();
+      } else if (event.key === 'F3' && find.open) {
+        event.preventDefault(); find.move(event.shiftKey ? -1 : 1);
+      } else if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'c'
+        && !(event.target instanceof Element && event.target.closest('input, textarea, [contenteditable="true"]')) && selectedPDFText()) {
+        event.preventDefault(); void copySelectedText();
+      } else if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'a'
+        && window.document.activeElement === viewportRef.current && pageReady) {
+        const text = layers?.element.querySelector('.pdf-text-layer');
+        if (text) {
+          event.preventDefault();
+          const range = window.document.createRange(); range.selectNodeContents(text);
+          const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [workspaceActive, visible, pdf, layers, pageReady, find.open, find.move]);
+
+  useEffect(() => {
+    const match = find.result.matches[find.selection.index];
+    if (!match || !find.open || !visible || lastFindRequest.current === find.selection.request) return;
+    lastFindRequest.current = find.selection.request;
+    goToPage(match.pageNumber);
+    pendingFindScroll.current = find.selection.request;
+  }, [find.result, find.selection, find.open, visible]);
+
+  useEffect(() => {
+    if (!layers || !surface || !layers.element.isConnected || surface.canvas.nextElementSibling !== layers.element) return;
+    const matches = find.open ? find.result.matches : [];
+    const signature = JSON.stringify(matches.flatMap((item, index) => item.pageNumber === surface.number
+      ? [{ match: item.match, active: index === find.selection.index }] : []));
+    // Progress on later pages must not replace text nodes under a selection.
+    if (highlighted.current?.layers !== layers || highlighted.current.signature !== signature) {
+      const strings = layers.text.items.flatMap(item => 'str' in item ? [item.str] : []);
+      highlighted.current = { layers, signature, mark: highlightPDFMatches(layers.textDivs, strings, matches, surface.number, find.selection.index) };
+    }
+    const mark = highlighted.current.mark;
+    if (!mark || !visible || surface.number !== pageNumber || !pageReady
+      || pendingFindScroll.current !== find.selection.request) return;
+    const container = viewportRef.current;
+    if (container) {
+      const bounds = container.getBoundingClientRect(), target = mark.getBoundingClientRect();
+      container.scrollTo({ top: container.scrollTop + target.top - bounds.top - container.clientHeight / 3,
+        left: container.scrollLeft + target.left - bounds.left - container.clientWidth / 3 });
+      pendingFindScroll.current = null;
+    }
+  }, [layers, surface, find.result, find.selection, find.open, visible, pageNumber, pageReady]);
+
+  const hasPageText = !!layers?.text.items.some(item => 'str' in item && item.str.trim());
+  const findCount = find.result.matches.length;
+  const findStatus = !normalizeSearchQuery(find.query) ? 'Type to search this PDF.'
+    : findCount ? `${find.selection.index + 1} of ${findCount}${find.result.truncated ? '+' : ''} matches`
+      : find.busy ? 'Searching…' : !find.result.hasText && !find.result.failedPages.length
+        ? 'No searchable text. Image-only scans need OCR.' : 'No matches';
 
   function submitPassword(event: FormEvent) {
     event.preventDefault();
@@ -367,6 +532,29 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         title={!canInsertPageLink ? 'Open a note to insert this page link.' : 'Insert this PDF page at the note’s cursor.'}
         onClick={() => { if (canLinkCurrentPage) onInsertPageLink({ documentId: entry.id, page: pageNumber, title: entry.title }); }}><Link2 size={16} />Insert page link</button>}
     </div>
+    <div className="pdf-reader-tools" aria-label="PDF text tools">
+      <button aria-label="Find in PDF" title="Find in PDF (Ctrl+F)" disabled={!pdf} onClick={() => openFindRef.current()}><Search size={16} /><span>Find</span></button>
+      <button aria-label="Copy selected text" title="Copy selected text (Ctrl+C)" disabled={!selectionText || !pageReady}
+        onPointerDown={event => event.preventDefault()} onClick={() => void copySelectedText()}><Copy size={16} /><span>Copy text</span></button>
+      <span className="pdf-text-notice" role="status">{copyStatus || (layerLoading ? 'Preparing text…' : layerError || layers?.warnings.join(' ') || (layers && !hasPageText ? 'No selectable text on this page. Image-only scans need OCR.' : 'Select text to copy.'))}</span>
+    </div>
+    {find.open && <div className="pdf-find-bar" role="search" aria-label="Search PDF text">
+      <input ref={findInput} type="search" aria-label="Find text in PDF" placeholder="Find in this PDF…" value={find.query} maxLength={PDF_SEARCH_LIMITS.queryLength}
+        onChange={event => find.setQuery(event.target.value)} onKeyDown={event => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === 'Enter') { event.preventDefault(); find.move(event.shiftKey ? -1 : 1); }
+          if (event.key === 'Escape') { event.preventDefault(); find.setOpen(false); viewportRef.current?.focus({ preventScroll: true }); }
+        }} />
+      <button aria-label="Previous match" title="Previous match (Shift+Enter)" disabled={!findCount} onClick={() => find.move(-1)}><ChevronLeft size={17} /></button>
+      <button aria-label="Next match" title="Next match (Enter)" disabled={!findCount} onClick={() => find.move(1)}><ChevronRight size={17} /></button>
+      <span className="pdf-find-status" role="status">{findStatus}{find.busy && findCount ? ' · Searching…' : ''}</span>
+      <button aria-label="Close PDF search" title="Close PDF search" onClick={() => { find.setOpen(false); viewportRef.current?.focus({ preventScroll: true }); }}><X size={17} /></button>
+      {(find.error || find.result.failedPages.length > 0 || find.result.truncated) && <span className="pdf-find-warning" role="status">{find.error || [
+        find.result.failedPages.length ? `${find.result.failedPages.length} page(s) could not be searched.` : '',
+        find.result.truncated ? 'Showing limited results for this large document or query. Narrow your search.' : '',
+      ].filter(Boolean).join(' ')}</span>}
+    </div>}
+    {interactionError && <div className="pdf-interaction-error" role="alert"><span>{interactionError}</span><button aria-label="Dismiss PDF interaction error" onClick={() => setInteractionError('')}><X size={16} /></button></div>}
     {onOpenNote && <div className="pdf-reader-backlinks" hidden={!layout.backlinks}><PdfBacklinks backlinks={backlinks} pageCount={pdf?.numPages ?? null} currentPage={pageNumber} onOpenNote={onOpenNote}
       onOpenPage={page => {
         if (!pdf || page < 1 || page > pdf.numPages) return;
@@ -384,7 +572,8 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
       }}
       onPointerDown={event => {
         if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
-          && event.target instanceof Node && paperRef.current?.contains(event.target)) event.currentTarget.focus({ preventScroll: true });
+          && event.target instanceof Node && paperRef.current?.contains(event.target)
+          && !(event.target instanceof Element && event.target.closest('a, button'))) event.currentTarget.focus({ preventScroll: true });
       }}
       onKeyDown={event => {
         if (event.target !== event.currentTarget || !pdf || event.ctrlKey || event.metaKey || event.altKey
@@ -405,7 +594,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
           else container.scrollBy({ top: direction * Math.max(1, container.clientHeight * 0.85) });
         }
       }}>
-      <div className="pdf-paper" ref={paperRef} aria-busy={loading || rendering} />
+      <div className="pdf-paper" ref={paperRef} aria-busy={loading || rendering} inert={!pageReady} />
       {passwordPrompt && <form className="pdf-reader-state pdf-password-form" onSubmit={submitPassword}>
         <LockKeyhole size={30} /><h2>Password required</h2>
         <p>{passwordPrompt === 'incorrect' ? 'That password did not work. Please try again.' : 'Enter this PDF’s password to read it. Passwords are never saved.'}</p>

@@ -19,6 +19,8 @@ export function createPDFAPI(windowChannel: 'prism:window' | 'prism-pdf:window')
     getURLImport: () => ipcRenderer.invoke('prism-pdf:url-status'),
     cancelURLImport: id => ipcRenderer.invoke('prism-pdf:url-cancel', id),
     readDocument: id => ipcRenderer.invoke('prism-pdf:read', id),
+    openExternal: url => ipcRenderer.invoke('prism-pdf:external', url),
+    copyText: text => ipcRenderer.invoke('prism-pdf:copy-text', text),
     updateDocument: (id, patch) => ipcRenderer.invoke('prism-pdf:update', id, patch),
     openDocument: id => ipcRenderer.invoke('prism-pdf:open', id),
     revealDocument: id => ipcRenderer.invoke('prism-pdf:reveal', id),

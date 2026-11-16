@@ -57,6 +57,8 @@ export interface PrismPdfAPI {
   getURLImport(): Promise<PDFURLImportState | null>;
   cancelURLImport(id: string): Promise<PDFURLImportState>;
   readDocument(id: string): Promise<Uint8Array>;
+  openExternal(url: string): Promise<void>;
+  copyText(text: string): Promise<void>;
   updateDocument(id: string, patch: DocumentPatch): Promise<PDFDocument>;
   openDocument(id: string): Promise<void>;
   revealDocument(id: string): Promise<void>;

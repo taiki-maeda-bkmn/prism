@@ -1,8 +1,9 @@
-import { dialog, ipcMain, shell } from 'electron';
+import { clipboard, dialog, ipcMain, shell } from 'electron';
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import type { ImportResult, LibrarySnapshot, PDFDocument } from '../shared/types';
 import type { PDFURLImportManager } from './pdf-url-import';
 import { validateImportPaths } from './file-imports';
+import { validateExternalURL } from '../../../src/main/security';
 
 /** Storage operations only; application and window lifecycle belong to the host. */
 export interface PDFLibraryOperations {
@@ -27,6 +28,16 @@ interface PDFLibraryIPCOptions {
 /** Register once per application; the standalone and integrated shells share this boundary. */
 export function registerPDFLibraryIPC({ service, urlImports, validateSender, getWindow }: PDFLibraryIPCOptions): void {
   let importing = false;
+
+  ipcMain.handle('prism-pdf:external', async (event, url: unknown) => {
+    validateSender(event);
+    await shell.openExternal(validateExternalURL(url));
+  });
+  ipcMain.handle('prism-pdf:copy-text', (event, text: unknown) => {
+    validateSender(event);
+    if (typeof text !== 'string' || text.length > 2_000_000) throw new Error('Select a smaller amount of PDF text to copy.');
+    return clipboard.writeText(text);
+  });
 
   ipcMain.handle('prism-pdf:url-start', (event, url: unknown) => {
     validateSender(event);

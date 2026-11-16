@@ -50,6 +50,8 @@ async function launch() {
   await expect(page.locator('.note-heading h1')).toHaveText('読書ノート');
   await expect.poll(() => desktop!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(true);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  // Restored document tabs may reopen the PDF workspace after a restart.
+  await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Notes', exact: true }).click();
   await page.getByRole('group', { name: 'Editor mode', exact: true }).getByRole('button', { name: 'Source', exact: true }).click();
 }
 
@@ -65,6 +67,8 @@ async function stop() {
 
 async function openDocument(title = 'Field notes') {
   await workspace('PDFs').click();
+  const back = pdf().getByRole('button', { name: 'Back to library', exact: true });
+  if (await back.isVisible()) await back.click();
   await pdf().getByRole('button', { name: `Open ${title}`, exact: true }).click();
 }
 
@@ -207,10 +211,10 @@ test('focuses clicked pages for keys, scrolls with Space, and retains current-pa
   await editor().press('ControlOrMeta+End');
   await page.keyboard.insertText('読書の下書き。 ');
   await openDocument();
-  const canvas = await renderedPage(1);
+  await renderedPage(1);
   await zoom().selectOption('0.5');
   await renderedPage(1);
-  await canvas.click({ position: { x: 20, y: 20 } });
+  await pdf().locator('.pdf-paper').click({ position: { x: 20, y: 20 } });
   await expect(viewport()).toBeFocused();
   for (const [key, number] of [['ArrowRight', 2], ['ArrowLeft', 1], ['End', 2], ['Home', 1], ['PageDown', 2], ['PageUp', 1]] as const) {
     await page.keyboard.press(key);
@@ -218,7 +222,7 @@ test('focuses clicked pages for keys, scrolls with Space, and retains current-pa
   }
   await zoom().selectOption('2');
   await renderedPage(1);
-  await pdf().locator('.pdf-paper canvas').click({ position: { x: 20, y: 20 } });
+  await pdf().locator('.pdf-paper').click({ position: { x: 20, y: 20 } });
   await expect(viewport()).toBeFocused();
   await page.keyboard.press('Space');
   await expect.poll(async () => (await scrollPosition()).top).toBeGreaterThan(100);
