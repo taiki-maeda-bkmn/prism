@@ -3,7 +3,7 @@ import { baseArxivId, normalizeArxivId } from '../shared/arxiv';
 import type { ResearchCatalog, ResearchIdentity, ResearchPaper, ResearchReview } from '../shared/research';
 import { NetworkLifecycle } from './network-lifecycle';
 
-export const RESEARCH_SITE_URL = 'https://beautysamurai.github.io/public-page/';
+export const RESEARCH_SITE_URL = 'https://taiki-maeda-bkmn.github.io/public-page/';
 export const MAX_RESEARCH_JSON_BYTES = 12 * 1024 * 1024;
 export const MAX_RESEARCH_PDF_BYTES = 100 * 1024 * 1024;
 const cacheAge = 5 * 60 * 1000;

@@ -11,7 +11,7 @@ const oldId = '2601.00001v1';
 const secondId = '2601.00002v1';
 const editionId = '2026-10-28-daily';
 const olderEdition = '2026-10-20-weekly';
-const source = 'https://beautysamurai.github.io/public-page/';
+const source = 'https://taiki-maeda-bkmn.github.io/public-page/';
 const original = '\ufeff# Welcome to Prism\r\n\r\nA notebook for research.\r\n';
 const draft = '保存前の研究メモ。';
 const first = {
@@ -55,9 +55,12 @@ async function launch(options: { failCatalogue?: boolean; failReview?: boolean; 
   page = await desktop.firstWindow();
   page.on('pageerror', error => rendererErrors.push(error.message));
   page.on('request', request => { if (/^https?:/.test(request.url())) remoteRequests.push(request.url()); });
-  await expect(page.locator('.note-heading h1')).toBeVisible();
+  await expect(page.locator('.note-heading h1')).toBeAttached();
   await expect.poll(() => desktop!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(true);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  // Saved tabs can restore the PDF workspace. Start this fixture in Notes.
+  await workspace('Notes').click();
+  await expect(page.locator('.note-heading h1')).toBeVisible();
   await page.getByRole('group', { name: 'Editor mode', exact: true }).getByRole('button', { name: 'Source', exact: true }).click();
   await desktop.evaluate(({ shell }, fixtures) => {
     type FixtureState = { requests: string[]; sourceLinks: string[]; failCatalogue: boolean; failReview: boolean; holdDownload: boolean; release?: () => void };

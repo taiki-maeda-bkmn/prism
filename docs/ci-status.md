@@ -13,23 +13,23 @@ configuration change. The user explicitly requested this CI audit.
 
 | Revision | Workflow | Linux build/unit | Windows build/unit | macOS build/unit | Linux desktop |
 | --- | --- | --- | --- | --- | --- |
-| `826f77d` (PR #56) | [Checks](https://github.com/beautysamurai/prism/actions/runs/42223857740) | Pass | Fail | Pass | Fail |
-| `826f77d` (PR #56) | [PDF manager checks](https://github.com/beautysamurai/prism/actions/runs/42223857853) | Pass | Fail | Fail | Pass |
-| `9e5a50d` (`main`) | [Checks](https://github.com/beautysamurai/prism/actions/runs/42219821694) | Pass | Pass | Pass | Fail |
-| `9e5a50d` (`main`) | [PDF manager checks](https://github.com/beautysamurai/prism/actions/runs/42219821658) | Pass | Fail | Fail | Pass |
+| `826f77d` (PR #56) | [Checks](https://github.com/taiki-maeda-bkmn/prism/actions/runs/42223857740) | Pass | Fail | Pass | Fail |
+| `826f77d` (PR #56) | [PDF manager checks](https://github.com/taiki-maeda-bkmn/prism/actions/runs/42223857853) | Pass | Fail | Fail | Pass |
+| `9e5a50d` (`main`) | [Checks](https://github.com/taiki-maeda-bkmn/prism/actions/runs/42219821694) | Pass | Pass | Pass | Fail |
+| `9e5a50d` (`main`) | [PDF manager checks](https://github.com/taiki-maeda-bkmn/prism/actions/runs/42219821658) | Pass | Fail | Fail | Pass |
 
 Removing macOS does not resolve the supported-platform failures below.
 
 ## Follow-up work
 
 1. **Build the standalone PDF app before the integrated desktop suite.**
-   The [Linux desktop job](https://github.com/beautysamurai/prism/actions/runs/42223857740/job/127912258095)
+   The [Linux desktop job](https://github.com/taiki-maeda-bkmn/prism/actions/runs/42223857740/job/127912258095)
    fails in the standalone session-lifecycle journey because
    `pdf-manager/dist/main.cjs` is missing. The script runs `test:e2e`, which builds
    only the main app. Ensure the standalone build exists on a clean runner before
    launching that journey. The same failure appears on `main`.
 2. **Compare canonical paths in the PDF preservation test.**
-   The [Windows PDF job](https://github.com/beautysamurai/prism/actions/runs/42223857853/job/127912258981)
+   The [Windows PDF job](https://github.com/taiki-maeda-bkmn/prism/actions/runs/42223857853/job/127912258981)
    fails in `existing catalog bytes, document IDs, metadata and managed PDFs
    survive opening without migration`. The store returns the real path containing
    `runneradmin`, while the fixture expects its equivalent `RUNNER~1` alias.
@@ -37,7 +37,7 @@ Removing macOS does not resolve the supported-platform failures below.
    assertions. This also fails on `main`. The removed macOS job has the equivalent
    `/private/var` versus `/var` mismatch.
 3. **Investigate the long-line snippet parse budget.**
-   The [Windows main job](https://github.com/beautysamurai/prism/actions/runs/42223857740/job/127912258502)
+   The [Windows main job](https://github.com/taiki-maeda-bkmn/prism/actions/runs/42223857740/job/127912258502)
    returns no completion for the 100,000-character fixture in
    `prose boundaries stay responsive after a long run of text`. It fails the
    completion assertion, not the 1.5-second responsiveness assertion. The
