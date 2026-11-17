@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addTabGroup, carryPDFTabs, closeTab, emptyTabs, moveTab, openTab, parseTabs, pruneTabs, removeTabGroup, renameTabGroup, selectTab, tabKey, TAB_LIMITS, toggleTabGroup, type TabSession } from '../src/renderer/documentTabState';
+import { addTabGroup, carryPDFTabs, closeTab, emptyTabs, moveTab, openTab, parseTabs, pruneTabs, removeTabGroup, renameTabGroup, selectTab, selectTabGroup, tabKey, TAB_LIMITS, toggleTabGroup, type TabSession } from '../src/renderer/documentTabState';
 
 const note = (id: string) => ({ kind: 'note' as const, id });
 const pdf = (id: string) => ({ kind: 'pdf' as const, id });
@@ -10,6 +10,7 @@ test('tabs distinguish PDF and note identities and reopening preserves order and
   state = addTabGroup(state, 'Research');
   const topic = state.targetGroupId!;
   state = openTab(state, pdf('same'));
+  state = moveTab(state, 'pdf:same', topic);
   state = openTab(state, note('Next.md'));
   state = toggleTabGroup(state, topic);
   const before = structuredClone(state);
@@ -42,29 +43,40 @@ test('closing selects a nearby surviving tab, preserves unrelated selection, and
 
 test('pruning missing documents keeps mixed groups and picks the next surviving neighbor', () => {
   let state = addTabGroup(emptyTabs(), 'Execution');
+  const topic = state.targetGroupId!;
   state = openTab(state, note('A.md'));
+  state = moveTab(state, 'note:A.md', topic);
   state = openTab(state, pdf('paper'));
+  state = moveTab(state, 'pdf:paper', topic);
   state = openTab(state, note('B.md'));
   state = openTab(state, pdf('report'));
   state = selectTab(state, 'note:A.md');
   const pruned = pruneTabs(state, tab => tab.kind === 'pdf');
   assert.deepEqual(pruned.tabs.map(tab => tab.key), ['pdf:paper', 'pdf:report']);
   assert.equal(pruned.activeKey, 'pdf:paper');
+  assert.equal(pruned.targetGroupId, topic, 'the replacement document reveals its group');
+  assert.equal(pruned.tabs[0].groupId, topic);
+  assert.equal(pruned.tabs[1].groupId, null);
   assert.equal(pruned.groups[0].name, 'Execution');
   assert.equal(pruneTabs(pruned, () => true), pruned);
 });
 
 test('notebook switches carry open PDFs without leaking notes or topic membership', () => {
   let previous = addTabGroup(emptyTabs(), 'Old notebook research');
+  const previousTopic = previous.targetGroupId!;
   previous = openTab(previous, note('Old-only.md'));
   previous = openTab(previous, note('Shared path.md'));
   previous = openTab(previous, pdf('already-open'));
   previous = openTab(previous, pdf('carry-one'));
   previous = openTab(previous, pdf('carry-two'));
+  for (const tab of previous.tabs) previous = moveTab(previous, tab.key, previousTopic);
   let destination = addTabGroup(emptyTabs(), 'New notebook research');
+  const destinationTopic = destination.targetGroupId!;
   destination = openTab(destination, pdf('already-open'));
+  destination = moveTab(destination, 'pdf:already-open', destinationTopic);
   destination = openTab(destination, note('Shared path.md'));
-  destination = toggleTabGroup(destination, destination.targetGroupId!);
+  destination = selectTabGroup(destination, destinationTopic);
+  destination = toggleTabGroup(destination, destinationTopic);
   const beforeDestination = structuredClone(destination);
   const beforePrevious = structuredClone(previous);
   const carried = carryPDFTabs(destination, previous);
@@ -120,18 +132,92 @@ test('moving mixed tabs and renaming or removing a topic preserves all document 
   assert.equal(moveTab(state, 'pdf:paper-1', 'missing'), state);
 });
 
-test('new documents follow the selected destination and returning to a tab follows its original topic', () => {
+test('new notes and PDFs start ungrouped even when a topic is viewed or its document is active', () => {
   let state = addTabGroup(emptyTabs(), 'Topic one');
-  const firstGroup = state.targetGroupId;
+  const firstGroup = state.targetGroupId!;
   state = openTab(state, note('One.md'));
+  assert.equal(state.tabs[0].groupId, null);
+  assert.equal(state.targetGroupId, null);
+  state = moveTab(state, 'note:One.md', firstGroup);
   state = addTabGroup(state, 'Topic two');
-  const secondGroup = state.targetGroupId;
   assert.equal(state.activeKey, 'note:One.md');
   state = openTab(state, pdf('two'));
-  assert.equal(state.tabs[1].groupId, secondGroup);
+  assert.equal(state.tabs[1].groupId, null, 'viewing a group does not classify an opened PDF');
+  assert.equal(state.targetGroupId, null, 'the newly opened document is visible in Ungrouped');
   state = selectTab(state, 'note:One.md');
+  assert.equal(state.targetGroupId, firstGroup);
   state = openTab(state, pdf('three'));
-  assert.equal(state.tabs[2].groupId, firstGroup);
+  assert.equal(state.tabs[2].groupId, null, 'the active document does not classify an opened PDF');
+  state = moveTab(state, 'pdf:three', firstGroup);
+  state = openTab(state, note('Four.md'));
+  assert.equal(state.tabs[3].groupId, null, 'new Markdown documents follow the same explicit-assignment rule');
+  assert.equal(state.targetGroupId, null);
+  assert.deepEqual(state.tabs.map(tab => tab.groupId), [firstGroup, null, firstGroup, null]);
+  state = openTab(state, pdf('three'));
+  assert.equal(state.tabs.length, 4, 'reopening an assigned PDF does not create a second tab');
+  assert.equal(state.tabs[2].groupId, firstGroup, 'reopening keeps an existing assignment');
+  assert.equal(state.targetGroupId, firstGroup, 'reopening reveals the existing group');
+});
+
+test('viewing groups leaves the active document, membership, order and legacy metadata unchanged', () => {
+  let state = openTab(emptyTabs(), note('Draft.md'));
+  state = addTabGroup(state, 'Research');
+  const topic = state.targetGroupId!;
+  state = moveTab(state, 'note:Draft.md', topic);
+  state = toggleTabGroup(state, topic);
+  const before = structuredClone(state);
+  const ungrouped = selectTabGroup(state, null);
+  assert.equal(ungrouped.targetGroupId, null);
+  assert.equal(ungrouped.activeKey, 'note:Draft.md');
+  assert.equal(ungrouped.tabs, state.tabs, 'browsing another group must not alter document metadata');
+  assert.equal(ungrouped.groups, state.groups);
+  assert.deepEqual(state, before, 'an earlier session remains immutable');
+  assert.equal(selectTabGroup(ungrouped, 'missing'), ungrouped);
+  assert.equal(selectTabGroup(ungrouped, null), ungrouped);
+  assert.deepEqual(selectTabGroup(ungrouped, topic), state);
+
+  const moved = moveTab(ungrouped, 'note:Draft.md', null);
+  assert.equal(moved.activeKey, state.activeKey);
+  assert.equal(moved.targetGroupId, null);
+  assert.equal(moved.tabs[0].groupId, null, 'membership changes only through an explicit move');
+});
+
+test('closing hidden documents preserves the viewed group unless the active document changes', () => {
+  let state = addTabGroup(emptyTabs(), 'Research');
+  const topic = state.targetGroupId!;
+  state = openTab(state, note('Draft.md'));
+  state = moveTab(state, 'note:Draft.md', topic);
+  state = openTab(state, pdf('reference'));
+  state = openTab(state, pdf('spare'));
+  state = selectTab(state, 'pdf:reference');
+  state = selectTabGroup(state, topic);
+  const withoutSpare = closeTab(state, 'pdf:spare');
+  assert.equal(withoutSpare.targetGroupId, topic);
+  assert.equal(withoutSpare.activeKey, 'pdf:reference');
+  const withoutActive = closeTab(withoutSpare, 'pdf:reference');
+  assert.equal(withoutActive.activeKey, 'note:Draft.md');
+  assert.equal(withoutActive.targetGroupId, topic);
+  const emptyGroup = closeTab(state, 'note:Draft.md');
+  assert.equal(emptyGroup.targetGroupId, topic, 'an empty viewed group remains available');
+  assert.equal(emptyGroup.activeKey, 'pdf:reference');
+});
+
+test('removing a viewed group reveals Ungrouped without switching or closing the current document', () => {
+  let state = addTabGroup(emptyTabs(), 'One');
+  const firstGroup = state.targetGroupId!;
+  state = openTab(state, pdf('one'));
+  state = moveTab(state, 'pdf:one', firstGroup);
+  state = addTabGroup(state, 'Two');
+  const secondGroup = state.targetGroupId!;
+  state = openTab(state, note('Two.md'));
+  state = moveTab(state, 'note:Two.md', secondGroup);
+  state = selectTabGroup(state, firstGroup);
+  const removed = removeTabGroup(state, firstGroup);
+  assert.equal(removed.targetGroupId, null);
+  assert.equal(removed.activeKey, state.activeKey);
+  assert.deepEqual(removed.tabs.map(tab => tab.groupId), [null, secondGroup]);
+  assert.deepEqual(removed.tabs.map(tab => tab.key), state.tabs.map(tab => tab.key));
+  assert.equal(removeTabGroup(state, secondGroup).targetGroupId, firstGroup, 'removing a different group preserves the viewed group');
 });
 
 test('topic validation rejects blank, control, duplicate and excessive names without changing state', () => {
@@ -148,10 +234,15 @@ test('topic validation rejects blank, control, duplicate and excessive names wit
 
 test('saved sessions round trip and discard malformed entries, dangling references and duplicate identities', () => {
   let state = addTabGroup(emptyTabs(), '研究');
+  const topic = state.targetGroupId!;
   state = openTab(state, note('研究/問題.md'));
+  state = moveTab(state, 'note:研究/問題.md', topic);
   state = openTab(state, pdf('report'));
-  state = toggleTabGroup(state, state.targetGroupId!);
+  state = selectTabGroup(state, topic);
+  state = toggleTabGroup(state, topic);
   assert.deepEqual(parseTabs(JSON.stringify(state)), state);
+  assert.equal(state.activeKey, 'pdf:report', 'the viewed group can differ from the active document group');
+  assert.equal(state.groups[0].collapsed, true, 'legacy collapse metadata remains readable');
   const parsed = parseTabs(JSON.stringify({ ...state,
     groups: [...state.groups, { id: '__proto__', name: 'Other', collapsed: true }, { id: 'duplicate-name', name: '研究' }, { id: state.groups[0].id, name: 'Duplicate id' }, { id: 'blank', name: ' ' }, { id: 'reserved-name', name: ' UnGrouped ' }, { id: 'ungrouped', name: 'An ordinary topic ID' }, null],
     tabs: [...state.tabs, { ...state.tabs[0] }, { key: 'note:new.md', kind: 'note', id: 'new.md', groupId: 'missing' },

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { BookOpen, ChevronDown, ChevronRight, FileText, Pencil, Plus, X } from 'lucide-react';
-import { addTabGroup, moveTab, removeTabGroup, renameTabGroup, TAB_LIMITS, toggleTabGroup, type DocumentTab, type TabGroup, type TabSession } from './documentTabState';
+import { BookOpen, ChevronLeft, ChevronRight, FileText, Pencil, Plus, X } from 'lucide-react';
+import { addTabGroup, moveTab, removeTabGroup, renameTabGroup, selectTabGroup, TAB_LIMITS, type DocumentTab, type TabSession } from './documentTabState';
 import './document-tabs.css';
 
 interface DocumentTabsProps {
@@ -21,11 +21,17 @@ export function DocumentTabs({ session, activeKey, labels, disabled, showTools =
   const [dialog, setDialog] = useState<TopicDialog | null>(null);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [groupOverflow, setGroupOverflow] = useState({ left: false, right: false });
   const dialogRef = useRef<HTMLDialogElement>(null);
   const rows = useRef<HTMLDivElement>(null);
+  const groupChoices = useRef<HTMLElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const active = session.tabs.find(tab => tab.key === activeKey);
-  const targetGroup = session.groups.find(group => group.id === session.targetGroupId);
+  const selectedGroup = session.groups.find(group => group.id === session.targetGroupId);
+  const selectedGroupId = selectedGroup?.id ?? null;
+  const entries = session.tabs.filter(tab => tab.groupId === selectedGroupId);
+  const groupCounts = new Map<string | null, number>();
+  for (const tab of session.tabs) groupCounts.set(tab.groupId, (groupCounts.get(tab.groupId) ?? 0) + 1);
   const dialogGroup = dialog && dialog.kind !== 'create' ? session.groups.find(group => group.id === dialog.id) : undefined;
   const dialogTitle = dialog?.kind === 'create' ? 'New topic' : dialog?.kind === 'rename' ? 'Rename topic' : 'Remove topic';
 
@@ -37,6 +43,10 @@ export function DocumentTabs({ session, activeKey, labels, disabled, showTools =
   }, [dialog]);
 
   useLayoutEffect(() => {
+    if (rows.current) rows.current.scrollTop = 0;
+  }, [selectedGroupId]);
+
+  useLayoutEffect(() => {
     const container = rows.current;
     if (!container || !activeKey) return;
     // Only scroll this strip, never a reader/editor or the application window.
@@ -46,7 +56,46 @@ export function DocumentTabs({ session, activeKey, labels, disabled, showTools =
     const tab = button.getBoundingClientRect();
     if (tab.top < strip.top) container.scrollTop -= strip.top - tab.top + 4;
     else if (tab.bottom > strip.bottom) container.scrollTop += tab.bottom - strip.bottom + 4;
-  }, [activeKey, session.tabs, session.groups]);
+  }, [activeKey, session.tabs, selectedGroupId]);
+
+  const revealGroupChoice = (button: HTMLElement) => {
+    const container = groupChoices.current;
+    if (!container) return;
+    const strip = container.getBoundingClientRect();
+    const choice = button.getBoundingClientRect();
+    if (choice.left < strip.left) container.scrollLeft -= strip.left - choice.left;
+    else if (choice.right > strip.right) container.scrollLeft += choice.right - strip.right;
+  };
+
+  const measureGroupOverflow = () => {
+    const container = groupChoices.current;
+    if (!container) return;
+    const left = container.scrollLeft > 1;
+    const right = container.scrollLeft + container.clientWidth < container.scrollWidth - 1;
+    setGroupOverflow(previous => previous.left === left && previous.right === right ? previous : { left, right });
+  };
+
+  const scrollGroups = (direction: number) => {
+    const container = groupChoices.current;
+    if (container) {
+      container.scrollLeft += direction * container.clientWidth * .8;
+      measureGroupOverflow();
+    }
+  };
+
+  useLayoutEffect(() => {
+    const container = groupChoices.current;
+    if (!container) return;
+    const revealSelected = () => {
+      const choice = container.querySelector<HTMLElement>('[aria-pressed="true"]');
+      if (choice) revealGroupChoice(choice);
+      measureGroupOverflow();
+    };
+    revealSelected();
+    const observer = new ResizeObserver(revealSelected);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [selectedGroupId, session.groups, session.tabs, showTools]);
 
   const beginTopic = (next: TopicDialog, initial = '') => {
     setName(initial); setError(''); setDialog(next);
@@ -91,6 +140,19 @@ export function DocumentTabs({ session, activeKey, labels, disabled, showTools =
     else if (rect.bottom > top + container.clientHeight) container.scrollTop += rect.bottom - top - container.clientHeight + 4;
   };
 
+  const groupKeyboard = (event: KeyboardEvent<HTMLElement>) => {
+    if (!(event.target instanceof HTMLButtonElement) || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const buttons = [...(groupChoices.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])];
+    const index = buttons.indexOf(event.target);
+    if (index < 0) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+      : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next].focus({ preventScroll: true });
+    revealGroupChoice(buttons[next]);
+  };
+
   const tab = (entry: DocumentTab) => {
     const label = labels.get(entry.key) ?? { title: entry.id, detail: entry.id };
     const kind = entry.kind === 'note' ? 'Markdown' : 'PDF';
@@ -107,40 +169,41 @@ export function DocumentTabs({ session, activeKey, labels, disabled, showTools =
     </div>;
   };
 
-  const group = (group: TabGroup | null) => {
-    const entries = session.tabs.filter(tab => tab.groupId === (group?.id ?? null));
-    if (!group && !entries.length) return null;
-    return <section className="document-tab-group" key={group ? `topic:${group.id}` : 'ungrouped'} data-group-id={group?.id ?? ''} aria-label={group ? `Topic ${group.name}` : 'Ungrouped tabs'}>
-      {(group || session.groups.length > 0) && <div className="document-tab-group-heading" data-target={session.targetGroupId === (group?.id ?? null)}>
-        {group && <button type="button" className="document-topic-collapse" disabled={disabled} aria-label={`${group.collapsed ? 'Expand' : 'Collapse'} topic ${group.name}`} aria-expanded={!group.collapsed}
-          onClick={() => onChange(state => toggleTabGroup(state, group.id))}>{group.collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}</button>}
-        <button type="button" className="document-topic-name" disabled={disabled} aria-label={`Use topic ${group?.name ?? 'Ungrouped'} for new tabs`} aria-pressed={session.targetGroupId === (group?.id ?? null)}
-          title="Open new documents in this topic" onClick={() => onChange(state => ({ ...state, targetGroupId: group?.id ?? null }))}>{group?.name ?? 'Ungrouped'}<span>{entries.length}</span></button>
-        {group && <div className="document-topic-actions">
-          <button type="button" disabled={disabled} aria-label={`Rename topic ${group.name}`} title="Rename topic" onClick={() => beginTopic({ kind: 'rename', id: group.id }, group.name)}><Pencil size={12} /></button>
-          <button type="button" disabled={disabled} aria-label={`Remove topic ${group.name}`} title="Remove topic; keep its tabs" onClick={() => beginTopic({ kind: 'remove', id: group.id })}><X size={13} /></button>
-        </div>}
-      </div>}
-      <div className="document-tab-row" role="tablist" aria-label={group ? `${group.name} tabs` : 'Open documents'} hidden={group?.collapsed}>
-        {entries.map(tab)}
-        {group && entries.length === 0 && <span className="document-topic-empty">Open a note or PDF in this topic.</span>}
-      </div>
-    </section>;
-  };
+  const groupChoice = (id: string | null, name: string) => <button type="button" key={id === null ? 'ungrouped' : `topic:${id}`}
+    className="document-group-choice" disabled={disabled} aria-label={`Show group ${name}`} aria-pressed={selectedGroupId === id}
+    title={`${name} · ${groupCounts.get(id) ?? 0} open tabs`} onClick={() => onChange(state => selectTabGroup(state, id))}>
+    <span className="document-group-name">{name}</span><span className="document-group-count">{groupCounts.get(id) ?? 0}</span>
+  </button>;
 
   return <>
     <div className="document-tabs" aria-label="Document tabs" aria-busy={disabled}>
-      <div className="document-tabs-tools" hidden={!showTools}>
-        <button ref={addButton} type="button" className="document-topic-add" disabled={disabled || session.groups.length >= TAB_LIMITS.groups} onClick={() => beginTopic({ kind: 'create' })}><Plus size={14} />New topic</button>
-        <label className="document-tab-move"><span>Move tab to</span><select aria-label="Move tab to topic" disabled={disabled || !active} value={active?.groupId ?? ''}
-          onChange={event => { const groupId = event.target.value || null; if (active) onChange(state => moveTab(state, active.key, groupId)); }}>
-          <option value="">Ungrouped</option>{session.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}
-        </select></label>
-        <span className="document-tabs-destination" title={`New tabs open in ${targetGroup?.name ?? 'Ungrouped'}`}>New tabs: {targetGroup?.name ?? 'Ungrouped'}</span>
+      <div className="document-tabs-header" hidden={!showTools && !session.groups.length}>
+        <div className="document-group-controls">
+          {(groupOverflow.left || groupOverflow.right) && <button type="button" className="document-group-scroll" aria-label="Scroll groups left" title="Scroll groups left" disabled={disabled || !groupOverflow.left} onClick={() => scrollGroups(-1)}><ChevronLeft size={14} /></button>}
+          <nav ref={groupChoices} className="document-group-switcher" aria-label="Tab groups" onKeyDown={groupKeyboard} onScroll={measureGroupOverflow}>
+            {groupChoice(null, 'Ungrouped')}{session.groups.map(group => groupChoice(group.id, group.name))}
+          </nav>
+          {(groupOverflow.left || groupOverflow.right) && <button type="button" className="document-group-scroll" aria-label="Scroll groups right" title="Scroll groups right" disabled={disabled || !groupOverflow.right} onClick={() => scrollGroups(1)}><ChevronRight size={14} /></button>}
+        </div>
+        <div className="document-tabs-tools" hidden={!showTools}>
+          <button ref={addButton} type="button" className="document-topic-add" aria-label="New topic" title="New topic" disabled={disabled || session.groups.length >= TAB_LIMITS.groups} onClick={() => beginTopic({ kind: 'create' })}><Plus size={14} /><span>New topic</span></button>
+          <label className="document-tab-move"><span>Move tab to</span><select aria-label="Move tab to topic" title={active ? `Move ${labels.get(active.key)?.title ?? active.id} to a topic` : 'Select a document to move it to a topic'} disabled={disabled || !active} value={active?.groupId ?? ''}
+            onChange={event => { const groupId = event.target.value || null; if (active) onChange(state => moveTab(state, active.key, groupId)); }}>
+            <option value="">Ungrouped</option>{session.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}
+          </select></label>
+          {selectedGroup && <div className="document-topic-actions">
+            <button type="button" disabled={disabled} aria-label={`Rename topic ${selectedGroup.name}`} title="Rename topic" onClick={() => beginTopic({ kind: 'rename', id: selectedGroup.id }, selectedGroup.name)}><Pencil size={12} /></button>
+            <button type="button" disabled={disabled} aria-label={`Remove topic ${selectedGroup.name}`} title="Remove topic; keep its tabs" onClick={() => beginTopic({ kind: 'remove', id: selectedGroup.id })}><X size={13} /></button>
+          </div>}
+        </div>
       </div>
       <div ref={rows} className="document-tabs-scroll" onKeyDown={keyboard}>
-        {group(null)}{session.groups.map(group)}
-        {!session.tabs.length && !session.groups.length && <p className="document-tabs-empty">Open a note or PDF to start a tab.</p>}
+        <section className="document-tab-group" data-group-id={selectedGroupId ?? ''} aria-label={selectedGroup ? `Topic ${selectedGroup.name}` : 'Ungrouped tabs'}>
+          <div className="document-tab-row" role="tablist" aria-label={selectedGroup ? `${selectedGroup.name} tabs` : 'Open documents'}>
+            {entries.map(tab)}
+            {!entries.length && <span className="document-topic-empty">{selectedGroup ? 'Use “Move tab to” to add the current document to this topic.' : 'Open a note or PDF to start a tab.'}</span>}
+          </div>
+        </section>
       </div>
     </div>
     {dialog && <dialog ref={dialogRef} className="modal document-topic-dialog" aria-label={dialogTitle} onCancel={event => { event.preventDefault(); closeDialog(); }}>
@@ -149,7 +212,7 @@ export function DocumentTabs({ session, activeKey, labels, disabled, showTools =
         {dialog.kind === 'remove' ? <p className="modal-description">Remove “{dialogGroup?.name}”? Its tabs will stay open in Ungrouped. Files are kept.</p> : <>
           <label className="field-label" htmlFor="document-topic-name">Topic name</label>
           <input id="document-topic-name" className="text-input" autoFocus value={name} disabled={disabled} maxLength={TAB_LIMITS.name} onChange={event => { setName(event.target.value); setError(''); }} placeholder="Research, trading, ideas…" />
-          <p className="field-help">Keep related Markdown notes and PDFs together. New documents open in the selected topic.</p>
+          <p className="field-help">Keep related Markdown notes and PDFs together. New documents start in Ungrouped; use “Move tab to” to assign them.</p>
         </>}
         {error && <p className="inline-error" role="alert">{error}</p>}
         <div className="modal-actions"><button type="button" className="subtle-button" disabled={disabled} onClick={closeDialog}>Cancel</button>

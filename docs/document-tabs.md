@@ -5,7 +5,7 @@ tab area. Opening the same document again selects its existing tab. Markdown and
 PDF icons distinguish the two kinds; a dot marks a note with unsaved edits.
 
 Click a tab to return to it. **Ctrl+Tab** and **Ctrl+Shift+Tab** cycle through open
-documents, including collapsed topics. **Ctrl+W** closes the focused document tab.
+documents across all topics, revealing the selected document's group. **Ctrl+W** closes the focused document tab.
 Closing an edited note offers **Save & close**, **Discard & close**, and **Cancel**.
 A failed save leaves the tab and draft open. Other drafts are unaffected. Closing
 a tab does not delete its file, and closing the final tab keeps Prism open.
@@ -18,21 +18,29 @@ the Notes/PDFs buttons remain available for browsing and opening more documents.
 
 Use **New topic** to create a group such as Research or Trading. Topics can mix
 Markdown notes and PDFs. Select a tab, then use **Move tab to** to assign it to a
-topic or return it to Ungrouped. Click a topic name to make it the destination for
-new documents; opening an already open document keeps its existing assignment.
+topic or return it to Ungrouped. Newly opened notes and PDFs always start in
+**Ungrouped**. Opening an already open document keeps its existing assignment.
 
-Each topic can be collapsed, renamed, or removed. Removing a topic moves its
-tabs to Ungrouped and preserves all documents. Topic groups are independent of
+Choose a group in the existing controls row to show only its document tabs.
+Changing the visible group leaves the current document and its draft in place;
+select a document tab to switch documents. When group choices overflow, small
+left/right arrows scroll them horizontally within the same controls row.
+New topics start empty; use **Move tab to** to assign the current document.
+
+Rename or remove the selected topic using its pencil or × control. Removing a
+topic moves its tabs to Ungrouped and preserves all documents. Topic groups are independent of
 notebook directories and PDF library folders/tags; they never move files.
 
-Tab rows wrap automatically. With many rows, the tab area scrolls vertically and
+The selected group's tab rows wrap automatically. With many rows, the tab area scrolls vertically and
 leaves room for the document panes. Left/Right and Home/End move keyboard focus
 between visible tabs; Enter or Space selects one. Topic controls and close
-buttons are also keyboard accessible.
+buttons are also keyboard accessible. Within the group selector, Left/Right and
+Home/End move focus without changing groups; Enter or Space shows that group.
+Hiding **Topic tools** in Markdown Layout keeps group navigation available.
 
 ## Persistence and resource limits
 
-Open tabs, topic names, assignments, collapsed groups, and the selected tab are
+Open tabs, topic names, assignments, the visible group, and the selected tab are
 remembered separately for each notebook on this device. Refresh removes tabs for
 notes no longer in the notebook; a successful PDF catalogue load removes tabs for
 removed PDFs. A failed library load leaves their metadata available for retry.
@@ -63,9 +71,11 @@ single-reader workflow.
 1. Shared mixed-document tabs, safe closing, topic groups, wrapping rows, keyboard
    navigation, and per-notebook metadata.
 2. Retained PDF readers with bounded memory and independent reading coordinates.
-3. Local model/build checks and disposable native Windows journeys for drafts,
+3. Local model/build checks and disposable desktop journeys for drafts,
    mixed groups, restart, narrow layouts, and save conflicts; review and native
    release activation.
+4. Explicit grouping and a compact group selector: new files start Ungrouped,
+   one group's tabs appear at a time, and existing assignments survive upgrades.
 
 Drag reordering, detachable windows, and synchronizing tab groups between devices
 are separate follow-ups.
@@ -85,3 +95,16 @@ exact BOM/CRLF saves and failed-save recovery, restore topic metadata after a
 restart, exercise wrapping at 420 pixels and 150% text, and retain reader state
 through switching, eviction, and delayed imports. They also check Read-view scroll
 through graph navigation and hiding Notes. GitHub CI was not checked.
+
+The compact group-selector follow-up passes both builds and typechecks, with
+441 main unit passes (five platform skips). All 17 targeted Linux/WSLg desktop
+journeys pass across tabs, Markdown layout, side-by-side reading, and PDF text
+interactions. Coverage includes new PDFs opening Ungrouped from a selected topic,
+reopening assigned PDFs, independent viewed-group persistence, hidden topic tools,
+unchanged drafts/undo and reader sessions, and mouse/keyboard group navigation.
+At 420 pixels and 150% text, ten group choices keep the same header height while
+the selected group's twelve document tabs wrap. Screenshots were visually checked.
+The redo tests use an uppercase `Shift+Z` key event so Linux receives the intended
+shortcut. All fixtures are disposable; no GitHub CI was checked. Windows package
+verification checks staged build hashes and launcher targets separately from
+native launch, which remains unverified under the existing Smart App Control policy.

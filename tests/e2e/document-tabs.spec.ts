@@ -40,7 +40,9 @@ const reader = () => pdf().locator('[data-pdf-session][data-active="true"]');
 const canvas = () => reader().locator('.pdf-paper canvas');
 const viewport = () => reader().getByLabel('PDF page viewport', { exact: true });
 const workspaceButton = (name: 'Notes' | 'PDFs') => page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name, exact: true });
-const topic = (name: string) => tabs().locator('.document-tab-group').filter({ has: page.getByRole('button', { name: `Use topic ${name} for new tabs`, exact: true }) });
+const groupChoices = () => tabs().getByRole('navigation', { name: 'Tab groups', exact: true });
+const groupChoice = (name: string) => groupChoices().getByRole('button', { name: `Show group ${name}`, exact: true });
+const topic = (name: string) => tabs().locator(`.document-tab-group[aria-label=${JSON.stringify(`Topic ${name}`)}]`);
 
 async function launch() {
   const env: Record<string, string> = {
@@ -113,8 +115,26 @@ async function createTopic(name: string) {
   await expect(dialog).toHaveCount(0);
 }
 
-async function assignTopic(key: string, name: string) {
+async function showGroup(name: string) {
+  await groupChoice(name).click();
+  await expect(groupChoice(name)).toHaveAttribute('aria-pressed', 'true');
+}
+
+async function selectDocument(key: string) {
+  if (!await tab(key).count()) {
+    // Group selection only filters the strip, so looking through the available
+    // groups cannot navigate away from the current editor or reader.
+    const choices = groupChoices().getByRole('button');
+    for (let index = 0; index < await choices.count(); index++) {
+      await choices.nth(index).click();
+      if (await tab(key).count()) break;
+    }
+  }
   await tab(key).click();
+}
+
+async function assignTopic(key: string, name: string) {
+  await selectDocument(key);
   await tabs().getByLabel('Move tab to topic', { exact: true }).selectOption({ label: name });
 }
 
@@ -178,7 +198,7 @@ test('keeps independent drafts and undo while deduplicating, cycling and safely 
   await editor().focus();
   await editor().press('ControlOrMeta+z');
   await expect.poll(source).toBe(first);
-  await editor().press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+z');
+  await editor().press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+Z');
   await expect.poll(source).toBe(first + firstDraft);
 
   await page.keyboard.press('Control+Tab');
@@ -214,7 +234,7 @@ test('keeps independent drafts and undo while deduplicating, cycling and safely 
   await editor().focus();
   await editor().press('ControlOrMeta+z');
   await expect.poll(source).toBe(second);
-  await editor().press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+z');
+  await editor().press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+Z');
   await editor().press('ControlOrMeta+w');
   await closePrompt().getByRole('button', { name: 'Save & close', exact: true }).click();
   await expect(tabs().getByRole('tab')).toHaveCount(0);
@@ -241,8 +261,16 @@ test('groups notes with PDFs and retains independent readers beside a draft thro
   await viewport().evaluate(element => element.scrollTo(0, 180));
   await expect.poll(() => viewport().evaluate(element => element.scrollTop)).toBe(180);
   const ratesCanvas = await canvas().elementHandle();
+  await createTopic('Rates research');
+  await assignTopic(`note:${firstFile}`, 'Rates research');
+  await assignTopic(ratesKey, 'Rates research');
+  await expect(topic('Rates research').getByRole('tab')).toHaveCount(2);
   await reader().getByRole('button', { name: 'Back to library', exact: true }).click();
   await pdf().getByRole('button', { name: 'Open Execution paper', exact: true }).click();
+  await expect(groupChoice('Ungrouped')).toHaveAttribute('aria-pressed', 'true');
+  await expect(tabs().getByRole('tab')).toHaveCount(1);
+  await expect(tab(executionKey)).toHaveAttribute('aria-selected', 'true');
+  await expect(topic('Rates research')).toHaveCount(0);
   await rendered(1);
   await reader().getByLabel('Page zoom', { exact: true }).selectOption('1.5');
   await expect(canvas()).toHaveCSS('width', '918px');
@@ -251,30 +279,33 @@ test('groups notes with PDFs and retains independent readers beside a draft thro
   await expect.poll(() => viewport().evaluate(element => element.scrollTop)).toBe(120);
   const executionCanvas = await canvas().elementHandle();
 
-  await noteTab(firstFile).click();
+  await selectDocument(`note:${firstFile}`);
   await expect(editor()).toContainText(firstDraft);
   await expect(page.locator('.workspace-area')).toHaveAttribute('data-layout', 'split');
-  await tab(ratesKey).click();
+  await selectDocument(ratesKey);
   await rendered(2);
   await expect(reader().getByLabel('Document password', { exact: true })).toHaveCount(0);
   await expect(reader().getByLabel('Page zoom', { exact: true })).toHaveValue('2');
   await expect.poll(() => viewport().evaluate(element => element.scrollTop)).toBe(180);
   expect(await canvas().evaluate((element, original) => element === original, ratesCanvas)).toBe(true);
-  await tab(executionKey).click();
+  await selectDocument(executionKey);
   await rendered(1);
   await expect(reader().getByLabel('Page zoom', { exact: true })).toHaveValue('1.5');
   await expect.poll(() => viewport().evaluate(element => element.scrollTop)).toBe(120);
   expect(await canvas().evaluate((element, original) => element === original, executionCanvas)).toBe(true);
-  await expect(tabs().getByRole('tab')).toHaveCount(3);
+  await expect(tabs().getByRole('tab')).toHaveCount(1);
 
-  await noteTab(firstFile).click();
-  await createTopic('Rates research');
-  await assignTopic(`note:${firstFile}`, 'Rates research');
-  await assignTopic(ratesKey, 'Rates research');
+  // Reopening an already grouped PDF from the library preserves its explicit
+  // membership and reveals that group, rather than creating another tab.
+  await reader().getByRole('button', { name: 'Back to library', exact: true }).click();
+  await pdf().getByRole('button', { name: 'Open Rates paper', exact: true }).click();
+  await expect(groupChoice('Rates research')).toHaveAttribute('aria-pressed', 'true');
+  await rendered(2);
+  expect(await canvas().evaluate((element, original) => element === original, ratesCanvas)).toBe(true);
   await expect(topic('Rates research').getByRole('tab')).toHaveCount(2);
   await expect(topic('Rates research')).toContainText('First note');
   await expect(topic('Rates research')).toContainText('Rates paper');
-  await noteTab(firstFile).click();
+  await selectDocument(`note:${firstFile}`);
   await editor().focus();
   await editor().press('ControlOrMeta+s');
   await expect.poll(() => readPublished(firstFile)).toBe(diskFirst(first + firstDraft));
@@ -283,25 +314,26 @@ test('groups notes with PDFs and retains independent readers beside a draft thro
     body: await page.screenshot({ path: testInfo.outputPath('mixed-document-tabs.png') }), contentType: 'image/png',
   });
   await cleanRestart();
-  await expect(tabs().getByRole('tab')).toHaveCount(3);
+  await expect(tabs().getByRole('tab')).toHaveCount(2);
+  await expect(groupChoice('Rates research')).toHaveAttribute('aria-pressed', 'true');
   await expect(topic('Rates research').getByRole('tab')).toHaveCount(2);
-  await noteTab(firstFile).click();
+  await selectDocument(`note:${firstFile}`);
   await expect(editor()).toContainText(firstDraft);
-  await tab(ratesKey).click();
+  await selectDocument(ratesKey);
   await reader().getByLabel('Document password', { exact: true }).fill('topic-secret');
   await reader().getByRole('button', { name: 'Unlock PDF', exact: true }).click();
   await rendered(2);
-  await topic('Rates research').getByRole('button', { name: 'Rename topic Rates research', exact: true }).click();
+  await tabs().getByRole('button', { name: 'Rename topic Rates research', exact: true }).click();
   const rename = page.getByRole('dialog', { name: 'Rename topic', exact: true });
   await rename.getByLabel('Topic name', { exact: true }).fill('金利と執行');
   await rename.getByRole('button', { name: 'Rename topic', exact: true }).click();
   await expect(topic('金利と執行').getByRole('tab')).toHaveCount(2);
-  await topic('金利と執行').getByRole('button', { name: 'Remove topic 金利と執行', exact: true }).click();
+  await tabs().getByRole('button', { name: 'Remove topic 金利と執行', exact: true }).click();
   const remove = page.getByRole('dialog', { name: 'Remove topic', exact: true });
   await remove.getByRole('button', { name: 'Remove topic', exact: true }).click();
   await expect(tabs().getByRole('tab')).toHaveCount(3);
   await expect(tabs()).not.toContainText('金利と執行');
-  await tab(executionKey).click();
+  await selectDocument(executionKey);
   await rendered(1);
   await page.keyboard.press('ControlOrMeta+w');
   await expect(tab(executionKey)).toHaveCount(0);
@@ -312,28 +344,86 @@ test('groups notes with PDFs and retains independent readers beside a draft thro
   expect(errors).toEqual([]);
 });
 
-test('wraps many tabs at large text size and keeps topics and keyboard navigation reachable', async ({}, testInfo) => {
+test('wraps only the selected group and keeps many group choices in one compact row', async ({}, testInfo) => {
   for (const filename of moreFiles) await openNote(filename);
   await expect(tabs().getByRole('tab')).toHaveCount(13);
   await createTopic('Long-term reading');
-  await assignTopic(`note:${moreFiles[0]}`, 'Long-term reading');
-  await assignTopic(`note:${moreFiles[1]}`, 'Long-term reading');
+  for (const filename of moreFiles) await assignTopic(`note:${filename}`, 'Long-term reading');
+  await expect(tabs().getByRole('tab')).toHaveCount(12);
+  await expect(noteTab(firstFile)).toHaveCount(0);
   await page.locator('.statusbar').getByRole('button').click();
   const appearance = page.getByRole('dialog', { name: 'Make a little space', exact: true });
   await appearance.getByRole('slider', { name: 'Text size', exact: true }).fill('150');
   await appearance.getByRole('button', { name: 'Done', exact: true }).click();
   await page.setViewportSize({ width: 420, height: 900 });
+  const header = tabs().locator('.document-tabs-header');
+  const headerHeight = (await header.boundingBox())!.height;
+  const groupNames = Array.from({ length: 8 }, (_, index) => `Research topic ${index + 1}`);
+  for (const name of groupNames) await createTopic(name);
+  await expect.poll(async () => Math.abs((await header.boundingBox())!.height - headerHeight)).toBeLessThan(2);
+  await expect.poll(() => groupChoices().evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  await showGroup('Long-term reading');
+  await expect(tabs().getByRole('tab')).toHaveCount(12);
+  await expect(tabs().locator('.document-tab-group')).toHaveCount(1);
   await expect.poll(() => tabs().evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   const rows = await tabs().getByRole('tab').evaluateAll(elements => new Set(elements.map(element => Math.round(element.getBoundingClientRect().top))).size);
   expect(rows).toBeGreaterThan(1);
   await expect(page.locator('.workspace-area')).toBeVisible();
   expect((await page.locator('.workspace-area').boundingBox())!.height).toBeGreaterThan(300);
 
-  await topic('Long-term reading').getByRole('button', { name: 'Collapse topic Long-term reading', exact: true }).click();
-  await expect(noteTab(moreFiles[0])).toBeHidden();
-  await expect(noteTab(moreFiles[1])).toBeHidden();
-  await topic('Long-term reading').getByRole('button', { name: 'Expand topic Long-term reading', exact: true }).click();
-  await expect(noteTab(moreFiles[0])).toBeVisible();
+  // Overflow buttons make every group reachable with a mouse. Scrolling the
+  // choices must not select a group, navigate the editor, or add another row.
+  const scrollLeft = tabs().getByRole('button', { name: 'Scroll groups left', exact: true });
+  const scrollRight = tabs().getByRole('button', { name: 'Scroll groups right', exact: true });
+  const groupScroll = () => groupChoices().evaluate(element => element.scrollLeft);
+  await expect(scrollLeft).toBeVisible();
+  await expect(scrollRight).toBeVisible();
+  for (let step = 0; step < 32; step++) {
+    const before = await groupScroll();
+    if (before <= 1) break;
+    await expect(scrollLeft).toBeEnabled();
+    await scrollLeft.click();
+    await expect.poll(groupScroll).toBeLessThan(before);
+    if (await groupScroll() <= 1) await expect(scrollLeft).toBeDisabled();
+    else await expect(scrollLeft).toBeEnabled();
+  }
+  await expect(scrollLeft).toBeDisabled();
+  await expect.poll(groupScroll).toBeLessThan(1);
+  const remainingRight = () => groupChoices().evaluate(element => element.scrollWidth - element.clientWidth - element.scrollLeft);
+  await expect(scrollRight).toBeEnabled();
+  for (let step = 0; step < 32; step++) {
+    if (await remainingRight() <= 1) break;
+    const before = await groupScroll();
+    await expect(scrollRight).toBeEnabled();
+    await scrollRight.click();
+    await expect.poll(groupScroll).toBeGreaterThan(before);
+    if (await remainingRight() <= 1) await expect(scrollRight).toBeDisabled();
+    else await expect(scrollRight).toBeEnabled();
+  }
+  await expect.poll(remainingRight).toBeLessThanOrEqual(1);
+  await expect(scrollRight).toBeDisabled();
+  await expect(scrollLeft).toBeEnabled();
+  await expect(groupChoice('Long-term reading')).toHaveAttribute('aria-pressed', 'true');
+  await expect(tabs().getByRole('tab')).toHaveCount(12);
+  await expect(noteTab(moreFiles[11])).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.note-heading h1')).toHaveText(moreFiles[11].slice(0, -3));
+  expect(Math.abs((await header.boundingBox())!.height - headerHeight)).toBeLessThan(2);
+
+  // Group keyboard navigation stays in its horizontal row; choosing an empty
+  // group changes the strip without navigating away from the active note.
+  await groupChoice('Long-term reading').focus();
+  await page.keyboard.press('End');
+  await expect(groupChoice(groupNames[7])).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(groupChoice(groupNames[7])).toHaveAttribute('aria-pressed', 'true');
+  await expect(tabs().getByRole('tab')).toHaveCount(0);
+  await expect(page.locator('.note-heading h1')).toHaveText(moreFiles[11].slice(0, -3));
+  await page.keyboard.press('Home');
+  await expect(groupChoice('Ungrouped')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(tabs().getByRole('tab')).toHaveCount(1);
+  await expect(noteTab(firstFile)).toBeVisible();
+  await showGroup('Long-term reading');
   await noteTab(moreFiles[1]).focus();
   await page.keyboard.press('Home');
   const firstVisible = tabs().getByRole('tab').first();
@@ -342,9 +432,60 @@ test('wraps many tabs at large text size and keeps topics and keyboard navigatio
   await expect(firstVisible).toHaveAttribute('aria-selected', 'true');
   await noteTab(moreFiles[11]).click();
   await expect(page.locator('.note-heading h1')).toHaveText(moreFiles[11].slice(0, -3));
-  await testInfo.attach('Wrapped topic tabs at 150 percent text', {
+  await testInfo.attach('One group with wrapped tabs at 150 percent text', {
     body: await page.screenshot({ path: testInfo.outputPath('wrapped-document-tabs.png') }), contentType: 'image/png',
   });
+  expect(errors).toEqual([]);
+});
+
+test('browses groups without changing the editor and restores the viewed group with topic tools hidden', async () => {
+  await createTopic('Writing');
+  await assignTopic(`note:${firstFile}`, 'Writing');
+  await append(firstDraft);
+  await openNote(secondFile);
+  await expect(groupChoice('Ungrouped')).toHaveAttribute('aria-pressed', 'true');
+  await expect(tabs().getByRole('tab')).toHaveCount(1);
+  await selectDocument(`note:${firstFile}`);
+  const retainedEditor = await editor().elementHandle();
+  await showGroup('Ungrouped');
+  await expect(noteTab(firstFile)).toHaveCount(0);
+  await expect(noteTab(secondFile)).toHaveAttribute('aria-selected', 'false');
+  await expect.poll(source).toBe(first + firstDraft);
+  expect(await editor().evaluate((element, original) => element === original, retainedEditor)).toBe(true);
+  await editor().focus();
+  await editor().press('ControlOrMeta+z');
+  await expect.poll(source).toBe(first);
+  await editor().press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+Z');
+  await expect.poll(source).toBe(first + firstDraft);
+  expect(await readPublished(firstFile)).toBe(diskFirst(first));
+
+  await page.keyboard.press('Control+Tab');
+  await expect(noteTab(secondFile)).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Control+Shift+Tab');
+  await expect(groupChoice('Writing')).toHaveAttribute('aria-pressed', 'true');
+  await expect(noteTab(firstFile)).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(source).toBe(first + firstDraft);
+
+  await page.locator('.document-toolbar').getByRole('button', { name: 'Markdown layout', exact: true }).click();
+  const layout = page.getByRole('dialog', { name: 'Markdown layout', exact: true });
+  await layout.getByRole('checkbox', { name: 'Topic tools', exact: true }).uncheck();
+  await layout.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(tabs().locator('.document-tabs-tools')).toBeHidden();
+  await expect(groupChoices()).toBeVisible();
+  await showGroup('Ungrouped');
+  await expect(noteTab(secondFile)).toBeVisible();
+  await expect.poll(source).toBe(first + firstDraft);
+  await editor().focus();
+  await editor().press('ControlOrMeta+s');
+  await expect.poll(() => readPublished(firstFile)).toBe(diskFirst(first + firstDraft));
+  await cleanRestart();
+  await expect(tabs().locator('.document-tabs-tools')).toBeHidden();
+  await expect(groupChoice('Ungrouped')).toHaveAttribute('aria-pressed', 'true');
+  await expect(tabs().getByRole('tab')).toHaveCount(1);
+  await expect(noteTab(secondFile)).toHaveAttribute('aria-selected', 'false');
+  await expect.poll(source).toBe(first + firstDraft);
+  await showGroup('Writing');
+  await expect(noteTab(firstFile)).toHaveAttribute('aria-selected', 'true');
   expect(errors).toEqual([]);
 });
 
@@ -354,7 +495,7 @@ test('keeps a tab and its draft after a save conflict and isolates topics betwee
   await append(firstDraft);
   await openNote(secondFile);
   await append(secondDraft);
-  await noteTab(firstFile).click();
+  await selectDocument(`note:${firstFile}`);
   const external = diskFirst('# First note\n\nAn independent external revision.\n');
   await writeFile(path.join(notebook, firstFile), external);
   await editor().focus();
@@ -389,8 +530,9 @@ test('keeps a tab and its draft after a save conflict and isolates topics betwee
   }, notebook);
   await page.getByRole('button', { name: 'Open notebook', exact: true }).click();
   await expect(topic('First notebook topic')).toBeVisible();
-  await expect(tabs().getByRole('tab')).toHaveCount(2);
-  await noteTab(firstFile).click();
+  await expect(tabs().getByRole('tab')).toHaveCount(1);
+  await expect(groupChoice('First notebook topic')).toHaveAttribute('aria-pressed', 'true');
+  await selectDocument(`note:${firstFile}`);
   await expect(editor()).toContainText('An independent external revision.');
   await expect(editor()).not.toContainText(firstDraft);
   expect(await readPublished(firstFile)).toBe(external);
