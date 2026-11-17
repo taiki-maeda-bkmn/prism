@@ -2,7 +2,7 @@
 
 This increment adds three related reading features to the shared PDF reader used by Prism and Prism PDF.
 
-1. Render a selectable text layer aligned with the PDF canvas. Support ordinary selection and copy, including a visible Copy selected text button.
+1. Render a selectable text layer aligned with the PDF canvas. Support ordinary selection and Ctrl+C copying without a permanent text-tools row.
 2. Add safe links from PDF annotations. Web/email links open only after activation through the main-process URL validator. Internal destinations navigate within the current document. PDF scripts, forms, file launches, and unsupported actions remain inactive.
 3. Search text throughout the open PDF, with next/previous matches, page navigation, visible highlights, and Ctrl+F scoped to the focused PDF pane. Search runs progressively and can be cancelled; it does not rasterize pages or block note editing.
 
@@ -10,10 +10,10 @@ Text comes from the PDF's embedded text. Image-only scans need OCR, which is out
 
 ## Use the reader
 
-- Drag across text, then press **Ctrl+C** or choose **Copy selected text**. With the page focused, **Ctrl+A** selects that page's text.
+- Drag across text, then press **Ctrl+C**. With the page focused, **Ctrl+A** selects that page's text. Selecting and copying text does not add a toolbar or change the reading area's height.
 - Click an embedded web/email link to open the default application, or an internal link to jump to its page. Links can also receive keyboard focus and activate with Enter.
 - Find stays hidden until you press **Ctrl+F** while the PDF pane is active. There is no permanent Find button. Search ignores case and matches across text items and line breaks. Use **Enter / Shift+Enter**, **F3 / Shift+F3**, or the match arrows to move through results. Escape closes Find from its input or navigation buttons and returns focus to the page.
-- **Ctrl+F** still opens Find when the page toolbar is hidden; Copy remains available. Switching to another tab retains the query and selected result; hidden readers pause any unfinished search.
+- **Ctrl+F** still opens Find when the page toolbar is hidden; **Ctrl+C** copies selected text without showing a toolbar. Switching to another tab retains the query and selected result; hidden readers pause any unfinished search.
 
 Search keeps at most 1,000 matches and reads up to 20,000 pages, 32 million document characters, and one million characters per page. A notice identifies limited results or pages that could not be searched. No PDF text is sent to a server, and these interactions do not modify the PDF file.
 
@@ -30,6 +30,8 @@ Search keeps at most 1,000 matches and reads up to 20,000 pages, 32 million docu
 The previously diagnosed Windows Smart App Control block is a separate installation issue. This feature does not alter security settings or supply a trusted signature.
 
 ## Verification
+
+The Copy-toolbar removal passes both builds/typechecks and all four targeted integrated/standalone desktop journeys. Tests verify actual selection/clipboard copying, no permanent or selection-triggered toolbar, unchanged reading-area geometry, search-field copying, and image-only guidance inside Find. The ordinary-reader screenshot was inspected.
 
 The Ctrl+F-only visibility follow-up passes both builds/typechecks and the four targeted integrated/standalone desktop journeys. The checks cover no permanent Find button, hidden initial and locked states, Escape from match controls, closed F3 behavior, and retained query/results on reopening.
 

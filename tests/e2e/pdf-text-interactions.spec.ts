@@ -34,6 +34,8 @@ async function renderedPage(number: number) {
   await expect(canvas()).toHaveAttribute('data-page-number', String(number));
   await expect(reader().locator('.pdf-paper')).toHaveAttribute('aria-busy', 'false');
   await expect(textLayer()).toBeAttached();
+  await expect(reader().locator('.pdf-reader-tools')).toHaveCount(0);
+  await expect(copy()).toHaveCount(0);
 }
 
 async function openDocument(title: string, password?: string) {
@@ -63,6 +65,18 @@ async function goToPage(number: number) {
 }
 
 async function clipboardText() { return desktop!.evaluate(({ clipboard }) => clipboard.readText()); }
+
+async function copySelection() {
+  await viewport().focus();
+  await page.keyboard.press('ControlOrMeta+c');
+}
+
+async function readingAreaBounds() {
+  return viewport().evaluate(element => {
+    const box = element.getBoundingClientRect();
+    return { top: box.top, left: box.left, width: box.width, height: box.height };
+  });
+}
 
 async function selectText(text: string) {
   const span = textLayer().getByText(text, { exact: true }).first();
@@ -150,9 +164,10 @@ test.afterEach(async ({}, testInfo) => {
   if (temporary) await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
-test('selects and copies PDF text and follows only safe web, email and internal links', async () => {
+test('selects and copies PDF text and follows only safe web, email and internal links', async ({}, testInfo) => {
   await openDocument('Interactive reference');
   await expect(textLayer()).toContainText('Selectable copy text.');
+  const readingArea = await readingAreaBounds();
   const span = textLayer().locator('span').filter({ hasText: /^Selectable copy text\.$/ }).first();
   const box = await span.boundingBox();
   if (!box) throw new Error('The selectable PDF line has no bounds.');
@@ -161,11 +176,20 @@ test('selects and copies PDF text and follows only safe web, email and internal 
   await page.mouse.move(box.x + box.width - 0.5, box.y + box.height / 2, { steps: 12 });
   await page.mouse.up();
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('Selectable copy text.');
+  await expect(reader().locator('.pdf-reader-tools')).toHaveCount(0);
+  await expect(copy()).toHaveCount(0);
   await page.keyboard.press('ControlOrMeta+c');
   await expect.poll(clipboardText).toBe('Selectable copy text.');
   await selectText('needle appears on page one.');
-  await copy().click();
+  await copySelection();
   await expect.poll(clipboardText).toBe('needle appears on page one.');
+  expect(await readingAreaBounds()).toEqual(readingArea);
+  await expect(reader().locator('.pdf-reader-tools')).toHaveCount(0);
+  await expect(copy()).toHaveCount(0);
+  await expect(reader().locator('.pdf-find-bar')).toBeHidden();
+  await testInfo.attach('PDF reading area without Find or Copy toolbars', {
+    body: await page.screenshot({ path: testInfo.outputPath('pdf-copy-shortcut.png') }), contentType: 'image/png',
+  });
 
   // A PDF selection can survive focusing a form control. Its copy shortcut
   // must not replace the query selected in the Find input with PDF text.
@@ -173,7 +197,7 @@ test('selects and copies PDF text and follows only safe web, email and internal 
   await find().fill('needle');
   await expect(searchStatus()).toContainText('1 of 2 matches');
   await selectText('Selectable copy text.');
-  await expect(copy()).toBeEnabled();
+  await expect(copy()).toHaveCount(0);
   await find().focus();
   await find().evaluate(element => (element as HTMLInputElement).select());
   await expect(find()).toBeFocused();
@@ -282,7 +306,7 @@ test('searches the whole PDF and keeps the draft, highlights and compact control
   await renderedPage(1);
   await expect(currentMatch()).toHaveCount(1);
   await selectText('Selectable copy text.');
-  await copy().click();
+  await copySelection();
   await expect.poll(clipboardText).toBe('Selectable copy text.');
   await reader().getByRole('button', { name: 'Close PDF search', exact: true }).click();
   await editor().focus();
@@ -305,13 +329,15 @@ test('searches the whole PDF and keeps the draft, highlights and compact control
   await expect(reader().locator('.pdf-reader-toolbar')).toBeHidden();
   await workspace('PDFs').click();
   await page.setViewportSize({ width: 420, height: 900 });
-  for (const control of [find(), copy(),
+  for (const control of [find(),
     reader().getByRole('button', { name: 'Previous match', exact: true }), reader().getByRole('button', { name: 'Next match', exact: true }),
     reader().getByRole('button', { name: 'Close PDF search', exact: true })]) await inside(control);
   await reader().getByRole('button', { name: 'Next match', exact: true }).click();
   await renderedPage(2);
   await expect(searchStatus()).toContainText('2 of 2 matches');
-  await testInfo.attach('Search and copy controls in compact PDF layout', {
+  await expect(reader().locator('.pdf-reader-tools')).toHaveCount(0);
+  await expect(copy()).toHaveCount(0);
+  await testInfo.attach('Search controls in compact PDF layout without a Copy toolbar', {
     body: await page.screenshot({ path: testInfo.outputPath('pdf-text-compact.png') }), contentType: 'image/png',
   });
   await workspace('Notes').click();
@@ -328,9 +354,8 @@ test('searches the whole PDF and keeps the draft, highlights and compact control
 test('explains image-only PDFs and searches password-protected text after unlocking', async () => {
   await openDocument('Image only');
   await expect(textLayer().locator('span')).toHaveCount(0);
-  await expect(reader().locator('.pdf-text-notice')).toContainText(/text/i);
-  await expect(copy()).toBeDisabled();
   await openSearch();
+  await expect(searchStatus()).toContainText('No selectable text on this page');
   await find().fill('anything');
   await expect(searchStatus()).toContainText(/No searchable text/i);
   await find().press('Escape');
@@ -348,7 +373,7 @@ test('explains image-only PDFs and searches password-protected text after unlock
   await reader().getByRole('button', { name: 'Close PDF search', exact: true }).click();
   await goToPage(1);
   await selectText('Prism PDF field notes');
-  await copy().click();
+  await copySelection();
   await expect.poll(clipboardText).toBe('Prism PDF field notes');
   expect(remoteRequests).toEqual([]);
   expect(errors).toEqual([]);

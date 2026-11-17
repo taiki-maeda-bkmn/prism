@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowLeft, Copy, ChevronLeft, ChevronRight, FileText, Link2, LoaderCircle, LockKeyhole, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, FileText, Link2, LoaderCircle, LockKeyhole, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { getDocument, GlobalWorkerOptions, PasswordResponses, type PDFDocumentLoadingTask, type PDFDocumentProxy, type PDFPageProxy, type RenderTask } from 'pdfjs-dist';
 import type { PDFDocument } from '../shared/types';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
@@ -77,10 +77,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [surface, setSurface] = useState<PageSurface | null>(null);
   const [layers, setLayers] = useState<PDFPageLayers | null>(null);
-  const [layerLoading, setLayerLoading] = useState(false);
   const [layerError, setLayerError] = useState('');
-  const [selectionText, setSelectionText] = useState('');
-  const [copyStatus, setCopyStatus] = useState('');
   const [interactionError, setInteractionError] = useState('');
   const find = usePDFTextSearch(pdf, visible);
   const findInput = useRef<HTMLInputElement>(null);
@@ -391,9 +388,6 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
     let prepared: PDFPageLayers | undefined;
     setLayers(null);
     setLayerError('');
-    setSelectionText('');
-    setCopyStatus('');
-    setLayerLoading(!!surface);
     if (surface) void createPageLayers(surface.page, surface.viewport, {
       onLink: target => { if (!controller.signal.aborted) interactRef.current(target); },
     }, controller.signal).then(next => {
@@ -401,9 +395,10 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
       prepared = next;
       paperRef.current?.append(next.element);
       setLayers(next);
+      setLayerError(next.warnings.join(' '));
     }).catch(cause => {
       if (!controller.signal.aborted) setLayerError(describeError(cause));
-    }).finally(() => { if (!controller.signal.aborted) setLayerLoading(false); });
+    });
     return () => { controller.abort(); prepared?.dispose(); };
   }, [surface]);
 
@@ -416,14 +411,9 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
   async function copySelectedText() {
     const text = selectedPDFText();
     if (!text || !pageReady) return;
-    try { await window.prismPdf.copyText(text); setCopyStatus('Copied'); }
+    try { await window.prismPdf.copyText(text); }
     catch (cause) { setInteractionError(describeError(cause)); }
   }
-  useEffect(() => {
-    const changed = () => { setSelectionText(selectedPDFText()); setCopyStatus(''); };
-    window.document.addEventListener('selectionchange', changed);
-    return () => window.document.removeEventListener('selectionchange', changed);
-  }, [layers]);
 
   useEffect(() => {
     if (!visible) interactionSequence.current++;
@@ -486,7 +476,8 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
 
   const hasPageText = !!layers?.text.items.some(item => 'str' in item && item.str.trim());
   const findCount = find.result.matches.length;
-  const findStatus = !normalizeSearchQuery(find.query) ? 'Type to search this PDF.'
+  const findStatus = !normalizeSearchQuery(find.query)
+    ? layers && !hasPageText ? 'No selectable text on this page. Image-only scans need OCR.' : 'Type to search this PDF.'
     : findCount ? `${find.selection.index + 1} of ${findCount}${find.result.truncated ? '+' : ''} matches`
       : find.busy ? 'Searching…' : !find.result.hasText && !find.result.failedPages.length
         ? 'No searchable text. Image-only scans need OCR.' : 'No matches';
@@ -532,11 +523,6 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         title={!canInsertPageLink ? 'Open a note to insert this page link.' : 'Insert this PDF page at the note’s cursor.'}
         onClick={() => { if (canLinkCurrentPage) onInsertPageLink({ documentId: entry.id, page: pageNumber, title: entry.title }); }}><Link2 size={16} />Insert page link</button>}
     </div>
-    <div className="pdf-reader-tools" aria-label="PDF text tools">
-      <button aria-label="Copy selected text" title="Copy selected text (Ctrl+C)" disabled={!selectionText || !pageReady}
-        onPointerDown={event => event.preventDefault()} onClick={() => void copySelectedText()}><Copy size={16} /><span>Copy text</span></button>
-      <span className="pdf-text-notice" role="status">{copyStatus || (layerLoading ? 'Preparing text…' : layerError || layers?.warnings.join(' ') || (layers && !hasPageText ? 'No selectable text on this page. Image-only scans need OCR.' : 'Select text to copy.'))}</span>
-    </div>
     {find.open && <div className="pdf-find-bar" role="search" aria-label="Search PDF text" onKeyDown={event => {
       if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
         event.preventDefault(); event.stopPropagation();
@@ -557,7 +543,7 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         find.result.truncated ? 'Showing limited results for this large document or query. Narrow your search.' : '',
       ].filter(Boolean).join(' ')}</span>}
     </div>}
-    {interactionError && <div className="pdf-interaction-error" role="alert"><span>{interactionError}</span><button aria-label="Dismiss PDF interaction error" onClick={() => setInteractionError('')}><X size={16} /></button></div>}
+    {(interactionError || layerError) && <div className="pdf-interaction-error" role="alert"><span>{interactionError || layerError}</span><button aria-label="Dismiss PDF interaction error" onClick={() => { setInteractionError(''); setLayerError(''); }}><X size={16} /></button></div>}
     {onOpenNote && <div className="pdf-reader-backlinks" hidden={!layout.backlinks}><PdfBacklinks backlinks={backlinks} pageCount={pdf?.numPages ?? null} currentPage={pageNumber} onOpenNote={onOpenNote}
       onOpenPage={page => {
         if (!pdf || page < 1 || page > pdf.numPages) return;
