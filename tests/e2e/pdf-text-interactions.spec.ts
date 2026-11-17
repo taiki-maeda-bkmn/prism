@@ -39,15 +39,20 @@ async function renderedPage(number: number) {
 async function openDocument(title: string, password?: string) {
   await pdf().getByRole('button', { name: `Open ${title}`, exact: true }).click();
   if (password) {
-    await expect(reader().getByRole('button', { name: 'Find in PDF', exact: true })).toBeDisabled();
-    await reader().getByLabel('Document password', { exact: true }).fill(password);
+    const passwordInput = reader().getByLabel('Document password', { exact: true });
+    await passwordInput.press('ControlOrMeta+f');
+    await expect(reader().locator('.pdf-find-bar')).toBeHidden();
+    await passwordInput.fill(password);
     await reader().getByRole('button', { name: 'Unlock PDF', exact: true }).click();
   }
   await renderedPage(1);
+  await expect(reader().getByRole('button', { name: 'Find in PDF', exact: true })).toHaveCount(0);
+  await expect(reader().locator('.pdf-find-bar')).toBeHidden();
 }
 
 async function openSearch() {
-  await reader().getByRole('button', { name: 'Find in PDF', exact: true }).click();
+  await viewport().focus();
+  await page.keyboard.press('ControlOrMeta+f');
   await expect(find()).toBeFocused();
 }
 
@@ -178,7 +183,17 @@ test('selects and copies PDF text and follows only safe web, email and internal 
   })).toBe('needle');
   await find().press('ControlOrMeta+c');
   await expect.poll(clipboardText).toBe('needle');
-  await reader().getByRole('button', { name: 'Close PDF search', exact: true }).click();
+  // Escape also closes Find when focus has moved from its input to an arrow.
+  await reader().getByRole('button', { name: 'Next match', exact: true }).press('Escape');
+  await expect(reader().locator('.pdf-find-bar')).toBeHidden();
+  await expect(viewport()).toBeFocused();
+  await page.keyboard.press('F3');
+  await expect(reader().locator('.pdf-find-bar')).toBeHidden();
+  await openSearch();
+  await expect(find()).toHaveValue('needle');
+  await expect(searchStatus()).toContainText('1 of 2 matches');
+  await find().press('Escape');
+  await expect(reader().locator('.pdf-find-bar')).toBeHidden();
 
   const mainURL = page.url();
   await expect(linkLayer().locator('a')).toHaveCount(4);
@@ -290,7 +305,7 @@ test('searches the whole PDF and keeps the draft, highlights and compact control
   await expect(reader().locator('.pdf-reader-toolbar')).toBeHidden();
   await workspace('PDFs').click();
   await page.setViewportSize({ width: 420, height: 900 });
-  for (const control of [find(), copy(), reader().getByRole('button', { name: 'Find in PDF', exact: true }),
+  for (const control of [find(), copy(),
     reader().getByRole('button', { name: 'Previous match', exact: true }), reader().getByRole('button', { name: 'Next match', exact: true }),
     reader().getByRole('button', { name: 'Close PDF search', exact: true })]) await inside(control);
   await reader().getByRole('button', { name: 'Next match', exact: true }).click();

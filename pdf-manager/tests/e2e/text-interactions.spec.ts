@@ -46,6 +46,8 @@ test('standalone PDF reader selects, copies, searches and follows safe links', a
       await expect(textLayer).toBeAttached();
     }
     await renderedPage(1);
+    await expect(reader.getByRole('button', { name: 'Find in PDF', exact: true })).toHaveCount(0);
+    await expect(reader.locator('.pdf-find-bar')).toBeHidden();
 
     const line = textLayer.getByText('Selectable copy text.', { exact: true });
     await expect(line).toBeVisible();
@@ -60,7 +62,10 @@ test('standalone PDF reader selects, copies, searches and follows safe links', a
     await page.keyboard.press('ControlOrMeta+c');
     await expect.poll(() => desktop!.evaluate(({ clipboard }) => clipboard.readText())).toBe('Selectable copy text.');
 
-    await reader.getByLabel('PDF page viewport', { exact: true }).focus();
+    const viewport = reader.getByLabel('PDF page viewport', { exact: true });
+    await viewport.focus();
+    await page.keyboard.press('F3');
+    await expect(reader.locator('.pdf-find-bar')).toBeHidden();
     await page.keyboard.press('ControlOrMeta+f');
     const find = reader.getByLabel('Find text in PDF', { exact: true });
     await expect(find).toBeFocused();
@@ -71,6 +76,16 @@ test('standalone PDF reader selects, copies, searches and follows safe links', a
     await renderedPage(2);
     await expect(reader.locator('.pdf-find-status')).toContainText('2 of 2 matches');
     await expect(reader.locator('.pdf-search-highlight[data-current="true"]')).toHaveCount(1);
+    await reader.getByRole('button', { name: 'Previous match', exact: true }).press('Escape');
+    await expect(reader.locator('.pdf-find-bar')).toBeHidden();
+    await expect(viewport).toBeFocused();
+    await page.keyboard.press('F3');
+    await expect(reader.locator('.pdf-find-bar')).toBeHidden();
+    await page.keyboard.press('ControlOrMeta+f');
+    await expect(find).toBeFocused();
+    await expect(find).toHaveValue('NEEDLE');
+    await expect(reader.locator('.pdf-find-status')).toContainText('2 of 2 matches');
+    await renderedPage(2);
     await reader.getByRole('button', { name: 'Close PDF search', exact: true }).click();
     await links.getByRole('link', { name: 'First page', exact: true }).click();
     await renderedPage(1);
