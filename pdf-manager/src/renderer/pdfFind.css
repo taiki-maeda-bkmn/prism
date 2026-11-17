@@ -1,4 +1,3 @@
-.pdf-workspace .pdf-reader-tools,
 .pdf-workspace .pdf-find-bar,
 .pdf-workspace .pdf-interaction-error {
   flex: none;
@@ -13,9 +12,7 @@
   font-size: calc(12px * var(--pdf-text-scale, 1));
   line-height: 1.5;
 }
-.pdf-workspace .pdf-reader-tools > button,
 .pdf-workspace .pdf-find-bar > button { min-height: 30px; padding: 4px 8px; flex: none; }
-.pdf-workspace .pdf-text-notice { color: var(--muted, #737a73); font-size: calc(10px * var(--pdf-text-scale, 1)); flex: 1 1 180px; }
 .pdf-workspace .pdf-find-bar > input {
   flex: 1 1 140px;
   width: 140px;

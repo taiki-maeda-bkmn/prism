@@ -40,14 +40,22 @@ test('standalone PDF reader selects, copies, searches and follows safe links', a
     const reader = page.locator('.pdf-reader');
     const textLayer = reader.locator('.pdf-text-layer');
     const links = reader.locator('.pdf-link-layer');
+    const viewport = reader.getByLabel('PDF page viewport', { exact: true });
+    const readingAreaBounds = () => viewport.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      return { top: box.top, left: box.left, width: box.width, height: box.height };
+    });
     async function renderedPage(number: number) {
       await expect(reader.locator('.pdf-paper canvas')).toHaveAttribute('data-page-number', String(number));
       await expect(reader.locator('.pdf-paper')).toHaveAttribute('aria-busy', 'false');
       await expect(textLayer).toBeAttached();
+      await expect(reader.locator('.pdf-reader-tools')).toHaveCount(0);
+      await expect(reader.getByRole('button', { name: 'Copy selected text', exact: true })).toHaveCount(0);
     }
     await renderedPage(1);
     await expect(reader.getByRole('button', { name: 'Find in PDF', exact: true })).toHaveCount(0);
     await expect(reader.locator('.pdf-find-bar')).toBeHidden();
+    const readingArea = await readingAreaBounds();
 
     const line = textLayer.getByText('Selectable copy text.', { exact: true });
     await expect(line).toBeVisible();
@@ -58,11 +66,12 @@ test('standalone PDF reader selects, copies, searches and follows safe links', a
     await page.mouse.move(bounds.x + bounds.width - 0.5, bounds.y + bounds.height / 2, { steps: 12 });
     await page.mouse.up();
     await expect.poll(() => page!.evaluate(() => window.getSelection()?.toString())).toBe('Selectable copy text.');
-    await expect(reader.getByRole('button', { name: 'Copy selected text', exact: true })).toBeEnabled();
+    await expect(reader.locator('.pdf-reader-tools')).toHaveCount(0);
+    await expect(reader.getByRole('button', { name: 'Copy selected text', exact: true })).toHaveCount(0);
     await page.keyboard.press('ControlOrMeta+c');
     await expect.poll(() => desktop!.evaluate(({ clipboard }) => clipboard.readText())).toBe('Selectable copy text.');
+    expect(await readingAreaBounds()).toEqual(readingArea);
 
-    const viewport = reader.getByLabel('PDF page viewport', { exact: true });
     await viewport.focus();
     await page.keyboard.press('F3');
     await expect(reader.locator('.pdf-find-bar')).toBeHidden();
@@ -103,8 +112,10 @@ test('standalone PDF reader selects, copies, searches and follows safe links', a
     await expect(textLayer).toContainText('Chapter two');
     await links.getByRole('link', { name: 'Go to linked page', exact: true }).click();
     await renderedPage(3);
-    await expect(reader.locator('.pdf-text-notice')).toContainText('No selectable text on this page');
-    await expect(reader.getByRole('button', { name: 'Copy selected text', exact: true })).toBeDisabled();
+    await viewport.focus();
+    await page.keyboard.press('ControlOrMeta+f');
+    await find.fill('');
+    await expect(reader.locator('.pdf-find-status')).toContainText('No selectable text on this page');
     expect(await readFile(source)).toEqual(bytes);
     expect(requests).toEqual([]);
     expect(errors).toEqual([]);
