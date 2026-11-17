@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowLeft, Copy, Search, ChevronLeft, ChevronRight, FileText, Link2, LoaderCircle, LockKeyhole, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowLeft, Copy, ChevronLeft, ChevronRight, FileText, Link2, LoaderCircle, LockKeyhole, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { getDocument, GlobalWorkerOptions, PasswordResponses, type PDFDocumentLoadingTask, type PDFDocumentProxy, type PDFPageProxy, type RenderTask } from 'pdfjs-dist';
 import type { PDFDocument } from '../shared/types';
 import type { PDFNoteBacklink, PDFPageLinkRequest, PDFPageReference } from '../../../src/shared/pdfLinks';
@@ -533,17 +533,20 @@ export function PdfReader({ document: entry, onUpdate, onClose, workspaceActive 
         onClick={() => { if (canLinkCurrentPage) onInsertPageLink({ documentId: entry.id, page: pageNumber, title: entry.title }); }}><Link2 size={16} />Insert page link</button>}
     </div>
     <div className="pdf-reader-tools" aria-label="PDF text tools">
-      <button aria-label="Find in PDF" title="Find in PDF (Ctrl+F)" disabled={!pdf} onClick={() => openFindRef.current()}><Search size={16} /><span>Find</span></button>
       <button aria-label="Copy selected text" title="Copy selected text (Ctrl+C)" disabled={!selectionText || !pageReady}
         onPointerDown={event => event.preventDefault()} onClick={() => void copySelectedText()}><Copy size={16} /><span>Copy text</span></button>
       <span className="pdf-text-notice" role="status">{copyStatus || (layerLoading ? 'Preparing text…' : layerError || layers?.warnings.join(' ') || (layers && !hasPageText ? 'No selectable text on this page. Image-only scans need OCR.' : 'Select text to copy.'))}</span>
     </div>
-    {find.open && <div className="pdf-find-bar" role="search" aria-label="Search PDF text">
+    {find.open && <div className="pdf-find-bar" role="search" aria-label="Search PDF text" onKeyDown={event => {
+      if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
+        event.preventDefault(); event.stopPropagation();
+        find.setOpen(false); viewportRef.current?.focus({ preventScroll: true });
+      }
+    }}>
       <input ref={findInput} type="search" aria-label="Find text in PDF" placeholder="Find in this PDF…" value={find.query} maxLength={PDF_SEARCH_LIMITS.queryLength}
         onChange={event => find.setQuery(event.target.value)} onKeyDown={event => {
           if (event.nativeEvent.isComposing) return;
           if (event.key === 'Enter') { event.preventDefault(); find.move(event.shiftKey ? -1 : 1); }
-          if (event.key === 'Escape') { event.preventDefault(); find.setOpen(false); viewportRef.current?.focus({ preventScroll: true }); }
         }} />
       <button aria-label="Previous match" title="Previous match (Shift+Enter)" disabled={!findCount} onClick={() => find.move(-1)}><ChevronLeft size={17} /></button>
       <button aria-label="Next match" title="Next match (Enter)" disabled={!findCount} onClick={() => find.move(1)}><ChevronRight size={17} /></button>

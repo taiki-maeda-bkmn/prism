@@ -12,8 +12,8 @@ Text comes from the PDF's embedded text. Image-only scans need OCR, which is out
 
 - Drag across text, then press **Ctrl+C** or choose **Copy selected text**. With the page focused, **Ctrl+A** selects that page's text.
 - Click an embedded web/email link to open the default application, or an internal link to jump to its page. Links can also receive keyboard focus and activate with Enter.
-- Choose **Find in PDF** or press **Ctrl+F** while the PDF pane is active. Search ignores case and matches across text items and line breaks. Use **Enter / Shift+Enter**, **F3 / Shift+F3**, or the match arrows to move through results. Escape closes Find.
-- Find and Copy remain available when the page toolbar is hidden. Switching to another tab retains the query and selected result; hidden readers pause any unfinished search.
+- Find stays hidden until you press **Ctrl+F** while the PDF pane is active. There is no permanent Find button. Search ignores case and matches across text items and line breaks. Use **Enter / Shift+Enter**, **F3 / Shift+F3**, or the match arrows to move through results. Escape closes Find from its input or navigation buttons and returns focus to the page.
+- **Ctrl+F** still opens Find when the page toolbar is hidden; Copy remains available. Switching to another tab retains the query and selected result; hidden readers pause any unfinished search.
 
 Search keeps at most 1,000 matches and reads up to 20,000 pages, 32 million document characters, and one million characters per page. A notice identifies limited results or pages that could not be searched. No PDF text is sent to a server, and these interactions do not modify the PDF file.
 
@@ -31,8 +31,10 @@ The previously diagnosed Windows Smart App Control block is a separate installat
 
 ## Verification
 
+The Ctrl+F-only visibility follow-up passes both builds/typechecks and the four targeted integrated/standalone desktop journeys. The checks cover no permanent Find button, hidden initial and locked states, Escape from match controls, closed F3 behavior, and retained query/results on reopening.
+
 Both application builds and typechecks pass, with 438 main unit passes (five platform skips) and 148 PDF unit passes. Twenty-four new unit cases cover search normalization/offsets/bounds/cancellation, link validation, and retained search sessions through React StrictMode.
 
 Thirteen targeted Linux/WSLg desktop journeys pass: three new integrated journeys, one new standalone journey, and nine rendering/navigation/split-pane regressions. These check actual mouse selection and clipboard results, external-link dispatch, internal page jumps, cross-page and multiline search, tab retention, Japanese draft/undo preservation, encrypted and image-only files, rotation/zoom, and controls at 420px with 150% text. The compact rotated-page screenshot was inspected. All data is disposable, external links are intercepted, and clipboard contents are restored.
 
-Windows deployment remains pending resolution of its existing application-control block. GitHub CI was not checked.
+Native Windows startup verification remains pending resolution of its existing application-control block. Rebuilt packages and managed shortcuts can still be updated without changing security settings. GitHub CI was not checked.
