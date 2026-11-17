@@ -186,6 +186,9 @@ test('page changes release retired canvases and rapid navigation renders the lat
   await retired(beforeRapidNavigation);
   const lastVector = await currentCanvas();
   await pdf().getByRole('button', { name: 'Back to library', exact: true }).click();
+  // Returning to the library retains open tabs; closing the tab releases it.
+  expect(await lastVector.evaluate(element => element.isConnected)).toBe(true);
+  await page.getByRole('button', { name: 'Close tab vector', exact: true }).click();
   await retired(lastVector);
 
   const scan = await importPDF('scan');

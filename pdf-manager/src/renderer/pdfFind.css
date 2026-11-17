@@ -1,0 +1,45 @@
+.pdf-workspace .pdf-reader-tools,
+.pdf-workspace .pdf-find-bar,
+.pdf-workspace .pdf-interaction-error {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 16px;
+  color: var(--text, #29312d);
+  background: rgba(var(--panel-rgb, 251, 250, 247), var(--surface-alpha, 1));
+  border-bottom: 1px solid var(--border, #deded5);
+  font-size: calc(12px * var(--pdf-text-scale, 1));
+  line-height: 1.5;
+}
+.pdf-workspace .pdf-reader-tools > button,
+.pdf-workspace .pdf-find-bar > button { min-height: 30px; padding: 4px 8px; flex: none; }
+.pdf-workspace .pdf-text-notice { color: var(--muted, #737a73); font-size: calc(10px * var(--pdf-text-scale, 1)); flex: 1 1 180px; }
+.pdf-workspace .pdf-find-bar > input {
+  flex: 1 1 140px;
+  width: 140px;
+  min-width: 80px;
+  border: 1px solid var(--border, #deded5);
+  border-radius: 5px;
+  padding: 6px 8px;
+  background: rgba(var(--background-rgb, 255, 255, 255), var(--surface-alpha, 1));
+  color: inherit;
+}
+.pdf-workspace .pdf-find-status { font-variant-numeric: tabular-nums; }
+.pdf-workspace .pdf-find-warning { flex-basis: 100%; color: var(--muted, #737a73); }
+.pdf-workspace .pdf-interaction-error { justify-content: space-between; }
+.pdf-workspace .pdf-interaction-error > span { flex: 1 1 180px; }
+.pdf-workspace .pdf-text-layer .pdf-search-highlight {
+  position: static;
+  color: transparent;
+  font: inherit;
+  background: rgb(255 215 0 / 40%);
+  border-radius: 2px;
+  padding: 0;
+  margin: 0;
+}
+.pdf-workspace .pdf-text-layer .pdf-search-highlight[data-current="true"] {
+  background: rgb(255 125 30 / 65%);
+  outline: 1px solid #cc5b00;
+}
