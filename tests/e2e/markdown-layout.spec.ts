@@ -213,7 +213,9 @@ test('reclaims writing height without losing Japanese edits, selection, scrollin
   await editor().press('ControlOrMeta+z');
   await expect(editor()).not.toContainText(draft.trim());
   await expect(status()).toContainText('All changes saved');
-  await editor().press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+z');
+  // Playwright treats character case literally: Shift+z still sends key="z",
+  // which CodeMirror can match as Undo. A physical Shift+Z sends key="Z".
+  await editor().press(process.platform === 'win32' ? 'Control+y' : 'ControlOrMeta+Shift+Z');
   await expect(editor()).toContainText(draft.trim());
   await toolbar().locator('.save-button').click();
   await expectSaved(content + saved + draft);

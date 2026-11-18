@@ -16,6 +16,7 @@ export interface TabSession {
   tabs: DocumentTab[];
   groups: TabGroup[];
   activeKey: string | null;
+  /** Viewed group only; the saved field name is retained for version 1 sessions. */
   targetGroupId: string | null;
 }
 
@@ -69,13 +70,19 @@ export function selectTab(state: TabSession, key: string): TabSession {
     groups: state.groups.map(group => group.id === tab.groupId && group.collapsed ? { ...group, collapsed: false } : group) };
 }
 
+/** Browse a group's tabs without changing the document or assigning its membership. */
+export function selectTabGroup(state: TabSession, id: string | null): TabSession {
+  if (!groupExists(state, id) || state.targetGroupId === id) return state;
+  return { ...state, targetGroupId: id };
+}
+
 export function openTab(state: TabSession, document: Pick<DocumentTab, 'kind' | 'id'>): TabSession {
   if ((document.kind !== 'note' && document.kind !== 'pdf') || !validText(document.id, TAB_LIMITS.id)) throw new Error('This document cannot be opened as a tab.');
   const key = tabKey(document.kind, document.id);
   if (state.tabs.some(tab => tab.key === key)) return selectTab(state, key);
   if (state.tabs.length >= TAB_LIMITS.tabs) throw new Error(`Close a tab before opening another. Prism supports up to ${TAB_LIMITS.tabs} open tabs.`);
-  const groupId = groupExists(state, state.targetGroupId) ? state.targetGroupId : null;
-  return selectTab({ ...state, tabs: [...state.tabs, { key, ...document, groupId }] }, key);
+  // Group membership is explicit. The group being viewed must never classify a new file.
+  return selectTab({ ...state, tabs: [...state.tabs, { key, ...document, groupId: null }] }, key);
 }
 
 /** Choose the next surviving neighbor, then the previous one, when the active tab disappears. */
