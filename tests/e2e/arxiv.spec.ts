@@ -11,7 +11,7 @@ const firstId = '2601.00001v2';
 const secondId = '2601.00002v2';
 const ratesId = '2601.00002v1';
 const editionId = '2026-10-28-daily';
-const researchSite = 'https://beautysamurai.github.io/public-page/';
+const researchSite = 'https://taiki-maeda-bkmn.github.io/public-page/';
 const original = '\ufeff# Welcome to Prism\r\n\r\nA notebook for independent research.\r\n';
 const draft = '保存前のアイデアを残す。';
 const makePaper = (arxivId: string, title: string, categories = ['q-fin.TR', 'q-fin.ST']): ArxivPaper => ({

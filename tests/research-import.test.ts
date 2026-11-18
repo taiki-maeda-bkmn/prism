@@ -15,7 +15,7 @@ const reviewFixture = (): ResearchReview => ({
   title: '金利と執行の研究', authors: ['Aiko Researcher', 'Ben Researcher'], topics: ['Rates', 'Execution'],
   date: '2026-10-28', kind: 'daily', rating: 4, ratingScale: 5, score: 8, rank: 1,
   summary: 'Published paper summary.', reviewText: 'Published review with **emphasis** and $x^2$.',
-  reviewScope: 'paper', sourceUrl: 'https://beautysamurai.github.io/public-page/?edition=2026-10-28-daily',
+  reviewScope: 'paper', sourceUrl: 'https://taiki-maeda-bkmn.github.io/public-page/?edition=2026-10-28-daily',
 });
 
 function deferred() {
@@ -90,6 +90,7 @@ test('imports a linked published review with source metadata and topic, month, o
     assert.match(content, /Published rating: 4\/5/);
     assert.match(content, /Authors: Aiko Researcher, Ben Researcher/);
     assert.match(content, /Topics: Rates, Execution/);
+    assert.ok(content.includes(`[Published review](${f.state.review.sourceUrl})`));
     assert.match(content, /https:\/\/arxiv.org\/abs\/2610\.01234v2/);
     assert.ok(content.includes(f.state.review.reviewText));
     assert.equal((await f.bytes(result.note.path)).toString(), content);

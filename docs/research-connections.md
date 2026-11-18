@@ -2,6 +2,10 @@
 
 Core note/PDF integration is complete. Connect the existing Rates & Execution public archive first, then add direct arXiv discovery. These are separate increments; keep the sibling repositories and their data independent. Prism does not call OpenAI or run the page's research pipeline.
 
+The published archive now lives at [taiki-maeda-bkmn.github.io/public-page](https://taiki-maeda-bkmn.github.io/public-page/), following the GitHub account rename. Catalogue requests and newly generated review links share that address. Existing imported notes retain their contents, including older source links; the rename does not rewrite notebooks. The historical Linux desktop launcher IDs remain stable so existing installations keep their shortcuts.
+
+Rename validation (2026-11-17): main typecheck/build and 441 unit tests pass (five platform skips). Five targeted Linux/WSLg desktop journeys cover research import/reuse, source navigation, errors, layout, arXiv reuse, and cancellation during shutdown. The research fixture explicitly selects Notes after restarting from a saved PDF tab. A read-only live check loaded 476 paper appearances and a published review from the new host; no PDFs were downloaded and no user library was changed. GitHub CI was not checked.
+
 - [x] Rates & Execution browsing and single-paper PDF/review import.
 - [ ] Batch imports and additional organization options, if needed after using the first increment.
 - [x] Direct arXiv search, categories, result details, and selected-paper import.

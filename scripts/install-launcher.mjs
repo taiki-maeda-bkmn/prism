@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Keep these installed desktop IDs stable across GitHub account renames.
 const applications = {
   markdown: {
     name: 'Prism', comment: 'Write connected Markdown notes and organize and read PDFs',

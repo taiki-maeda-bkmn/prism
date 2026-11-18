@@ -1,6 +1,6 @@
 # Pin notebook directories during filesystem operations
 
-Status: **open P2; not implemented**. Tracking [Codex review finding](https://github.com/beautysamurai/prism/pull/2#discussion_r4271421512).
+Status: **open P2; not implemented**. Tracking [Codex review finding](https://github.com/taiki-maeda-bkmn/prism/pull/2#discussion_r4271421512).
 
 ## Problem and current behavior
 

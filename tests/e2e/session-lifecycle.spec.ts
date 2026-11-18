@@ -243,9 +243,9 @@ test('accepted dirty close aborts a stalled research download while Cancel keeps
     const fs = process.getBuiltinModule('node:fs') as typeof import('node:fs');
     globalThis.fetch = async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if (url === 'https://beautysamurai.github.io/public-page/data/papers.json') return Response.json({ schemaVersion: 1,
+      if (url === 'https://taiki-maeda-bkmn.github.io/public-page/data/papers.json') return Response.json({ schemaVersion: 1,
         editions: [{ editionId: fixtures.editionId, date: '2026-10-28', kind: 'daily', papers: [fixtures.paper] }] });
-      if (url === `https://beautysamurai.github.io/public-page/data/archive/${fixtures.editionId}.json`) return Response.json({ schemaVersion: 2,
+      if (url === `https://taiki-maeda-bkmn.github.io/public-page/data/archive/${fixtures.editionId}.json`) return Response.json({ schemaVersion: 2,
         editionId: fixtures.editionId, editionDate: '2026-10-28', editionKind: 'daily', papers: [fixtures.paper], sourceText: '## 1. Session paper\n\nPublished session commentary.\n' });
       if (url === `https://arxiv.org/pdf/${fixtures.paper.arxivId}`) {
         const signal = init?.signal;

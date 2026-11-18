@@ -1,6 +1,6 @@
 import type { ResearchImportRequest, ResearchImportResult, ResearchReview } from '../shared/research';
 import { formatPDFPageLink } from '../shared/pdfLinks';
-import type { ResearchClient } from './research-client';
+import { researchReviewURL, type ResearchClient } from './research-client';
 import type { PDFLibraryService } from '../../pdf-manager/src/main/library-service';
 import { MAX_NOTE_BYTES } from './limits';
 import { WorkspaceStore } from './workspace';
@@ -24,7 +24,7 @@ export function researchReviewMarkdown(review: ResearchReview, documentId: strin
     `- Authors: ${review.authors.map(plain).join(', ')}`,
     `- Topics: ${review.topics.map(plain).join(', ')}`,
     `- arXiv ID: ${plain(review.arxivId)}`,
-    `- [Published review](https://beautysamurai.github.io/public-page/?edition=${encodeURIComponent(review.editionId)})`,
+    `- [Published review](${researchReviewURL(review.editionId)})`,
     `- [arXiv paper](https://arxiv.org/abs/${review.arxivId})`, '',
     review.reviewScope === 'edition' ? '## Full edition review' : review.reviewScope === 'summary' ? '## Published summary' : '## Review comment', '',
     review.reviewText || review.summary || 'No review comment was published for this paper.', '',
